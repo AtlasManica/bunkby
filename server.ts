@@ -96,8 +96,26 @@ app.post("/api/landlords", (req, res) => {
 
 app.get("/api/listings", (req, res) => {
   try {
-    const listings = db.prepare("SELECT * FROM listings ORDER BY created_at DESC").all();
-    // Re-map the structure slightly for frontend ease if needed, but we'll adapt frontend to match exactly
+    const listings = db.prepare(`
+      SELECT 
+        listings.*, 
+        landlords.full_name as landlordName 
+      FROM listings 
+      LEFT JOIN landlords ON listings.landlord_id = landlords.id 
+      ORDER BY listings.created_at DESC
+    `).all().map((row: any) => ({
+        ...row,
+        frequency: row.rent_cycle,
+        propertyType: row.property_type,
+        tenantType: row.tenant_type,
+        amenities: typeof row.amenities === "string" ? JSON.parse(row.amenities || "[]") : (row.amenities || []),
+        contactMethod: row.contact_method,
+        phone: row.contact_phone,
+        images: row.image_url ? [row.image_url] : [],
+        status: row.verification_status,
+        createdAt: row.created_at,
+        leadsCount: row.leads_count
+    }));
     res.json({ listings });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -117,7 +135,7 @@ app.post("/api/listings", (req, res) => {
     `);
 
     const result = stmt.run(
-      title, suburb, Number(price), landlord_id || null, verification_status || 'pending', 
+      title, suburb, Number(price), landlord_id || null, verification_status || 'Active', 
       image_url || null, landmark || null, city || null, Number(deposit || 0), 
       property_type || null, tenant_type || null, rent_cycle || 'Month', 
       contact_method || null, contact_phone || null, typeof amenities === "string" ? amenities : JSON.stringify(amenities || [])

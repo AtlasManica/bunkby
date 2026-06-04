@@ -363,13 +363,14 @@ export default function App() {
       const data = await res.json();
       
       if (res.ok && data.success) {
+        const profileName = data.landlord.name || data.landlord.full_name;
         const profile = {
           id: data.landlord.id,
-          name: data.landlord.name,
+          name: profileName,
           phone: loginPhone.trim(), // Kept locally for listings
-          isVerified: data.landlord.isVerified || false,
+          isVerified: data.landlord.isVerified || data.landlord.verification_status === 'verified' || false,
           whatsappLinked: true,
-          role: data.landlord.name === "Tatenda E. Chikura" ? "Admin" : "Landlord"
+          role: profileName === "Tatenda E. Chikura" ? "Admin" : "Landlord"
         };
         setUserProfile(profile);
         localStorage.setItem("bunkby_landlord_profile", JSON.stringify(profile));
@@ -474,21 +475,40 @@ export default function App() {
 
   // Toggle Room Inactive/Delisted ("as soon as they get a tenant")
   const handleToggleDelist = async (id: string) => {
-    setListings(prev => prev.map(item => {
-      if (item.id === id) {
-        const nextStatus = item.status === "Active" ? "Delisted" : "Active";
-        showToast(nextStatus === "Delisted" ? "📴 Room successfully delisted/rented out!" : "🔛 Room reactivated and active!");
-        return { ...item, status: nextStatus };
+    try {
+      const res = await fetch(`/api/rooms/${id}/toggle-status`, { method: "POST" });
+      if (res.ok) {
+        const data = await res.json();
+        setListings(prev => prev.map(item => {
+          if (item.id === id) {
+            const nextStatus = data.status;
+            showToast(nextStatus === "Delisted" ? "📴 Room successfully delisted/rented out!" : "🔛 Room reactivated and active!");
+            return { ...item, status: nextStatus };
+          }
+          return item;
+        }));
+      } else {
+        showToast("⚠️ Could not toggle status");
       }
-      return item;
-    }));
+    } catch (e) {
+      console.error(e);
+      showToast("⚠️ Could not toggle status");
+    }
   };
 
   // Permanent Delete listing
   const handleDeleteListing = async (id: string) => {
     if (!confirm("Are you sure you want to permanently delete this listing from BunkBy?")) return;
-    setListings(prev => prev.filter(item => item.id !== id));
-    showToast("🗑️ Listing deleted permanently.");
+    try {
+      const res = await fetch(`/api/rooms/${id}`, { method: "DELETE" });
+      if (res.ok) {
+        setListings(prev => prev.filter(item => item.id !== id));
+        showToast("🗑️ Listing deleted permanently.");
+      }
+    } catch (e) {
+      console.error(e);
+      showToast("⚠️ Could not delete listing");
+    }
   };
 
   // Handle tenant sending inquiry ("Building traffic & direct WhatsApp connection")
@@ -1788,7 +1808,7 @@ export default function App() {
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                   <div className="flex items-start gap-4">
                     <div className="w-16 h-16 rounded-full bg-orange-100 flex items-center justify-center text-orange-500 shrink-0 border border-orange-200 select-none font-display text-2xl font-bold">
-                      {userProfile.name.split(" ").map(w => w[0]).join("")}
+                      {userProfile.name ? userProfile.name.split(" ").map(w => w[0]).join("") : "U"}
                     </div>
                     <div className="space-y-1">
                       <div className="flex items-center gap-1.5 flex-wrap">
