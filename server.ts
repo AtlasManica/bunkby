@@ -22,7 +22,6 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS landlords (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     full_name TEXT NOT NULL,
-    phone TEXT UNIQUE, -- Added so users can login via phone as configured
     national_id_url TEXT,
     rates_bill_url TEXT,
     verification_status TEXT DEFAULT 'pending'
@@ -51,42 +50,40 @@ db.exec(`
 `);
 
 // REST API Endpoints
-app.post("/api/auth", (req, res) => {
-  const { action, phone, name } = req.body;
-  if (!action || !phone) return res.status(400).json({ error: "Missing action or phone parameter." });
-  const cleanPhone = phone.trim();
+app.post("/api/landlords", (req, res) => {
+  const { action, name } = req.body; // Using name instead of phone for auth
+  if (!action || !name) return res.status(400).json({ error: "Missing action or name parameter." });
+  const cleanName = name.trim();
 
   try {
     if (action === "login") {
-      const landlord = db.prepare("SELECT * FROM landlords WHERE phone = ?").get(cleanPhone) as any;
+      const landlord = db.prepare("SELECT * FROM landlords WHERE full_name = ?").get(cleanName) as any;
       if (landlord) {
         return res.json({
           success: true,
           landlord: {
             id: landlord.id,
             name: landlord.full_name,
-            phone: landlord.phone,
             isVerified: landlord.verification_status === "approved" || landlord.verification_status === "verified",
             status: landlord.verification_status
           }
         });
       }
-      return res.status(404).json({ success: false, error: "No account detected with this phone number. Please Create an Account first.", code: "ACCOUNT_NOT_FOUND" });
+      return res.status(404).json({ success: false, error: "No account detected with this name. Please Create an Account first.", code: "ACCOUNT_NOT_FOUND" });
     } else if (action === "signup") {
-      const existing = db.prepare("SELECT * FROM landlords WHERE phone = ?").get(cleanPhone) as any;
+      const existing = db.prepare("SELECT * FROM landlords WHERE full_name = ?").get(cleanName) as any;
       if (existing) {
-        return res.status(400).json({ success: false, error: "An account already exists with this phone number. Please Log In.", code: "ALREADY_EXISTS" });
+        return res.status(400).json({ success: false, error: "An account already exists with this name. Please Log In.", code: "ALREADY_EXISTS" });
       }
 
-      const stmt = db.prepare("INSERT INTO landlords (full_name, phone) VALUES (?, ?)");
-      const result = stmt.run(name ? name.trim() : "BunkBy Landlord", cleanPhone);
+      const stmt = db.prepare("INSERT INTO landlords (full_name) VALUES (?)");
+      const result = stmt.run(cleanName);
       
       return res.status(201).json({
         success: true,
         landlord: {
           id: result.lastInsertRowid,
-          name: name ? name.trim() : "BunkBy Landlord",
-          phone: cleanPhone,
+          name: cleanName,
           isVerified: false,
           status: "pending"
         }
@@ -143,15 +140,15 @@ app.get("/api/admin", (req, res) => {
 });
 
 app.post("/api/admin", (req, res) => {
-  const { action, phone, id, targetId } = req.body;
+  const { action, id, targetId } = req.body;
   try {
     if (action === "verify") {
-      db.prepare("UPDATE landlords SET verification_status = 'verified' WHERE phone = ?").run(phone);
-      db.prepare("UPDATE listings SET verification_status = 'verified' WHERE contact_phone = ?").run(phone);
-      return res.json({ success: true, updatedPhone: phone });
+      db.prepare("UPDATE landlords SET verification_status = 'verified' WHERE id = ?").run(id);
+      db.prepare("UPDATE listings SET verification_status = 'verified' WHERE landlord_id = ?").run(id);
+      return res.json({ success: true, updated: id });
     } else if (action === "deleteLandlord") {
-      db.prepare("DELETE FROM landlords WHERE phone = ?").run(phone);
-      db.prepare("DELETE FROM listings WHERE contact_phone = ?").run(phone);
+      db.prepare("DELETE FROM landlords WHERE id = ?").run(id);
+      db.prepare("DELETE FROM listings WHERE landlord_id = ?").run(id);
       return res.json({ success: true });
     } else if (action === "deleteListing") {
       db.prepare("DELETE FROM listings WHERE id = ?").run(id || targetId);

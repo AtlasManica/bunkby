@@ -275,7 +275,11 @@ export default function App() {
       verification_status: userProfile?.isVerified ? "verified" : "pending",
       landlord_id: userProfile?.id || null, // Assuming landlord has id
       image_url: uploadedImages.length > 0 ? uploadedImages[0] : null,
-      contact_phone: payload.phone
+      contact_phone: payload.phone,
+      property_type: payload.propertyType,
+      tenant_type: payload.tenantType,
+      rent_cycle: payload.frequency,
+      contact_method: payload.contactMethod
     };
 
     setIsPublishing(true);
@@ -337,24 +341,23 @@ export default function App() {
 
   const handleAuthSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!loginPhone.trim()) {
-      showToast("⚠️ WhatsApp Phone Number is required!");
+    if (!loginName.trim()) {
+      showToast("⚠️ Full Name is required for authentication!");
       return;
     }
-    if (authMode === "signup" && !loginName.trim()) {
-      showToast("⚠️ Full Name is required to create a landlord account!");
+    if (!loginPhone.trim()) {
+      showToast("⚠️ WhatsApp Phone Number is required for listing contacts!");
       return;
     }
 
     setIsAuthLoading(true);
     try {
-      const res = await fetch("/api/auth", {
+      const res = await fetch("/api/landlords", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: authMode,
-          phone: loginPhone.trim(),
-          name: authMode === "signup" ? loginName.trim() : undefined
+          name: loginName.trim()
         })
       });
       const data = await res.json();
@@ -363,10 +366,10 @@ export default function App() {
         const profile = {
           id: data.landlord.id,
           name: data.landlord.name,
-          phone: data.landlord.phone,
+          phone: loginPhone.trim(), // Kept locally for listings
           isVerified: data.landlord.isVerified || false,
           whatsappLinked: true,
-          role: data.landlord.phone === "0773043376" || data.landlord.phone === "773043376" ? "Admin" : "Landlord"
+          role: data.landlord.name === "Tatenda E. Chikura" ? "Admin" : "Landlord"
         };
         setUserProfile(profile);
         localStorage.setItem("bunkby_landlord_profile", JSON.stringify(profile));
@@ -376,10 +379,10 @@ export default function App() {
         );
       } else {
         if (data.code === "ALREADY_EXISTS") {
-          showToast(`⚠️ An account already exists with this phone. Directing to Log In.`);
+          showToast(`⚠️ An account already exists with this name. Directing to Log In.`);
           setAuthMode("login");
         } else if (data.code === "ACCOUNT_NOT_FOUND") {
-          showToast(`⚠️ No account detected with this phone number. Please Create an Account first.`);
+          showToast(`⚠️ No account detected with this name. Please Create an Account first.`);
           setAuthMode("signup");
         } else {
           showToast(`⚠️ Auth Failed: ${data.error || "Please try again."}`);
@@ -1322,19 +1325,20 @@ export default function App() {
               </div>
 
               <form onSubmit={handleAuthSubmit} className="space-y-4 font-sans">
-                {authMode === "signup" && (
-                  <div className="animate-fade-in">
-                    <label className="block text-xs font-bold text-slate-600 uppercase mb-1">Your Full Name</label>
-                    <input 
-                      type="text" 
-                      value={loginName}
-                      onChange={(e) => setLoginName(e.target.value)}
-                      placeholder="e.g. Tendai Musonza" 
-                      className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm focus:outline-none focus:border-orange-500 transition-all font-medium text-slate-800"
-                      required
-                    />
-                  </div>
-                )}
+                <div className="animate-fade-in">
+                  <label className="block text-xs font-bold text-slate-600 uppercase mb-1">Your Full Name</label>
+                  <input 
+                    type="text" 
+                    value={loginName}
+                    onChange={(e) => setLoginName(e.target.value)}
+                    placeholder="e.g. Tendai Musonza" 
+                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm focus:outline-none focus:border-orange-500 transition-all font-medium text-slate-800"
+                    required
+                  />
+                  <p className="text-[10px] text-slate-400 mt-1 pl-1">
+                    Used to retrieve your account (Login / Signup)
+                  </p>
+                </div>
 
                 <div>
                   <label className="block text-xs font-bold text-slate-600 uppercase mb-1">WhatsApp Phone Number</label>
@@ -1717,19 +1721,20 @@ export default function App() {
               </div>
 
               <form onSubmit={handleAuthSubmit} className="space-y-4 font-sans">
-                {authMode === "signup" && (
-                  <div className="animate-fade-in">
-                    <label className="block text-xs font-bold text-slate-600 uppercase mb-1">Your Full Name</label>
-                    <input 
-                      type="text" 
-                      value={loginName}
-                      onChange={(e) => setLoginName(e.target.value)}
-                      placeholder="e.g. Tendai Musonza" 
-                      className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm focus:outline-none focus:border-orange-500 transition-all font-medium text-slate-800"
-                      required
-                    />
-                  </div>
-                )}
+                <div className="animate-fade-in">
+                  <label className="block text-xs font-bold text-slate-600 uppercase mb-1">Your Full Name</label>
+                  <input 
+                    type="text" 
+                    value={loginName}
+                    onChange={(e) => setLoginName(e.target.value)}
+                    placeholder="e.g. Tendai Musonza" 
+                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm focus:outline-none focus:border-orange-500 transition-all font-medium text-slate-800"
+                    required
+                  />
+                  <p className="text-[10px] text-slate-400 mt-1 pl-1">
+                    Used to retrieve your account (Login / Signup)
+                  </p>
+                </div>
 
                 <div>
                   <label className="block text-xs font-bold text-slate-600 uppercase mb-1">WhatsApp Phone Number</label>
@@ -2037,9 +2042,9 @@ export default function App() {
                         </thead>
                         <tbody className="divide-y divide-slate-100">
                           {allLandlords.map((landlord: any) => (
-                            <tr key={landlord.id || landlord.phone} className="hover:bg-slate-50">
+                            <tr key={landlord.id} className="hover:bg-slate-50">
                               <td className="px-4 py-3 font-medium text-slate-800">{landlord.full_name || landlord.name}</td>
-                              <td className="px-4 py-3 font-mono text-slate-600">{landlord.phone}</td>
+                              <td className="px-4 py-3 font-mono text-slate-600">--</td>
                               <td className="px-4 py-3">
                                 {landlord.verification_status === "verified" || landlord.isVerified ? (
                                   <span className="px-2 py-1 rounded bg-emerald-100 text-emerald-800 text-[9px] font-bold uppercase tracking-wider">Verified</span>
@@ -2051,21 +2056,20 @@ export default function App() {
                                 {(landlord.verification_status !== "verified" && !landlord.isVerified) && (
                                   <button onClick={async () => {
                                     try {
-                                      const res = await fetch("/api/admin", { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'verify', phone: landlord.phone }) });
+                                      const res = await fetch("/api/admin", { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'verify', id: landlord.id }) });
                                       if (res.ok) {
                                         showToast("✅ Landlord verified successfully.");
-                                        // Update state directly or fetch logic
-                                        setAllLandlords(prev => prev.map(l => l.phone === landlord.phone ? { ...l, verification_status: 'verified', isVerified: true } : l));
+                                        setAllLandlords(prev => prev.map(l => l.id === landlord.id ? { ...l, verification_status: 'verified', isVerified: true } : l));
                                       }
                                     } catch(e) { console.error(e); }
                                   }} className="bg-emerald-50 text-emerald-600 font-medium px-2 py-1 rounded border border-emerald-200">Verify</button>
                                 )}
                                 <button onClick={async () => {
                                     try {
-                                      const res = await fetch("/api/admin", { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'deleteLandlord', phone: landlord.phone }) });
+                                      const res = await fetch("/api/admin", { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'deleteLandlord', id: landlord.id }) });
                                       if (res.ok) {
                                         showToast("✅ Landlord deleted.");
-                                        setAllLandlords(prev => prev.filter(l => l.phone !== landlord.phone));
+                                        setAllLandlords(prev => prev.filter(l => l.id !== landlord.id));
                                       }
                                     } catch(e) { console.error(e); }
                                 }} className="bg-red-50 text-red-600 font-medium px-2 py-1 rounded border border-red-200">Delete</button>
