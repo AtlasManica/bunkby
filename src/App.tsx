@@ -286,9 +286,17 @@ export default function App() {
 
     try {
       if (isEditing) {
-        // Mock offline editing for now or skip
-        setListings(prev => prev.map(item => item.id === isEditing ? { ...item, ...finalPayload, price: Number(finalPayload.price), deposit: Number(finalPayload.deposit) } : item));
-        showToast("✨ Room specifications updated successfully!");
+        const res = await fetch(`/api/rooms/${isEditing}`, {
+           method: "PUT",
+           headers: { "Content-Type": "application/json" },
+           body: JSON.stringify(finalPayload)
+        });
+        if (res.ok) {
+           setListings(prev => prev.map(item => String(item.id) === String(isEditing) ? { ...item, ...finalPayload, price: Number(finalPayload.price), deposit: Number(finalPayload.deposit) } : item));
+           showToast("✨ Room specifications updated successfully!");
+        } else {
+           showToast("⚠️ Failed to update room data");
+        }
       } else {
         const res = await fetch("/api/listings", {
            method: "POST",
@@ -476,13 +484,13 @@ export default function App() {
   };
 
   // Toggle Room Inactive/Delisted ("as soon as they get a tenant")
-  const handleToggleDelist = async (id: string) => {
+  const handleToggleDelist = async (id: string | number) => {
     try {
       const res = await fetch(`/api/rooms/${id}/toggle-status`, { method: "POST" });
       if (res.ok) {
         const data = await res.json();
         setListings(prev => prev.map(item => {
-          if (item.id === id) {
+          if (String(item.id) === String(id)) {
             const nextStatus = data.status;
             showToast(nextStatus === "Delisted" ? "📴 Room successfully delisted/rented out!" : "🔛 Room reactivated and active!");
             return { ...item, status: nextStatus };
@@ -499,12 +507,12 @@ export default function App() {
   };
 
   // Permanent Delete listing
-  const handleDeleteListing = async (id: string) => {
+  const handleDeleteListing = async (id: string | number) => {
     if (!confirm("Are you sure you want to permanently delete this listing from BunkBy?")) return;
     try {
       const res = await fetch(`/api/rooms/${id}`, { method: "DELETE" });
       if (res.ok) {
-        setListings(prev => prev.filter(item => item.id !== id));
+        setListings(prev => prev.filter(item => String(item.id) !== String(id)));
         showToast("🗑️ Listing deleted permanently.");
       }
     } catch (e) {
@@ -538,7 +546,8 @@ export default function App() {
     }
 
     // Record view lead statistic
-    setListings(prev => prev.map(item => item.id === room.id ? { ...item, leadsCount: (item.leadsCount || 0) + 1 } : item));
+    setListings(prev => prev.map(item => String(item.id) === String(room.id) ? { ...item, leadsCount: (item.leadsCount || 0) + 1 } : item));
+    fetch(`/api/rooms/${room.id}/lead`, { method: "POST" }).catch(e => console.error("Failed to update lead count", e));
 
     // Direct prefilled whatsapp text with renter details!
     const waText = encodeURIComponent(`Hi ${room.landlordName}, I saw your listing for "${room.title}" listed on BunkBy for $${room.price}/${room.frequency}. Is it still available for rent? My name is ${softGateName} (Phone: ${softGatePhone}).`);
@@ -591,9 +600,7 @@ export default function App() {
         if (creationMatch && creationMatch[1]) {
           try {
             const parsedRoom = JSON.parse(creationMatch[1]);
-            // Dynamically post to state/API!
-            const newRoom: RoomListing = {
-              id: `wa-room-${Date.now()}`,
+            const payloadRoom = {
               title: parsedRoom.title || "Room via WhatsApp Chat",
               city: parsedRoom.city || "Harare",
               suburb: parsedRoom.suburb || "Avonlea",
@@ -607,15 +614,30 @@ export default function App() {
               contactMethod: "Whatsapp",
               phone: parsedRoom.phone || "0771122334",
               landlordName: parsedRoom.landlordName || "WhatsApp User",
-              isVerifiedLandlord: false,
-              status: "Active",
-              images: [DEFAULT_ROOM_IMAGES[Math.floor(Math.random() * DEFAULT_ROOM_IMAGES.length)]],
-              createdAt: new Date().toISOString(),
-              leadsCount: 1,
+              verification_status: "Active",
+              image_url: DEFAULT_ROOM_IMAGES[Math.floor(Math.random() * DEFAULT_ROOM_IMAGES.length)]
             };
 
-            // Post to state
-            setListings(prev => [newRoom, ...prev]);
+            // Post to backend API
+            fetch("/api/listings", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(payloadRoom)
+            })
+            .then(res => res.json())
+            .then(data => {
+              const newRoom: RoomListing = {
+                id: data.id,
+                ...payloadRoom,
+                images: [payloadRoom.image_url],
+                isVerifiedLandlord: false,
+                status: "Active",
+                leadsCount: 1,
+                createdAt: new Date().toISOString()
+              };
+              setListings(prev => [newRoom, ...prev]);
+            })
+            .catch(err => console.error("Failed to post bot listing", err));
             
             // Clean command tag out of visible bot text for a clean visual experience!
             const cleanText = botRawText.replace(/::CREATE_LISTING:.*?::/g, "").trim();

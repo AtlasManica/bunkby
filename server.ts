@@ -178,6 +178,32 @@ app.post("/api/admin", (req, res) => {
   }
 });
 
+app.put("/api/rooms/:id", (req, res) => {
+  const { id } = req.params;
+  const {
+    title, suburb, price, image_url, landmark, city, deposit, property_type, tenant_type, rent_cycle, contact_method, contact_phone, amenities
+  } = req.body;
+
+  try {
+    const stmt = db.prepare(`
+      UPDATE listings SET
+        title = ?, suburb = ?, price = ?, image_url = ?, landmark = ?, city = ?, deposit = ?, property_type = ?, tenant_type = ?, rent_cycle = ?, contact_method = ?, contact_phone = ?, amenities = ?
+      WHERE id = ?
+    `);
+
+    stmt.run(
+      title, suburb, Number(price), image_url || null, landmark || null, city || null, Number(deposit || 0), 
+      property_type || null, tenant_type || null, rent_cycle || 'Month', 
+      contact_method || null, contact_phone || null, typeof amenities === "string" ? amenities : JSON.stringify(amenities || []),
+      id
+    );
+
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.delete("/api/rooms/:id", (req, res) => {
   try {
     db.prepare("DELETE FROM listings WHERE id = ?").run(req.params.id);
@@ -197,6 +223,15 @@ app.post("/api/rooms/:id/toggle-status", (req, res) => {
     } else {
       res.status(404).json({ error: "Listing not found" });
     }
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/rooms/:id/lead", (req, res) => {
+  try {
+    db.prepare("UPDATE listings SET leads_count = leads_count + 1 WHERE id = ?").run(req.params.id);
+    res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
