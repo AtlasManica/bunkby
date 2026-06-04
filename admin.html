@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BunkBy | Core Administration Panel</title>
+  <!-- Tailwind CSS Play CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Google Fonts Inter & JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;850&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    }
+    .font-mono {
+      font-family: 'JetBrains Mono', monospace;
+    }
+  </style>
+</head>
+<body class="bg-gray-50 text-slate-800 min-h-screen flex flex-col antialiased">
+
+  <!-- HEADER NAVIGATION -->
+  <header class="bg-white border-b border-gray-200 shrink-0 sticky top-0 z-40 select-none shadow-sm">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <!-- Logo -->
+        <div class="w-9 h-9 bg-orange-500 border border-orange-600 rounded-lg flex items-center justify-center shadow-md">
+          <span class="text-white font-bold text-sm">B</span>
+        </div>
+        <div>
+          <h1 class="text-sm font-black tracking-tight text-slate-900 flex items-center gap-1.5">
+            Bunk<span class="text-orange-600">By</span> 
+            <span class="text-[10px] bg-orange-100 text-orange-700 font-mono uppercase font-bold tracking-wider px-2 py-0.5 rounded border border-orange-200">ADMIN CORE</span>
+          </h1>
+          <p class="text-[10px] text-gray-500 font-medium">Independent Real-time System Management Console</p>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-4 text-xs font-semibold">
+        <div class="flex items-center gap-1.5 bg-green-50 border border-green-200 text-green-700 px-3 py-1.5 rounded-full font-mono text-[10px] sm:flex hidden">
+          <span class="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></span>
+          <span>System Live Sync</span>
+        </div>
+        <a href="/" class="text-gray-600 hover:text-orange-600 transition-colors flex items-center gap-1 hover:bg-orange-50 py-1.5 px-3 rounded-lg border border-transparent hover:border-orange-200">
+          Main Portal &rarr;
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <!-- MAIN BODY -->
+  <main class="flex-grow max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+    
+    <!-- DASHBOARD SUMMARY CARDS -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-5">
+      <div class="bg-white border border-gray-200 p-5 rounded-xl shadow-sm flex items-center justify-between">
+        <div>
+          <span class="text-[10px] uppercase font-mono tracking-wider font-bold text-gray-400 block mb-1">Pending Verifications</span>
+          <span class="text-2xl font-black font-mono text-slate-900" id="stat-pending">0</span>
+        </div>
+        <div class="w-11 h-11 bg-orange-100 rounded-lg flex items-center justify-center text-orange-600 text-lg font-bold">⏱</div>
+      </div>
+      <div class="bg-white border border-gray-200 p-5 rounded-xl shadow-sm flex items-center justify-between">
+        <div>
+          <span class="text-[10px] uppercase font-mono tracking-wider font-bold text-gray-400 block mb-1">Total Landlords</span>
+          <span class="text-2xl font-black font-mono text-slate-900" id="stat-landlords">0</span>
+        </div>
+        <div class="w-11 h-11 bg-orange-100 rounded-lg flex items-center justify-center text-orange-600 text-lg font-bold">👤</div>
+      </div>
+      <div class="bg-white border border-gray-200 p-5 rounded-xl shadow-sm flex items-center justify-between">
+        <div>
+          <span class="text-[10px] uppercase font-mono tracking-wider font-bold text-gray-400 block mb-1">Rooms &amp; Apartments</span>
+          <span class="text-2xl font-black font-mono text-slate-900" id="stat-listings">0</span>
+        </div>
+        <div class="w-11 h-11 bg-orange-100 rounded-lg flex items-center justify-center text-orange-600 text-lg font-bold">🏠</div>
+      </div>
+    </div>
+
+    <!-- DB TABLE 1: LANDLORDS REGISTRY -->
+    <div class="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
+      <!-- Table Header -->
+      <div class="p-6 border-b border-gray-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div class="space-y-1">
+          <h2 class="text-base font-bold text-slate-900 flex items-center gap-2">
+            <span class="text-orange-500">■</span> Landlords Table <span class="font-mono text-xs text-slate-400 font-normal">(`landlords`)</span>
+          </h2>
+          <p class="text-xs text-gray-500">Manage registered host profiles, view provided verification files, and toggle identity status markers.</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <button onclick="fetchAdminData()" class="bg-white border border-gray-200 hover:border-orange-500 hover:bg-orange-50 text-xs font-bold py-2 px-4 rounded-lg transition-all text-slate-700 flex items-center gap-1.5 shadow-sm">
+            🔄 Refresh Registry
+          </button>
+        </div>
+      </div>
+
+      <!-- Landlords Table Container -->
+      <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse">
+          <thead>
+            <tr class="bg-gray-50 text-[10px] font-mono uppercase tracking-wider text-gray-500 border-b border-gray-100 select-none">
+              <th class="p-4 pl-6 font-bold">Landlord / Contact</th>
+              <th class="p-4 font-bold">Verification Documents</th>
+              <th class="p-4 font-bold">Verification Status</th>
+              <th class="p-4 pr-6 text-right font-bold w-64">Administrative Actions</th>
+            </tr>
+          </thead>
+          <tbody id="landlords-tbody" class="divide-y divide-gray-100 text-xs font-semibold text-slate-700">
+            <tr>
+              <td colspan="4" class="p-12 text-center text-gray-400 font-mono">
+                Initiating connection to system and retrieving data...
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Landlords empty state -->
+      <div id="landlords-empty" class="hidden py-16 text-center space-y-2 px-4">
+        <div class="text-3xl">📭</div>
+        <h4 class="text-xs font-bold text-slate-800 uppercase tracking-widest">No Landlords Registered Yet</h4>
+        <p class="text-xs text-gray-400 max-w-sm mx-auto">The system registry is perfectly empty. Landlord details will automatically show up once they register on the platform.</p>
+      </div>
+    </div>
+
+    <!-- DB TABLE 2: LISTINGS REGISTRY -->
+    <div class="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
+      <!-- Table Header -->
+      <div class="p-6 border-b border-gray-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div class="space-y-1">
+          <h2 class="text-base font-bold text-slate-900 flex items-center gap-2">
+            <span class="text-orange-500">■</span> Listings Table <span class="font-mono text-xs text-slate-400 font-normal">(`listings`)</span>
+          </h2>
+          <p class="text-xs text-gray-500">Inspect listed properties, locations, monthly lease cycles, and track public connection traffic metrics.</p>
+        </div>
+      </div>
+
+      <!-- Listings Table Container -->
+      <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse">
+          <thead>
+            <tr class="bg-gray-50 text-[10px] font-mono uppercase tracking-wider text-gray-500 border-b border-gray-100 select-none">
+              <th class="p-4 pl-6 font-bold">Room Listing Details</th>
+              <th class="p-4 font-bold">Location & Landmark</th>
+              <th class="p-4 font-bold">Monthly Rental Structure</th>
+              <th class="p-4 font-bold">Amenities Checklist</th>
+              <th class="p-4 font-bold">Published Date</th>
+              <th class="p-4 font-bold text-center">Contacts</th>
+              <th class="p-4 pr-6 text-right font-bold w-36">Action</th>
+            </tr>
+          </thead>
+          <tbody id="listings-tbody" class="divide-y divide-gray-100 text-xs font-semibold text-slate-700">
+            <tr>
+              <td colspan="7" class="p-12 text-center text-gray-400 font-mono">
+                Awaiting connection listings sync...
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Listings empty state -->
+      <div id="listings-empty" class="hidden py-16 text-center space-y-2 px-4">
+        <div class="text-3xl">📭</div>
+        <h4 class="text-xs font-bold text-slate-800 uppercase tracking-widest">No Active Properties Listed</h4>
+        <p class="text-xs text-gray-400 max-w-sm mx-auto">No listed property specifications exist currently. Added rooms will render inside this interactive table.</p>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- VIEWPORT MODAL (Document display) -->
+  <div id="viewport-modal" class="hidden fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-white border border-gray-200 w-full max-w-lg rounded-xl overflow-hidden shadow-xl flex flex-col transform transition-all duration-300">
+      <div class="p-5 border-b border-gray-100 flex items-center justify-between bg-gray-50 shrink-0">
+        <div class="flex items-center gap-2">
+          <span class="text-base select-none">📄</span>
+          <h3 class="font-bold text-sm text-slate-900" id="modal-doc-title">Document Reference</h3>
+        </div>
+        <button onclick="closeViewport()" class="p-1.5 rounded-lg hover:bg-gray-100 text-slate-400 hover:text-slate-900 transition-all font-mono font-bold text-xs">
+          ✕ CLOSE
+        </button>
+      </div>
+
+      <!-- Document contents / preview -->
+      <div class="p-6 flex-1 flex flex-col items-center justify-center bg-gray-50/50 min-h-[220px]">
+        <div id="modal-placeholder-doc" class="border border-dashed border-gray-200 bg-white p-8 rounded-xl w-full text-center space-y-4 shadow-sm">
+          <div class="text-4xl mx-auto" id="modal-doc-emoji">📁</div>
+          <div class="space-y-1">
+            <h4 class="text-xs font-bold text-orange-600 uppercase tracking-wider font-mono">Verified Secure Document Instance</h4>
+            <p class="text-xs text-slate-700 font-medium leading-relaxed font-mono bg-gray-50 p-3 rounded border border-gray-100" id="modal-doc-text"></p>
+          </div>
+        </div>
+      </div>
+
+      <div class="p-4 border-t border-gray-100 bg-gray-50 text-right">
+        <button onclick="closeViewport()" class="bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold py-2 px-5 rounded-lg transition-all shadow shadow-orange-500/10">
+          Dismiss Document
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <footer class="bg-white border-t border-gray-200 py-6 text-center select-none text-[10px] tracking-wide text-gray-400 font-mono">
+    © 2026 BunkBy Core Secure Administration Panel. Strictly Authorized Core Operations ONLY. Under Atlas Manica Ltd.
+  </footer>
+
+  <script>
+    // In-memory holders strictly fetched from memory state - absolutely clean!
+    let localLandlords = [];
+    let localListings = [];
+
+    // Main fetch command
+    async function fetchAdminData() {
+      const landlordsTbody = document.getElementById("landlords-tbody");
+      const listingsTbody = document.getElementById("listings-tbody");
+
+      try {
+        const response = await fetch("/api/admin");
+        if (response.ok) {
+          const data = await response.json();
+          localLandlords = data.landlords || [];
+          localListings = data.listings || [];
+          renderUI();
+        } else {
+          throw new Error("API return code error");
+        }
+      } catch (err) {
+        console.warn("Backend dynamic fetch had an error. Initializing empty array.", err);
+        localLandlords = [];
+        localListings = [];
+        renderUI();
+      }
+    }
+
+    function renderUI() {
+      const landlordsTbody = document.getElementById("landlords-tbody");
+      const listingsTbody = document.getElementById("listings-tbody");
+      const landlordsEmpty = document.getElementById("landlords-empty");
+      const listingsEmpty = document.getElementById("listings-empty");
+
+      // Stat updates
+      const pendingCount = localLandlords.filter(l => l.status === "pending" || l.status === "Pending").length;
+      document.getElementById("stat-pending").textContent = pendingCount;
+      document.getElementById("stat-landlords").textContent = localLandlords.length;
+      document.getElementById("stat-listings").textContent = localListings.length;
+
+      // 1. Render Landlords
+      landlordsTbody.innerHTML = "";
+      if (localLandlords.length === 0) {
+        landlordsEmpty.classList.remove("hidden");
+      } else {
+        landlordsEmpty.classList.add("hidden");
+        
+        localLandlords.forEach(landlord => {
+          const tr = document.createElement("tr");
+          tr.className = "hover:bg-gray-50/50 transition-all border-b border-gray-100";
+
+          // Status custom markup
+          let statusBadge = "";
+          const statusLower = String(landlord.status).toLowerCase();
+          if (statusLower === "pending") {
+            statusBadge = `<span class="bg-amber-100 text-amber-700 border border-amber-200/60 py-1 px-2.5 rounded-full text-[10px] font-mono uppercase font-bold tracking-wide">⏳ Just Requested</span>`;
+          } else if (statusLower === "verified" || statusLower === "approved") {
+            statusBadge = `<span class="bg-green-100 text-green-700 border border-green-200/60 py-1 px-2.5 rounded-full text-[10px] font-mono uppercase font-bold tracking-wide">✓ Verified</span>`;
+          } else {
+            statusBadge = `<span class="bg-rose-100 text-rose-700 border border-rose-200/60 py-1 px-2.5 rounded-full text-[10px] font-mono uppercase font-bold tracking-wide">✕ Rejected</span>`;
+          }
+
+          // Verification Action Logic
+          let verifyActions = "";
+          if (statusLower === "pending" || statusLower === "rejected") {
+            verifyActions += `
+              <button onclick="verifyLandlord('${landlord.phone}', 'verified')" class="bg-orange-500 hover:bg-orange-600 shadow shadow-orange-500/10 text-white font-bold py-1.5 px-3 rounded-lg text-[11px] transition-all">
+                Grant Verified Status
+              </button>
+            `;
+          }
+          if (statusLower === "pending" || statusLower === "verified" || statusLower === "approved") {
+            verifyActions += `
+              <button onclick="verifyLandlord('${landlord.phone}', 'rejected')" class="bg-white hover:bg-gray-50 text-slate-700 border border-gray-200 font-bold py-1.5 px-3 rounded-lg text-[11px] transition-all">
+                Reject / Revoke
+              </button>
+            `;
+          }
+
+          tr.innerHTML = `
+            <td class="p-4 pl-6">
+              <div class="font-bold text-slate-950 text-sm">${landlord.name || "N/A"}</div>
+              <div class="font-mono text-[10px] text-gray-500 mt-1">ID/Phone: <strong>${landlord.phone}</strong></div>
+            </td>
+            <td class="p-4 space-x-2">
+              <button onclick="viewDocument('National ID: ${landlord.name}', '${landlord.nationalId}', '🪪')" class="bg-white hover:bg-gray-50 text-xs text-gray-700 border border-gray-200 py-1 px-2.5 rounded-lg font-bold transition-all shadow-sm">
+                🪪 View ID
+              </button>
+              <button onclick="viewDocument('Rates statement: ${landlord.name}', '${landlord.ratesBill}', '🧾')" class="bg-white hover:bg-gray-50 text-xs text-gray-700 border border-gray-200 py-1 px-2.5 rounded-lg font-bold transition-all shadow-sm">
+                🧾 View Rates Bill
+              </button>
+            </td>
+            <td class="p-4">
+              ${statusBadge}
+            </td>
+            <td class="p-4 pr-6">
+              <div class="flex items-center justify-end gap-2.5">
+                ${verifyActions}
+                <button onclick="deleteAccount('${landlord.phone}')" class="bg-rose-50 border border-rose-100 hover:bg-rose-500 hover:text-white text-rose-600 font-bold py-1.5 px-3 rounded-lg text-[11px] transition-all" title="Delete account completely">
+                  ✕ Purge
+                </button>
+              </div>
+            </td>
+          `;
+
+          landlordsTbody.appendChild(tr);
+        });
+      }
+
+      // 2. Render Listings
+      listingsTbody.innerHTML = "";
+      if (localListings.length === 0) {
+        listingsEmpty.classList.remove("hidden");
+      } else {
+        listingsEmpty.classList.add("hidden");
+
+        localListings.forEach(listing => {
+          const tr = document.createElement("tr");
+          tr.className = "hover:bg-gray-50/50 transition-all border-b border-gray-100";
+
+          const formattedDate = listing.createdAt ? new Date(listing.createdAt).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" }) : "Recently";
+          const amenitiesText = Array.isArray(listing.amenities) && listing.amenities.length > 0 ? listing.amenities.join(", ") : "None specified";
+
+          tr.innerHTML = `
+            <td class="p-4 pl-6 max-w-sm">
+              <div class="font-bold text-slate-900 text-sm truncate">${listing.title}</div>
+              <div class="text-[10px] text-gray-400 mt-1 font-mono">ID: ${listing.id} | Type: ${listing.propertyType}</div>
+            </td>
+            <td class="p-4">
+              <div class="text-slate-800">${listing.city}, ${listing.suburb}</div>
+              <div class="text-[10px] text-slate-400 italic mt-0.5 font-medium">"${listing.landmark || "Provided"}"</div>
+            </td>
+            <td class="p-4">
+              <div class="text-orange-600 font-bold">$${listing.price} / ${listing.frequency}</div>
+              <div class="text-[10px] text-gray-500 mt-0.5">Dep: $${listing.deposit}</div>
+            </td>
+            <td class="p-4 max-w-xs">
+              <p class="truncate text-slate-600 text-xs font-medium" title="${amenitiesText}">${amenitiesText}</p>
+            </td>
+            <td class="p-4">
+              <span class="text-slate-500 font-mono text-[10px]">${formattedDate}</span>
+            </td>
+            <td class="p-4 text-center font-mono font-bold text-slate-900">
+              <span class="bg-gray-100 border border-gray-200/80 px-2 py-0.5 rounded text-[11px]">${listing.leadsCount || 0}</span>
+            </td>
+            <td class="p-4 pr-6 text-right">
+              <button onclick="deleteListing('${listing.id}')" class="bg-rose-50 border border-rose-100 hover:bg-rose-500 hover:text-white text-rose-600 font-bold py-1.5 px-3 rounded-lg text-[11px] transition-all">
+                🗑️ Delete Entry
+              </button>
+            </td>
+          `;
+
+          listingsTbody.appendChild(tr);
+        });
+      }
+    }
+
+    // Modal View Documentation dialog helper
+    function viewDocument(title, text, emoji) {
+      document.getElementById("modal-doc-title").textContent = title;
+      document.getElementById("modal-doc-text").textContent = text;
+      document.getElementById("modal-doc-emoji").textContent = emoji;
+      document.getElementById("viewport-modal").classList.remove("hidden");
+    }
+
+    function closeViewport() {
+      document.getElementById("viewport-modal").classList.add("hidden");
+    }
+
+    // Approve Reject Handler API Dispatch
+    async function verifyLandlord(phone, status) {
+      try {
+        const response = await fetch("/api/admin", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "verify", phone, status })
+        });
+        if (response.ok) {
+          fetchAdminData();
+        } else {
+          alert("Error: Verification operation failed on server");
+        }
+      } catch (err) {
+        alert("Operation failed. Server is currently unreachable.");
+      }
+    }
+
+    // Delete Listing API post
+    async function deleteListing(id) {
+      if (!confirm("⚠️ Are you sure you want to permanently delete this room listing specification from listings table?")) {
+        return;
+      }
+
+      try {
+        const response = await fetch("/api/admin", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "deleteListing", id })
+        });
+        if (response.ok) {
+          fetchAdminData();
+        } else {
+          alert("Error deleting listing component.");
+        }
+      } catch (e) {
+        alert("Unreachable server response.");
+      }
+    }
+
+    // Delete Account completely
+    async function deleteAccount(phone) {
+      if (!confirm("⚠️ CRITICAL ACTION WARNING:\nPurging this landlord account will permanently clear their whole profile and immediately delete ALL corresponding properties! This action is irreversible.\n\nAre you sure you want to continue?")) {
+        return;
+      }
+
+      try {
+        const response = await fetch("/api/admin", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "deleteLandlord", phone })
+        });
+        if (response.ok) {
+          fetchAdminData();
+        } else {
+          alert("Purging account operation denied on server.");
+        }
+      } catch (e) {
+        alert("Unreachable system purge.");
+      }
+    }
+
+    // Initial Trigger on DOM ready
+    window.addEventListener("DOMContentLoaded", () => {
+      fetchAdminData();
+    });
+  </script>
+</body>
+</html>

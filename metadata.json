@@ -1,0 +1,6 @@
+{
+  "name": "BunkBy",
+  "description": "A free room and apartment rental platform for landlords with tenant matching and WhatsApp chatbot integration.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
