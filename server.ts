@@ -51,13 +51,14 @@ db.exec(`
 
 // REST API Endpoints
 app.post("/api/landlords", (req, res) => {
-  const { action, name } = req.body; // Using name instead of phone for auth
-  if (!action || !name) return res.status(400).json({ error: "Missing action or name parameter." });
+  const { action, name, phone } = req.body; 
+  if (!action || !name || !phone) return res.status(400).json({ error: "Missing action, name, or phone parameter." });
   const cleanName = name.trim();
+  const phoneId = Number(phone.replace(/\D/g, ""));
 
   try {
     if (action === "login") {
-      const landlord = db.prepare("SELECT * FROM landlords WHERE full_name = ?").get(cleanName) as any;
+      const landlord = db.prepare("SELECT * FROM landlords WHERE id = ?").get(phoneId) as any;
       if (landlord) {
         return res.json({
           success: true,
@@ -71,18 +72,18 @@ app.post("/api/landlords", (req, res) => {
       }
       return res.status(404).json({ success: false, error: "No account detected with this name. Please Create an Account first.", code: "ACCOUNT_NOT_FOUND" });
     } else if (action === "signup") {
-      const existing = db.prepare("SELECT * FROM landlords WHERE full_name = ?").get(cleanName) as any;
+      const existing = db.prepare("SELECT * FROM landlords WHERE id = ?").get(phoneId) as any;
       if (existing) {
         return res.status(400).json({ success: false, error: "An account already exists with this name. Please Log In.", code: "ALREADY_EXISTS" });
       }
 
-      const stmt = db.prepare("INSERT INTO landlords (full_name) VALUES (?)");
-      const result = stmt.run(cleanName);
+      const stmt = db.prepare("INSERT INTO landlords (id, full_name) VALUES (?, ?)");
+      const result = stmt.run(phoneId, cleanName);
       
       return res.status(201).json({
         success: true,
         landlord: {
-          id: result.lastInsertRowid,
+          id: phoneId,
           name: cleanName,
           isVerified: false,
           status: "pending"

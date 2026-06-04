@@ -10,22 +10,23 @@ export async function onRequestGet({ env }) {
 export async function onRequestPost({ request, env }) {
   try {
     const body = await request.json();
-    const { action, name } = body; 
+    const { action, name, phone } = body; 
+    const phoneId = Number(phone.replace(/\D/g, ""));
     
     if (action === "login") {
-      const landlord = await env.DB.prepare("SELECT * FROM landlords WHERE full_name = ?").bind(name).first();
+      const landlord = await env.DB.prepare("SELECT * FROM landlords WHERE id = ?").bind(phoneId).first();
       if (landlord) {
         return new Response(JSON.stringify({ success: true, landlord }), { headers: { "Content-Type": "application/json" } });
       }
       return new Response(JSON.stringify({ success: false, code: "ACCOUNT_NOT_FOUND" }), { status: 404, headers: { "Content-Type": "application/json" } });
     } else if (action === "signup") {
-      const existing = await env.DB.prepare("SELECT * FROM landlords WHERE full_name = ?").bind(name).first();
+      const existing = await env.DB.prepare("SELECT * FROM landlords WHERE id = ?").bind(phoneId).first();
       if (existing) {
         return new Response(JSON.stringify({ success: false, code: "ALREADY_EXISTS" }), { status: 400, headers: { "Content-Type": "application/json" } });
       }
       
-      const res = await env.DB.prepare("INSERT INTO landlords (full_name) VALUES (?)").bind(name).run();
-      const landlord = await env.DB.prepare("SELECT * FROM landlords WHERE id = ?").bind(res.meta.last_row_id).first();
+      await env.DB.prepare("INSERT INTO landlords (id, full_name) VALUES (?, ?)").bind(phoneId, name).run();
+      const landlord = await env.DB.prepare("SELECT * FROM landlords WHERE id = ?").bind(phoneId).first();
       return new Response(JSON.stringify({ success: true, landlord }), { status: 201, headers: { "Content-Type": "application/json" } });
     }
 

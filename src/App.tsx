@@ -272,7 +272,7 @@ export default function App() {
       ...payload,
       isPremium: makePremium,
       expiryDate: makePremium ? new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString() : undefined,
-      verification_status: userProfile?.isVerified ? "verified" : "pending",
+      verification_status: "Active",
       landlord_id: userProfile?.id || null, // Assuming landlord has id
       image_url: uploadedImages.length > 0 ? uploadedImages[0] : null,
       contact_phone: payload.phone,
@@ -300,6 +300,7 @@ export default function App() {
            const newListing = {
               id: data.id,
               ...finalPayload,
+              status: "Active",
               leadsCount: 0,
               created_at: new Date().toISOString()
            };
@@ -357,13 +358,14 @@ export default function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: authMode,
+          phone: loginPhone.trim(),
           name: loginName.trim()
         })
       });
       const data = await res.json();
       
       if (res.ok && data.success) {
-        const profileName = data.landlord.name || data.landlord.full_name;
+        const profileName = data.landlord?.name || data.landlord?.full_name || loginName.trim();
         const profile = {
           id: data.landlord.id,
           name: profileName,
@@ -783,7 +785,7 @@ export default function App() {
               className={`px-3.5 py-2 rounded-xl transition-all ${activeTab === "browse" ? "bg-white/15 text-white shadow-inner font-extrabold" : "hover:text-white text-sky-100 hover:bg-white/5 font-bold"}`}
               id="nav-browse"
             >
-              Browse Rooms
+              Browse Listings
             </button>
             <button 
               onClick={() => setActiveTab("landlord")}
