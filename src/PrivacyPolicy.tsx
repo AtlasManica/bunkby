@@ -3,22 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import React, { useEffect } from "react";
-import { 
-  ShieldCheck, 
-  ArrowLeft, 
-  Lock, 
-  FileText, 
-  MessageSquare, 
-  Eye, 
-  Server, 
-  Clock, 
-  Users, 
-  UserCheck, 
-  AlertCircle, 
-  Globe, 
-  CheckCircle2,
-  PhoneCall
-} from "lucide-react";
+import { ArrowLeft, Mail, ShieldCheck, CheckCircle2 } from "lucide-react";
 
 interface PrivacyPolicyProps {
   onBackToHome: () => void;
@@ -27,508 +12,379 @@ interface PrivacyPolicyProps {
 export const PrivacyPolicy: React.FC<PrivacyPolicyProps> = ({ onBackToHome }) => {
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "smooth" });
-    document.title = "Privacy Policy | BunkBy Zimbabwe Accommodation Marketplace";
+    document.title = "Privacy Policy | BunkBy";
     return () => {
       document.title = "BunkBy | Zimbabwe's Agent-Free Accommodation Marketplace";
     };
   }, []);
 
   return (
-    <div className="min-h-screen bg-[#021024] text-slate-100 flex flex-col font-sans selection:bg-[#FF7A00] selection:text-white">
-      {/* Top Banner & Navigation */}
-      <header className="sticky top-0 z-40 bg-[#021024]/95 backdrop-blur-md border-b border-[#052659] py-3.5 px-4 sm:px-6 lg:px-8">
-        <div className="max-w-5xl mx-auto flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={onBackToHome}
-              className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[#052659] hover:bg-[#07357c] text-white text-xs font-bold transition-all border border-white/10 shadow-sm group"
-              aria-label="Return to BunkBy Accommodation Marketplace"
-            >
-              <ArrowLeft className="w-3.5 h-3.5 text-[#FF7A00] transition-transform group-hover:-translate-x-0.5" />
-              <span>Back to BunkBy</span>
-            </button>
-            <div className="hidden sm:block h-4 w-px bg-slate-700/60" />
-            <div className="hidden sm:flex items-center gap-2">
-              <span className="text-sm font-display font-black tracking-tight text-white">
-                Bunk<span className="text-[#FF7A00]">By</span>
-              </span>
-              <span className="text-[10px] text-slate-400 font-mono font-medium">LEGAL DOCUMENTATION</span>
-            </div>
-          </div>
-
-          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#052659]/70 border border-white/10 text-[11px] text-slate-300">
-            <ShieldCheck className="w-3.5 h-3.5 text-[#FF7A00]" />
-            <span>Public Compliance Notice</span>
-          </div>
+    <div className="min-h-screen bg-white text-slate-800 flex flex-col font-sans selection:bg-[#FF7A00] selection:text-white">
+      {/* Top Header - White themed, clean */}
+      <header className="sticky top-0 z-40 bg-white border-b border-slate-200 py-3.5 px-4 sm:px-6 lg:px-8">
+        <div className="max-w-4xl mx-auto flex items-center justify-between gap-4">
+          <button
+            onClick={onBackToHome}
+            className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold transition-colors border border-slate-200 cursor-pointer group"
+            aria-label="Return to BunkBy"
+          >
+            <ArrowLeft className="w-3.5 h-3.5 text-[#FF7A00] transition-transform group-hover:-translate-x-0.5" />
+            <span>Back to BunkBy</span>
+          </button>
         </div>
       </header>
 
-      {/* Hero Header */}
-      <div className="relative border-b border-[#052659] bg-gradient-to-b from-[#052659]/40 via-[#021024] to-[#021024] py-12 px-4 sm:px-6 lg:px-8">
-        <div className="max-w-4xl mx-auto text-center space-y-4">
-          <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-[#052659] border border-[#FF7A00]/30 text-[#FF7A00] text-xs font-mono font-bold tracking-wider shadow-sm">
-            <span>OFFICIAL PRIVACY POLICY</span>
-          </div>
-          <h1 className="text-3xl sm:text-4xl md:text-5xl font-display font-black tracking-tight text-white leading-tight">
-            BunkBy Privacy Policy
+      {/* Main Title Section - Clean white theme, responsive padding */}
+      <div className="bg-white border-b border-slate-100 py-6 sm:py-10 px-3 sm:px-6 lg:px-8">
+        <div className="max-w-4xl mx-auto text-center space-y-2 sm:space-y-3">
+          <h1 className="text-2xl sm:text-4xl font-extrabold tracking-tight text-slate-900">
+            Privacy Policy
           </h1>
-          <p className="text-sm sm:text-base text-slate-300 max-w-2xl mx-auto font-normal leading-relaxed">
+          <p className="text-xs sm:text-base text-slate-600 max-w-2xl mx-auto leading-relaxed">
             How BunkBy collects, uses, protects, and handles accommodation listings, user enquiries, and WhatsApp communications across Zimbabwe.
           </p>
-          <div className="flex flex-wrap items-center justify-center gap-4 pt-2 text-xs text-slate-400 font-mono">
-            <span>Effective Date: 11 October 2026</span>
-            <span>•</span>
-            <span>Platform: Web & WhatsApp Cloud API</span>
-            <span>•</span>
-            <span>Operator: Atlas Manica Group</span>
+          <div className="pt-1 inline-flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-0.5 sm:py-1 bg-slate-50 border border-slate-200 rounded-full text-[11px] sm:text-xs text-slate-600">
+            <span className="font-semibold text-slate-900">Effective Date:</span>
+            <span>11 October 2026</span>
           </div>
         </div>
       </div>
 
       {/* Main Content Body */}
-      <main className="flex-1 max-w-4xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-10 space-y-8">
-
-        {/* Quick Context / Meta Developer Callout */}
-        <section className="bg-[#052659]/50 border border-[#052659] rounded-2xl p-5 text-xs text-slate-300 leading-relaxed space-y-2">
-          <div className="flex items-center gap-2 text-white font-bold text-sm">
-            <Lock className="w-4 h-4 text-[#FF7A00]" />
-            <span>About this Document</span>
-          </div>
+      <main className="flex-1 max-w-4xl mx-auto w-full px-3 sm:px-6 lg:px-8 py-5 sm:py-8 space-y-4 sm:space-y-6">
+        {/* Intro Overview */}
+        <section className="bg-white border border-slate-200 rounded-xl p-6 leading-relaxed text-sm text-slate-600 shadow-xs space-y-3">
           <p>
-            This Privacy Policy applies to the <strong className="text-white">BunkBy</strong> accommodation marketplace accessible at <code className="bg-[#021024] px-1.5 py-0.5 rounded text-[#FF7A00] font-mono">https://bunkby.com</code> and through our official WhatsApp Business conversational bot. It is publicly published to provide complete transparency for property seekers, accommodation providers (landlords and lodging hosts), and technology partners including Meta Platforms, Inc.
+            This Privacy Policy explains how <strong className="text-slate-900">BunkBy</strong>, operated by <strong className="text-slate-900">Atlas Manica Group</strong>, collects, uses, stores, and shares personal information when people use our accommodation marketplace and WhatsApp communication service. We aim to handle personal information responsibly and to meet applicable legal obligations.
+          </p>
+          <p>
+            BunkBy operates in Zimbabwe and takes account of applicable Zimbabwean data protection requirements, including the <strong className="text-slate-900">Cyber and Data Protection Act [Chapter 12:07]</strong>.
           </p>
         </section>
 
         {/* SECTION 1: Who We Are */}
-        <section className="bg-[#03152f]/70 border border-[#052659] rounded-2xl p-6 sm:p-7 space-y-4 shadow-sm">
-          <div className="flex items-start gap-3">
-            <div className="w-8 h-8 rounded-xl bg-[#052659] border border-white/10 flex items-center justify-center shrink-0 text-[#FF7A00] font-bold font-mono text-xs">
-              01
-            </div>
-            <div>
-              <h2 className="text-lg sm:text-xl font-bold text-white tracking-tight">1. Who We Are</h2>
-              <p className="text-xs text-slate-400 font-mono mt-0.5">Operator & Legal Identity</p>
-            </div>
-          </div>
-          <div className="text-xs sm:text-sm text-slate-300 leading-relaxed space-y-3 pl-0 sm:pl-11">
+        <section className="bg-white border border-slate-200 rounded-xl p-4 sm:p-6 space-y-2.5 sm:space-y-3 shadow-xs">
+          <h2 className="text-lg sm:text-xl font-bold text-slate-900 flex items-center">
+            <span className="text-[#FF7A00] font-mono font-bold mr-2">1.</span>
+            Who We Are
+          </h2>
+          <div className="text-sm text-slate-600 leading-relaxed space-y-3">
             <p>
-              <strong className="text-white">BunkBy</strong> is an agent-free accommodation marketplace connecting accommodation seekers with landlords, cottage owners, student housing providers, and hospitality hosts across Zimbabwe (including Harare, Bulawayo, Mutare, Gweru, and other localities).
+              <strong className="text-slate-900">BunkBy</strong> is an agent-free accommodation marketplace connecting property seekers with landlords, cottage owners, student housing providers, and hospitality hosts across Zimbabwe (including Harare, Bulawayo, Mutare, Gweru, and other localities).
             </p>
             <p>
-              BunkBy is developed and operated by <strong className="text-white">Atlas Manica Group</strong>. All platform governance, database infrastructure, technical operations, and WhatsApp messaging integrations are administered under Atlas Manica Group.
+              BunkBy is operated by <strong className="text-slate-900">Atlas Manica Group</strong>. All platform governance, hosting infrastructure, technical operations, and WhatsApp messaging integrations are administered under Atlas Manica Group.
             </p>
           </div>
         </section>
 
         {/* SECTION 2: Information We Collect */}
-        <section className="bg-[#03152f]/70 border border-[#052659] rounded-2xl p-6 sm:p-7 space-y-4 shadow-sm">
-          <div className="flex items-start gap-3">
-            <div className="w-8 h-8 rounded-xl bg-[#052659] border border-white/10 flex items-center justify-center shrink-0 text-[#FF7A00] font-bold font-mono text-xs">
-              02
-            </div>
-            <div>
-              <h2 className="text-lg sm:text-xl font-bold text-white tracking-tight">2. Information We Collect</h2>
-              <p className="text-xs text-slate-400 font-mono mt-0.5">Data minimization based on actual platform features</p>
-            </div>
-          </div>
-          <div className="text-xs sm:text-sm text-slate-300 leading-relaxed space-y-3 pl-0 sm:pl-11">
+        <section className="bg-white border border-slate-200 rounded-xl p-4 sm:p-6 space-y-2.5 sm:space-y-3 shadow-xs">
+          <h2 className="text-lg sm:text-xl font-bold text-slate-900 flex items-center">
+            <span className="text-[#FF7A00] font-mono font-bold mr-2">2.</span>
+            Information We Collect
+          </h2>
+          <div className="text-sm text-slate-600 leading-relaxed space-y-3">
             <p>
-              We collect only the information strictly necessary to publish listings, verify property advertisers, connect seekers with hosts, and run our automated WhatsApp communication assistant:
+              We collect information necessary to publish listings, verify property advertisers, connect seekers with hosts, and operate our automated WhatsApp communication assistant:
             </p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-              <div className="bg-[#021024] p-3.5 rounded-xl border border-white/5 space-y-1.5">
-                <span className="font-bold text-white text-xs flex items-center gap-1.5">
-                  <UserCheck className="w-3.5 h-3.5 text-[#FF7A00]" /> Landlord & Host Account Data
-                </span>
-                <p className="text-[11px] text-slate-400 leading-normal">
-                  Full name, Zimbabwean mobile / WhatsApp telephone number (e.g., +263 format), secure landlord account PIN for authorization, and verification status.
-                </p>
-              </div>
-              <div className="bg-[#021024] p-3.5 rounded-xl border border-white/5 space-y-1.5">
-                <span className="font-bold text-white text-xs flex items-center gap-1.5">
-                  <FileText className="w-3.5 h-3.5 text-[#FF7A00]" /> Property Listing Details
-                </span>
-                <p className="text-[11px] text-slate-400 leading-normal">
-                  Accommodation title, suburb/neighborhood, town/city, rental price, security deposit, property type (room, cottage, bedsit, lodge), tenant preferences, rent cycle, amenities checklist, and uploaded property photographs.
-                </p>
-              </div>
-              <div className="bg-[#021024] p-3.5 rounded-xl border border-white/5 space-y-1.5">
-                <span className="font-bold text-white text-xs flex items-center gap-1.5">
-                  <MessageSquare className="w-3.5 h-3.5 text-[#FF7A00]" /> Direct Contact & Enquiries
-                </span>
-                <p className="text-[11px] text-slate-400 leading-normal">
-                  Seeker name and phone number voluntarily provided when initiating a direct landlord enquiry via WhatsApp, plus listing view / contact lead counters.
-                </p>
-              </div>
-              <div className="bg-[#021024] p-3.5 rounded-xl border border-white/5 space-y-1.5">
-                <span className="font-bold text-white text-xs flex items-center gap-1.5">
-                  <Server className="w-3.5 h-3.5 text-[#FF7A00]" /> Technical Logs & Diagnostics
-                </span>
-                <p className="text-[11px] text-slate-400 leading-normal">
-                  Standard web request IP addresses, browser user-agent headers, and sanitized webhook diagnostic logs (message timestamp, sender phone ID, message type, and error traces) for service reliability.
-                </p>
-              </div>
-            </div>
-            <p className="text-[11px] text-slate-400 italic pt-1">
-              Note: BunkBy does not collect unnecessary sensitive biometric data, national ID copies, passport scans, credit card numbers, or bank account credentials.
-            </p>
+            <ul className="list-disc pl-5 space-y-2 text-slate-600">
+              <li>
+                <strong className="text-slate-900">Landlord & Host Information:</strong> Name, Zimbabwean mobile or WhatsApp phone number, security PIN for account authorization, and verification status.
+              </li>
+              <li>
+                <strong className="text-slate-900">Property Listing Details:</strong> Accommodation title, description, monthly rental or daily rate, currency (USD), locality, suburb, city, property type, amenities, availability date, and uploaded photographs.
+              </li>
+              <li>
+                <strong className="text-slate-900">Property Seeker Enquiries:</strong> Name and contact phone number entered when initiating an inquiry on a listing, used locally on your device to prefill your direct WhatsApp message to the host and recorded in aggregate listing lead statistics.
+              </li>
+              <li>
+                <strong className="text-slate-900">Technical Information:</strong> Standard request logs including IP addresses, browser user agent details, timestamps, and search query parameters as processed by our hosting infrastructure.
+              </li>
+            </ul>
           </div>
         </section>
 
         {/* SECTION 3: How We Use Information */}
-        <section className="bg-[#03152f]/70 border border-[#052659] rounded-2xl p-6 sm:p-7 space-y-4 shadow-sm">
-          <div className="flex items-start gap-3">
-            <div className="w-8 h-8 rounded-xl bg-[#052659] border border-white/10 flex items-center justify-center shrink-0 text-[#FF7A00] font-bold font-mono text-xs">
-              03
-            </div>
-            <div>
-              <h2 className="text-lg sm:text-xl font-bold text-white tracking-tight">3. How We Use Information</h2>
-              <p className="text-xs text-slate-400 font-mono mt-0.5">Purposes of processing</p>
-            </div>
-          </div>
-          <div className="text-xs sm:text-sm text-slate-300 leading-relaxed space-y-2.5 pl-0 sm:pl-11">
-            <ul className="space-y-2">
-              <li className="flex items-start gap-2">
-                <CheckCircle2 className="w-3.5 h-3.5 text-[#FF7A00] shrink-0 mt-0.5" />
-                <span><strong>Publishing Public Listings:</strong> To display available accommodation rooms, cottages, and hospitality spaces on the BunkBy web platform and WhatsApp catalog.</span>
+        <section className="bg-white border border-slate-200 rounded-xl p-4 sm:p-6 space-y-2.5 sm:space-y-3 shadow-xs">
+          <h2 className="text-lg sm:text-xl font-bold text-slate-900 flex items-center">
+            <span className="text-[#FF7A00] font-mono font-bold mr-2">3.</span>
+            How We Use Information
+          </h2>
+          <div className="text-sm text-slate-600 leading-relaxed space-y-3">
+            <p>Information gathered through BunkBy is processed for the following purposes:</p>
+            <ul className="list-disc pl-5 space-y-2 text-slate-600">
+              <li>
+                <strong className="text-slate-900">Facilitating Direct Connections:</strong> Allowing property seekers to discover rooms, flats, cottages, or lodges and contact verified landlords directly.
               </li>
-              <li className="flex items-start gap-2">
-                <CheckCircle2 className="w-3.5 h-3.5 text-[#FF7A00] shrink-0 mt-0.5" />
-                <span><strong>Direct Communication:</strong> Enabling seekers to contact landlords and hosts directly without middleman agents or agency fees.</span>
+              <li>
+                <strong className="text-slate-900">Listing Administration:</strong> Enabling property owners to post, update, activate, and manage accommodation adverts.
               </li>
-              <li className="flex items-start gap-2">
-                <CheckCircle2 className="w-3.5 h-3.5 text-[#FF7A00] shrink-0 mt-0.5" />
-                <span><strong>Automated Chatbot Assistance:</strong> Interpreting inbound WhatsApp search queries, managing conversational listing creation sessions, and returning matching accommodation options.</span>
+              <li>
+                <strong className="text-slate-900">Automated Messaging & Search:</strong> Processing inquiries and keyword searches sent via WhatsApp to return matching accommodation listings.
               </li>
-              <li className="flex items-start gap-2">
-                <CheckCircle2 className="w-3.5 h-3.5 text-[#FF7A00] shrink-0 mt-0.5" />
-                <span><strong>Security & Fraud Prevention:</strong> Preventing duplicate listings, detecting fraudulent advertisers or scam reports through community moderation, and verifying account ownership via PINs.</span>
+              <li>
+                <strong className="text-slate-900">Platform Integrity:</strong> Enforcing listing quality, verifying advertisers, and combating fraud or duplicate adverts.
               </li>
-              <li className="flex items-start gap-2">
-                <CheckCircle2 className="w-3.5 h-3.5 text-[#FF7A00] shrink-0 mt-0.5" />
-                <span><strong>Platform Optimization:</strong> Monitoring system uptime, error rates, and query responsiveness across our web server and Cloudflare network.</span>
+              <li>
+                <strong className="text-slate-900">Technical Operations:</strong> Monitoring uptime, resolving technical issues, and ensuring responsive service performance.
               </li>
             </ul>
           </div>
         </section>
 
-        {/* SECTION 4: WhatsApp Communications & Meta Cloud API */}
-        <section className="bg-[#03152f]/70 border border-[#052659] rounded-2xl p-6 sm:p-7 space-y-4 shadow-sm">
-          <div className="flex items-start gap-3">
-            <div className="w-8 h-8 rounded-xl bg-[#052659] border border-white/10 flex items-center justify-center shrink-0 text-[#FF7A00] font-bold font-mono text-xs">
-              04
-            </div>
-            <div>
-              <h2 className="text-lg sm:text-xl font-bold text-white tracking-tight">4. WhatsApp Communications & Meta Integration</h2>
-              <p className="text-xs text-slate-400 font-mono mt-0.5">Details for Meta Developer Dashboard compliance</p>
-            </div>
-          </div>
-          <div className="text-xs sm:text-sm text-slate-300 leading-relaxed space-y-3 pl-0 sm:pl-11">
+        {/* SECTION 4: WhatsApp Communications & Meta Integration */}
+        <section className="bg-white border border-slate-200 rounded-xl p-4 sm:p-6 space-y-2.5 sm:space-y-3 shadow-xs">
+          <h2 className="text-lg sm:text-xl font-bold text-slate-900 flex items-center">
+            <span className="text-[#FF7A00] font-mono font-bold mr-2">4.</span>
+            WhatsApp Communications & Meta Integration
+          </h2>
+          <p className="text-xs text-slate-500 font-medium">
+            Details for Meta Developer Dashboard compliance
+          </p>
+          <div className="text-sm text-slate-600 leading-relaxed space-y-3 pt-1">
             <p>
               Users may interact with BunkBy via our official WhatsApp Business messaging channel. When you message BunkBy on WhatsApp:
             </p>
-            <div className="bg-[#021024] p-4 rounded-xl border border-white/5 space-y-2 text-xs">
-              <p>
-                <strong>Inbound Messages:</strong> Messages sent to BunkBy are delivered to our webhook endpoint (<code className="text-[#FF7A00]">/api/whatsapp</code>) hosted on our secure server and Cloudflare Pages Functions infrastructure.
-              </p>
-              <p>
-                <strong>Data Processed:</strong> We receive your sender phone number (WhatsApp ID / wa_id), your public WhatsApp profile display name (if available), the text content of your search query or command, and any button responses you select.
-              </p>
-              <p>
-                <strong>Conversational State:</strong> For landlords adding a listing via WhatsApp, session state (e.g. current question step, collected title, price, location) is temporarily stored in our database (<code className="text-slate-400">chatbot_sessions</code>) to allow completion of the multi-step listing prompt.
-              </p>
-              <p>
-                <strong>Meta's Independent Processing:</strong> WhatsApp and Meta Platforms, Inc. process message transmission and metadata under their own terms and privacy notices. You can review the Meta Privacy Policy at <a href="https://www.whatsapp.com/legal/privacy-policy" target="_blank" rel="noopener noreferrer" className="text-[#FF7A00] underline hover:text-white">whatsapp.com/legal/privacy-policy</a>.
-              </p>
-            </div>
-            <p className="text-xs text-slate-400">
-              We do not use your WhatsApp contact number for unsolicited third-party marketing, nor do we sell your telephone number to external marketing networks.
-            </p>
-          </div>
-        </section>
-
-        {/* SECTION 5: Sharing Information */}
-        <section className="bg-[#03152f]/70 border border-[#052659] rounded-2xl p-6 sm:p-7 space-y-4 shadow-sm">
-          <div className="flex items-start gap-3">
-            <div className="w-8 h-8 rounded-xl bg-[#052659] border border-white/10 flex items-center justify-center shrink-0 text-[#FF7A00] font-bold font-mono text-xs">
-              05
-            </div>
-            <div>
-              <h2 className="text-lg sm:text-xl font-bold text-white tracking-tight">5. Information Sharing & Disclosure</h2>
-              <p className="text-xs text-slate-400 font-mono mt-0.5">When and with whom data is shared</p>
-            </div>
-          </div>
-          <div className="text-xs sm:text-sm text-slate-300 leading-relaxed space-y-3 pl-0 sm:pl-11">
-            <p>
-              As an open accommodation directory, specific data is shared by design:
-            </p>
-            <ul className="space-y-2">
-              <li className="flex items-start gap-2">
-                <Users className="w-3.5 h-3.5 text-[#FF7A00] shrink-0 mt-0.5" />
-                <span><strong>Public Listing Visibility:</strong> When a landlord publishes a room, the property images, description, suburb, city, rental price, and provided contact phone number are publicly viewable by seekers to facilitate direct dealmaking.</span>
+            <ul className="list-disc pl-5 space-y-2 text-slate-600">
+              <li>
+                <strong className="text-slate-900">Inbound Messages:</strong> Messages sent to BunkBy are delivered to our webhook endpoint hosted on our secure server and Cloudflare Pages Functions infrastructure.
               </li>
-              <li className="flex items-start gap-2">
-                <Users className="w-3.5 h-3.5 text-[#FF7A00] shrink-0 mt-0.5" />
-                <span><strong>Connecting Seekers & Landlords:</strong> When a seeker clicks “Contact on WhatsApp”, they are redirected directly to a WhatsApp chat with the listing host.</span>
+              <li>
+                <strong className="text-slate-900">Data Processed:</strong> We receive your sender phone number , your public WhatsApp profile display name (if available), the text content of your search query or command, and any button responses you select. Messages and sender information are processed by BunkBy and its infrastructure providers solely to respond to your queries, search requests, or listing actions.
               </li>
-              <li className="flex items-start gap-2">
-                <Server className="w-3.5 h-3.5 text-[#FF7A00] shrink-0 mt-0.5" />
-                <span><strong>Technical Infrastructure Providers:</strong> Data is hosted with reputable cloud infrastructure partners (Cloudflare Pages, Cloudflare D1, Google Cloud Run) solely for running the application and database.</span>
+              <li>
+                <strong className="text-slate-900">Conversational State:</strong> For landlords adding a listing via WhatsApp, session state (e.g. current question step, collected title, price, location) is temporarily stored in our database to allow completion of the multi-step listing prompt.
               </li>
-              <li className="flex items-start gap-2">
-                <AlertCircle className="w-3.5 h-3.5 text-[#FF7A00] shrink-0 mt-0.5" />
-                <span><strong>Legal Compliance:</strong> We may disclose information if required to do so by applicable law, court order, or governmental authority in Zimbabwe.</span>
+              <li>
+                <strong className="text-slate-900">Meta's Independent Processing:</strong> WhatsApp and Meta Platforms, Inc. process message transmission and metadata under their own applicable terms and privacy notices. You can review the official WhatsApp Privacy Policy at whatsapp.com/legal/privacy-policy. Business messaging on WhatsApp involves processing by BunkBy, its hosting providers, and Meta.
               </li>
             </ul>
           </div>
         </section>
 
-        {/* SECTION 6: Cookies, Storage & Technical Data */}
-        <section className="bg-[#03152f]/70 border border-[#052659] rounded-2xl p-6 sm:p-7 space-y-4 shadow-sm">
-          <div className="flex items-start gap-3">
-            <div className="w-8 h-8 rounded-xl bg-[#052659] border border-white/10 flex items-center justify-center shrink-0 text-[#FF7A00] font-bold font-mono text-xs">
-              06
-            </div>
-            <div>
-              <h2 className="text-lg sm:text-xl font-bold text-white tracking-tight">6. Cookies & Client-Side Storage</h2>
-              <p className="text-xs text-slate-400 font-mono mt-0.5">Local browser storage mechanisms</p>
-            </div>
-          </div>
-          <div className="text-xs sm:text-sm text-slate-300 leading-relaxed space-y-2.5 pl-0 sm:pl-11">
+        {/* SECTION 5: Information Sharing & Disclosure */}
+        <section className="bg-white border border-slate-200 rounded-xl p-4 sm:p-6 space-y-2.5 sm:space-y-3 shadow-xs">
+          <h2 className="text-lg sm:text-xl font-bold text-slate-900 flex items-center">
+            <span className="text-[#FF7A00] font-mono font-bold mr-2">5.</span>
+            Information Sharing & Disclosure
+          </h2>
+          <div className="text-sm text-slate-600 leading-relaxed space-y-3">
             <p>
-              BunkBy does not deploy tracking cookies or third-party behavioral advertising cookies. We utilize standard browser <code className="bg-[#021024] px-1.5 py-0.5 rounded text-[#FF7A00] font-mono">localStorage</code> strictly for application functionality:
+              BunkBy operates as an agent-free accommodation marketplace. We do not sell your personal data. We disclose information only under the following circumstances:
             </p>
-            <ul className="list-disc pl-5 space-y-1 text-slate-400">
-              <li><strong className="text-white">bunkby_landlord_profile:</strong> Stores logged-in landlord session tokens and profile information so you do not have to re-enter your PIN on every visit.</li>
-              <li><strong className="text-white">bunkby_gate_name & bunkby_gate_phone:</strong> Temporarily retains your contact name and phone number on your device when enquiring on listings.</li>
-            </ul>
-            <p className="text-xs text-slate-400">
-              You can clear these stored values at any time through your browser settings or by signing out from the Account tab.
-            </p>
-          </div>
-        </section>
-
-        {/* SECTION 7: Data Retention */}
-        <section className="bg-[#03152f]/70 border border-[#052659] rounded-2xl p-6 sm:p-7 space-y-4 shadow-sm">
-          <div className="flex items-start gap-3">
-            <div className="w-8 h-8 rounded-xl bg-[#052659] border border-white/10 flex items-center justify-center shrink-0 text-[#FF7A00] font-bold font-mono text-xs">
-              07
-            </div>
-            <div>
-              <h2 className="text-lg sm:text-xl font-bold text-white tracking-tight">7. Data Retention</h2>
-              <p className="text-xs text-slate-400 font-mono mt-0.5">How long your records are kept</p>
-            </div>
-          </div>
-          <div className="text-xs sm:text-sm text-slate-300 leading-relaxed space-y-2.5 pl-0 sm:pl-11">
-            <p>
-              We retain data only as long as reasonably necessary for platform operations:
-            </p>
-            <ul className="list-disc pl-5 space-y-1.5 text-slate-300">
-              <li><strong>Active Listings:</strong> Retained until the landlord marks the property as occupied, delists it, or requests deletion.</li>
-              <li><strong>Landlord Profiles:</strong> Retained while the landlord manages listings or until an account removal request is processed.</li>
-              <li><strong>Temporary Chatbot Sessions:</strong> Expire automatically upon completion of the conversational workflow or after inactivity.</li>
-              <li><strong>Diagnostic Event Logs:</strong> Diagnostic event logs are rotated periodically to ensure system stability.</li>
+            <ul className="list-disc pl-5 space-y-2 text-slate-600">
+              <li>
+                <strong className="text-slate-900">Between Seekers and Hosts:</strong> When a user initiates contact on a listing or requests host details, contact information is exchanged so both parties can communicate regarding tenancy.
+              </li>
+              <li>
+                <strong className="text-slate-900">Service & Infrastructure Providers:</strong> Technical service providers supporting application hosting, DNS and network routing, and WhatsApp Business API message delivery as necessary to operate the service.
+              </li>
+              <li>
+                <strong className="text-slate-900">Legal Requirements:</strong> Where disclosure is required by applicable law, lawful warrant, court order, or regulatory authority.
+              </li>
             </ul>
           </div>
         </section>
 
-        {/* SECTION 8: Security Safeguards */}
-        <section className="bg-[#03152f]/70 border border-[#052659] rounded-2xl p-6 sm:p-7 space-y-4 shadow-sm">
-          <div className="flex items-start gap-3">
-            <div className="w-8 h-8 rounded-xl bg-[#052659] border border-white/10 flex items-center justify-center shrink-0 text-[#FF7A00] font-bold font-mono text-xs">
-              08
-            </div>
-            <div>
-              <h2 className="text-lg sm:text-xl font-bold text-white tracking-tight">8. Security Safeguards</h2>
-              <p className="text-xs text-slate-400 font-mono mt-0.5">Protection of listings and accounts</p>
-            </div>
-          </div>
-          <div className="text-xs sm:text-sm text-slate-300 leading-relaxed space-y-2.5 pl-0 sm:pl-11">
+        {/* SECTION 6: Client-Side Storage */}
+        <section className="bg-white border border-slate-200 rounded-xl p-4 sm:p-6 space-y-2.5 sm:space-y-3 shadow-xs">
+          <h2 className="text-lg sm:text-xl font-bold text-slate-900 flex items-center">
+            <span className="text-[#FF7A00] font-mono font-bold mr-2">6.</span>
+            Client-Side Storage
+          </h2>
+          <div className="text-sm text-slate-600 leading-relaxed space-y-3">
             <p>
-              We implement reasonable administrative, technical, and operational measures to protect your information, including encrypted HTTPS/TLS in transit, PIN-protected landlord authentication, webhook verification tokens, and restricted database access.
+              BunkBy does not deploy third-party tracking or advertising cookies. The web application utilizes standard client-side browser storage (such as browser local storage) strictly for functional purposes, including retaining active session state for logged-in landlords and temporarily preserving contact input on your device.
             </p>
-            <p className="text-slate-400 text-xs">
-              Please note that no method of transmission over the Internet or electronic storage is 100% secure. Landlords are advised to safeguard their private 4-digit PINs and refrain from sharing credentials.
+            <p>
+              You can clear client-side browser storage at any time through your device or browser settings, or by signing out from your account. Please note that clearing local browser storage removes data stored on your device only; it does not delete your server-side account or active property listings. To request deletion of server-side data, please submit a deletion request as described in Section 8.
             </p>
           </div>
         </section>
 
-        {/* SECTION 9: User Rights and Choices */}
-        <section className="bg-[#03152f]/70 border border-[#052659] rounded-2xl p-6 sm:p-7 space-y-4 shadow-sm">
-          <div className="flex items-start gap-3">
-            <div className="w-8 h-8 rounded-xl bg-[#052659] border border-white/10 flex items-center justify-center shrink-0 text-[#FF7A00] font-bold font-mono text-xs">
-              09
-            </div>
-            <div>
-              <h2 className="text-lg sm:text-xl font-bold text-white tracking-tight">9. User Rights & Choices</h2>
-              <p className="text-xs text-slate-400 font-mono mt-0.5">Control over your accommodation data</p>
-            </div>
-          </div>
-          <div className="text-xs sm:text-sm text-slate-300 leading-relaxed space-y-2.5 pl-0 sm:pl-11">
+        {/* SECTION 7: Data Retention & Server Data Distinction */}
+        <section className="bg-white border border-slate-200 rounded-xl p-4 sm:p-6 space-y-2.5 sm:space-y-3 shadow-xs">
+          <h2 className="text-lg sm:text-xl font-bold text-slate-900 flex items-center">
+            <span className="text-[#FF7A00] font-mono font-bold mr-2">7.</span>
+            Data Retention
+          </h2>
+          <div className="text-sm text-slate-600 leading-relaxed space-y-3">
             <p>
-              Users in Zimbabwe and visiting international users have rights regarding their information:
+              We retain personal data only for as long as necessary to fulfill the purposes for which it was collected:
             </p>
-            <ul className="space-y-1.5 text-slate-300">
-              <li className="flex items-start gap-2">
-                <span className="text-[#FF7A00] font-bold">•</span>
-                <span><strong>Editing / Updating Listings:</strong> Landlords can update property descriptions, pricing, contact numbers, and amenities at any time directly through the Landlords Portal.</span>
+            <ul className="list-disc pl-5 space-y-2 text-slate-600">
+              <li>
+                <strong className="text-slate-900">Active Listings:</strong> Property details, photos, and landlord contact phone numbers remain active and accessible on BunkBy until deactivated, marked as rented, or deleted. Marking a listing as rented updates its public visibility status on the marketplace but may retain underlying listing records in our database until an explicit deletion is requested.
               </li>
-              <li className="flex items-start gap-2">
-                <span className="text-[#FF7A00] font-bold">•</span>
-                <span><strong>Delisting or Deletion:</strong> You may instantly delist or permanently remove your property from public browsing using the delist button in the landlord management dashboard.</span>
+              <li>
+                <strong className="text-slate-900">Landlord Accounts:</strong> Account profiles and verification credentials are kept to enable listing management until account closure or an explicit deletion request is fulfilled.
               </li>
-              <li className="flex items-start gap-2">
-                <span className="text-[#FF7A00] font-bold">•</span>
-                <span><strong>Access & Account Removal Requests:</strong> To request a copy of your stored records or request complete deletion of your landlord account, contact our administration team via the verified channels listed below.</span>
+              <li>
+                <strong className="text-slate-900">WhatsApp Inquiries & Session State:</strong> Listing prompts or conversational interactions conducted via WhatsApp are held temporarily to process queries or create listings, and are cleared or overwritten in routine operation.
+              </li>
+              <li>
+                <strong className="text-slate-900">Technical Logs:</strong> Operational diagnostics and connection data (such as request timestamps or error events) may be recorded by web servers or hosting providers for diagnostic maintenance, security monitoring, and service stability, retained according to provider operational schedules.
               </li>
             </ul>
+          </div>
+        </section>
+
+        {/* SECTION 8: User Rights & Manual Deletion-Request Process */}
+        <section className="bg-white border border-slate-200 rounded-xl p-4 sm:p-6 space-y-2.5 sm:space-y-3 shadow-xs">
+          <h2 className="text-lg sm:text-xl font-bold text-slate-900 flex items-center">
+            <span className="text-[#FF7A00] font-mono font-bold mr-2">8.</span>
+            User Rights & Request Process
+          </h2>
+          <div className="text-sm text-slate-600 leading-relaxed space-y-4">
+            <p>
+              Taking account of the Cyber and Data Protection Act [Chapter 12:07] and recognized privacy principles, we provide routes for users to manage their personal information:
+            </p>
+            <ul className="list-disc pl-5 space-y-2 text-slate-600">
+              <li>
+                <strong className="text-slate-900">Access & Inquiries:</strong> You may contact us to inquire whether we hold personal information relating to you and request details of what is stored.
+              </li>
+              <li>
+                <strong className="text-slate-900">Correction:</strong> Landlords can update or correct their listing details, pricing, and contact numbers directly via the portal. For other corrections, you may contact our privacy email.
+              </li>
+              <li>
+                <strong className="text-slate-900">Objection & Ceasing Communication:</strong> You can discontinue using the marketplace or stop messaging our WhatsApp bot at any time.
+              </li>
+              <li>
+                <strong className="text-slate-900">Deletion Requests:</strong> While automated self-service account deletion is not currently implemented in the database, our team actively monitors incoming requests. Deletion requests will be reviewed and handled subject to applicable legal obligations, necessary operational retention, and technical feasibility (for example, server records we directly control, as distinct from third-party logs or copies retained independently by communication service providers).
+              </li>
+            </ul>
+
+            <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 space-y-2">
+              <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-[#FF7A00]" />
+                <span>How to Submit a Request</span>
+              </h3>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                To request manual review, record correction, or database deletion of your account or listings, send an email to our team:
+              </p>
+              <div className="text-xs font-semibold text-slate-900 bg-white border border-slate-200 rounded px-3 py-2 inline-block font-mono">
+                atlasmanica@gmail.com
+              </div>
+              <p className="text-xs text-slate-500 leading-relaxed">
+                Please include your registered phone number, the relevant listing title or locality (if applicable), and your specific request. Our administration team monitors this email and reviews each request individually, taking appropriate steps to remove eligible records from active databases subject to legal and operational retention requirements.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        {/* SECTION 9: Security Safeguards */}
+        <section className="bg-white border border-slate-200 rounded-xl p-4 sm:p-6 space-y-2.5 sm:space-y-3 shadow-xs">
+          <h2 className="text-lg sm:text-xl font-bold text-slate-900 flex items-center">
+            <span className="text-[#FF7A00] font-mono font-bold mr-2">9.</span>
+            Security Safeguards
+          </h2>
+          <div className="text-sm text-slate-600 leading-relaxed space-y-3">
+            <p>
+              We implement reasonable and appropriate technical and operational safeguards designed to protect personal information against unauthorized access, loss, misuse, or alteration. These include encrypted transmission (HTTPS / TLS) for web traffic, access control measures on operational credentials and application hosting environments, and restricted access to administrative systems.
+            </p>
+            <p>
+              While we take diligent precautions to safeguard data, no method of transmission over the Internet or electronic storage can be guaranteed 100% secure.
+            </p>
           </div>
         </section>
 
         {/* SECTION 10: Children's Privacy */}
-        <section className="bg-[#03152f]/70 border border-[#052659] rounded-2xl p-6 sm:p-7 space-y-4 shadow-sm">
-          <div className="flex items-start gap-3">
-            <div className="w-8 h-8 rounded-xl bg-[#052659] border border-white/10 flex items-center justify-center shrink-0 text-[#FF7A00] font-bold font-mono text-xs">
-              10
-            </div>
-            <div>
-              <h2 className="text-lg sm:text-xl font-bold text-white tracking-tight">10. Children's Privacy</h2>
-              <p className="text-xs text-slate-400 font-mono mt-0.5">Intended audience</p>
-            </div>
-          </div>
-          <div className="text-xs sm:text-sm text-slate-300 leading-relaxed pl-0 sm:pl-11">
+        <section className="bg-white border border-slate-200 rounded-xl p-4 sm:p-6 space-y-2.5 sm:space-y-3 shadow-xs">
+          <h2 className="text-lg sm:text-xl font-bold text-slate-900 flex items-center">
+            <span className="text-[#FF7A00] font-mono font-bold mr-2">10.</span>
+            Children's Privacy
+          </h2>
+          <div className="text-sm text-slate-600 leading-relaxed">
             <p>
-              BunkBy is intended for adult property seekers, university students of legal contractual age, and adult property owners capable of entering rental accommodation agreements. We do not knowingly collect personal information from individuals under 18 years of age. If we learn that personal information of a child has been collected, we will take steps to promptly remove it.
+              BunkBy is intended for adults, tertiary students, and individuals of legal age capable of entering rental accommodation agreements. We do not knowingly collect personal information from individuals under 18 years of age. If we learn that personal information of a child has been collected, we will take steps to promptly remove it.
             </p>
           </div>
         </section>
 
-        {/* SECTION 11: Third-Party Services */}
-        <section className="bg-[#03152f]/70 border border-[#052659] rounded-2xl p-6 sm:p-7 space-y-4 shadow-sm">
-          <div className="flex items-start gap-3">
-            <div className="w-8 h-8 rounded-xl bg-[#052659] border border-white/10 flex items-center justify-center shrink-0 text-[#FF7A00] font-bold font-mono text-xs">
-              11
-            </div>
-            <div>
-              <h2 className="text-lg sm:text-xl font-bold text-white tracking-tight">11. Third-Party Integrations</h2>
-              <p className="text-xs text-slate-400 font-mono mt-0.5">External platforms connected to BunkBy</p>
-            </div>
-          </div>
-          <div className="text-xs sm:text-sm text-slate-300 leading-relaxed space-y-2.5 pl-0 sm:pl-11">
+        {/* SECTION 11: Third-Party Service Providers & Processing Locations */}
+        <section className="bg-white border border-slate-200 rounded-xl p-4 sm:p-6 space-y-2.5 sm:space-y-3 shadow-xs">
+          <h2 className="text-lg sm:text-xl font-bold text-slate-900 flex items-center">
+            <span className="text-[#FF7A00] font-mono font-bold mr-2">11.</span>
+            Third-Party Providers & Data Processing
+          </h2>
+          <div className="text-sm text-slate-600 leading-relaxed space-y-3">
             <p>
-              The platform interfaces with select third-party services:
+              BunkBy relies on reputable third-party technology providers to host our application, protect our network, and route WhatsApp communications. These service providers may process information in countries where they operate:
             </p>
-            <ul className="list-disc pl-5 space-y-1.5 text-slate-300">
-              <li><strong>Meta WhatsApp Cloud API:</strong> For bidirectional WhatsApp message delivery and automated query fulfillment.</li>
-              <li><strong>Cloudflare:</strong> For edge routing, DDoS mitigation, DNS resolution, and Cloudflare Pages Functions.</li>
-              <li><strong>Google Cloud:</strong> For hosting server application instances on Cloud Run.</li>
+            <ul className="list-disc pl-5 space-y-2 text-slate-600">
+              <li>
+                <strong className="text-slate-900">Meta WhatsApp Cloud API:</strong> For bidirectional WhatsApp message delivery and automated customer query fulfillment.
+              </li>
+              <li>
+                <strong className="text-slate-900">Cloud & Network Providers:</strong> For edge routing, security mitigation, DNS resolution, and application server hosting.
+              </li>
             </ul>
-          </div>
-        </section>
-
-        {/* SECTION 12: International Transfers */}
-        <section className="bg-[#03152f]/70 border border-[#052659] rounded-2xl p-6 sm:p-7 space-y-4 shadow-sm">
-          <div className="flex items-start gap-3">
-            <div className="w-8 h-8 rounded-xl bg-[#052659] border border-white/10 flex items-center justify-center shrink-0 text-[#FF7A00] font-bold font-mono text-xs">
-              12
-            </div>
-            <div>
-              <h2 className="text-lg sm:text-xl font-bold text-white tracking-tight">12. International Data Transfers</h2>
-              <p className="text-xs text-slate-400 font-mono mt-0.5">Geographical hosting details</p>
-            </div>
-          </div>
-          <div className="text-xs sm:text-sm text-slate-300 leading-relaxed pl-0 sm:pl-11">
             <p>
-              While BunkBy serves the Zimbabwean accommodation market, cloud hosting servers and Meta WhatsApp infrastructure are located in international data center regions (including the United Kingdom, Europe, and South Africa). By using BunkBy or messaging our WhatsApp assistant, you acknowledge that your data may be processed in these jurisdictions in compliance with industry-standard security safeguards.
+              By using BunkBy or communicating with our WhatsApp assistant, you acknowledge that your information may be processed by these service providers in accordance with their respective privacy and security standards.
             </p>
           </div>
         </section>
 
-        {/* SECTION 13: Policy Changes */}
-        <section className="bg-[#03152f]/70 border border-[#052659] rounded-2xl p-6 sm:p-7 space-y-4 shadow-sm">
-          <div className="flex items-start gap-3">
-            <div className="w-8 h-8 rounded-xl bg-[#052659] border border-white/10 flex items-center justify-center shrink-0 text-[#FF7A00] font-bold font-mono text-xs">
-              13
-            </div>
-            <div>
-              <h2 className="text-lg sm:text-xl font-bold text-white tracking-tight">13. Policy Updates</h2>
-              <p className="text-xs text-slate-400 font-mono mt-0.5">Revision announcements</p>
-            </div>
-          </div>
-          <div className="text-xs sm:text-sm text-slate-300 leading-relaxed pl-0 sm:pl-11">
+        {/* SECTION 12: Policy Updates */}
+        <section className="bg-white border border-slate-200 rounded-xl p-4 sm:p-6 space-y-2.5 sm:space-y-3 shadow-xs">
+          <h2 className="text-lg sm:text-xl font-bold text-slate-900 flex items-center">
+            <span className="text-[#FF7A00] font-mono font-bold mr-2">12.</span>
+            Policy Updates
+          </h2>
+          <div className="text-sm text-slate-600 leading-relaxed space-y-2">
             <p>
-              We may revise this Privacy Policy from time to time to reflect operational, legal, or regulatory updates. Any changes will be posted directly on this page with an updated Effective Date. Continued use of BunkBy following the posting of updates constitutes your agreement to the modified terms.
+              We may revise this Privacy Policy from time to time to reflect operational, legal, technical, or regulatory updates. Any changes will be posted directly on this page with a revised effective date at the top of the policy.
             </p>
           </div>
         </section>
 
-        {/* SECTION 14: Contact Details */}
-        <section className="bg-[#052659]/60 border border-[#FF7A00]/40 rounded-2xl p-6 sm:p-7 space-y-4 shadow-md">
-          <div className="flex items-start gap-3">
-            <div className="w-8 h-8 rounded-xl bg-[#FF7A00] text-slate-950 flex items-center justify-center shrink-0 font-bold font-mono text-xs">
-              14
-            </div>
-            <div>
-              <h2 className="text-lg sm:text-xl font-bold text-white tracking-tight">14. Contact Details & Inquiries</h2>
-              <p className="text-xs text-[#FF7A00] font-mono mt-0.5 font-bold">Atlas Manica Group Administration</p>
-            </div>
-          </div>
-          <div className="text-xs sm:text-sm text-slate-200 leading-relaxed space-y-3 pl-0 sm:pl-11">
+        {/* SECTION 13: Contact Us About Privacy */}
+        <section className="bg-white border border-slate-200 rounded-xl p-6 sm:p-7 space-y-4 shadow-xs">
+          <h2 className="text-lg sm:text-xl font-bold text-slate-900 flex items-center">
+            <span className="text-[#FF7A00] font-mono font-bold mr-2">13.</span>
+            Contact Us About Privacy
+          </h2>
+          <div className="text-sm text-slate-600 leading-relaxed space-y-3">
             <p>
-              If you have any questions about this Privacy Policy, wish to exercise your data rights, or need assistance regarding your BunkBy account, please contact the operator:
+              If you have any questions, concerns, or requests regarding this Privacy Policy, your personal data, or wish to exercise your rights of access, correction, objection, or deletion, please contact Atlas Manica Group:
             </p>
-            <div className="bg-[#021024] p-4 rounded-xl border border-white/10 space-y-2 text-xs">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 border-b border-white/10 pb-2">
-                <span className="text-slate-400 font-mono">Platform Operator:</span>
-                <span className="text-white font-bold">Atlas Manica Group</span>
+            <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 sm:p-5 space-y-2.5">
+              <div className="flex items-start gap-3">
+                <Mail className="w-5 h-5 text-[#FF7A00] shrink-0 mt-0.5" />
+                <div>
+                  <div className="text-xs text-slate-500 font-medium">Dedicated Privacy Email</div>
+                  <div className="text-sm font-bold text-slate-900 font-mono select-all">
+                    atlasmanica@gmail.com
+                  </div>
+                </div>
               </div>
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 border-b border-white/10 pb-2">
-                <span className="text-slate-400 font-mono">Official Website:</span>
-                <a href="https://bunkby.com" className="text-[#FF7A00] font-bold underline">https://bunkby.com</a>
-              </div>
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 border-b border-white/10 pb-2">
-                <span className="text-slate-400 font-mono">WhatsApp Support & Inquiries:</span>
-                <a 
-                  href="https://wa.me/263771122334" 
-                  target="_blank" 
-                  rel="noopener noreferrer" 
-                  className="text-emerald-400 font-bold underline flex items-center gap-1"
-                >
-                  <MessageSquare className="w-3 h-3" /> +263 77 112 2334
-                </a>
-              </div>
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
-                <span className="text-slate-400 font-mono">Dedicated Privacy URL:</span>
-                <code className="text-[#FF7A00] font-mono">https://bunkby.com/privacy-policy</code>
+              <div className="h-px bg-slate-200 my-1" />
+              <div className="text-xs text-slate-600 space-y-1">
+                <div><strong className="text-slate-800">Platform Operator:</strong> Atlas Manica Group</div>
+                <div><strong className="text-slate-800">Service:</strong> BunkBy Accommodation Marketplace</div>
+                <div><strong className="text-slate-800">Applicable Framework:</strong> Zimbabwe (Cyber and Data Protection Act [Chapter 12:07])</div>
               </div>
             </div>
           </div>
         </section>
 
-        {/* Back to Home CTA */}
-        <div className="text-center pt-4">
+        {/* Back to Home Action Button */}
+        <div className="text-center pt-4 pb-6">
           <button
             onClick={onBackToHome}
-            className="inline-flex items-center gap-2 px-6 py-3 rounded-2xl bg-[#052659] hover:bg-[#07357c] text-white text-sm font-bold transition-all border border-[#FF7A00]/40 shadow-lg group"
+            className="inline-flex items-center gap-2 px-6 py-2.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-sm font-bold transition-colors cursor-pointer shadow-sm group"
           >
             <ArrowLeft className="w-4 h-4 text-[#FF7A00] transition-transform group-hover:-translate-x-1" />
-            <span>Return to BunkBy Accommodation Directory</span>
+            <span>Return to BunkBy</span>
           </button>
         </div>
-
       </main>
 
-      {/* Footer */}
-      <footer className="border-t border-[#052659] bg-[#021024] py-8 px-4 text-center text-xs text-slate-400 font-normal">
-        <div className="max-w-4xl mx-auto space-y-2">
+      {/* Clean White Footer */}
+      <footer className="border-t border-slate-200 bg-white py-6 px-4 text-center text-xs text-slate-500">
+        <div className="max-w-4xl mx-auto space-y-1">
           <p>© 2026 BunkBy. BunkBy is an accommodation marketplace operated by Atlas Manica Group.</p>
-          <div className="flex items-center justify-center gap-3 text-[11px] text-slate-500 font-mono">
-            <button onClick={onBackToHome} className="hover:text-white transition-colors">Home</button>
-            <span>•</span>
-            <span className="text-[#FF7A00]">Privacy Policy</span>
-            <span>•</span>
-            <a href="https://wa.me/263771122334" target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">WhatsApp Support</a>
-          </div>
         </div>
       </footer>
     </div>

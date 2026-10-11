@@ -134,6 +134,7 @@ export default function App() {
   const [minPrice, setMinPrice] = useState<number | "">("");
   const [maxPrice, setMaxPrice] = useState<number | "">("");
   const [sortBy, setSortBy] = useState<"newest" | "price_asc" | "price_desc" | "leads">("newest");
+  const [showMobileFilters, setShowMobileFilters] = useState(false);
   const [pendingDirectListingId, setPendingDirectListingId] = useState<string | null>(null);
 
   // Accommodation Detail Modal State
@@ -1127,26 +1128,26 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* Main Top Header: Navigation (#E2E8F0 background with palette accents) */}
+      {/* Main Top Header: Navigation (compact, mobile-first, responsive height) */}
       <header id="main-header" className="bg-[#052659] text-white border-b border-[#052659] sticky top-0 z-40 shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-18 flex items-center justify-between">
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 h-14 sm:h-16 flex items-center justify-between gap-2">
           
           {/* Logo Brand with custom icon */}
           <div 
             onClick={() => navigateTo("/", "browse")} 
-            className="flex items-center gap-3 cursor-pointer shrink-0"
+            className="flex items-center gap-2 sm:gap-3 cursor-pointer shrink-0"
             id="brand-logo"
           >
-            <BunkByLogo className="w-10 h-10" />
+            <BunkByLogo className="w-8 h-8 sm:w-10 sm:h-10 shrink-0" />
             <div>
-              <span className="text-2xl font-display font-black uppercase tracking-tight text-white md:text-2.5xl">
+              <span className="text-lg sm:text-2xl font-display font-black uppercase tracking-tight text-white">
                 Bunk<span className="text-[#FF7A00]">By</span>
               </span>
-              <p className="text-[10px] text-[#E2E8F0] tracking-wider font-mono font-bold">100% FREE • AGENT-FREE</p>
+              <p className="text-[9px] sm:text-[10px] text-[#E2E8F0] tracking-wider font-mono font-bold leading-none hidden xs:block">100% FREE • AGENT-FREE</p>
             </div>
           </div>
 
-          {/* Nav items with small compact selected highlights */}
+          {/* Nav items with small compact selected highlights (desktop) */}
           <nav className="hidden md:flex items-center gap-1 text-xs">
             <button 
               onClick={() => navigateTo("/", "browse")}
@@ -1186,13 +1187,13 @@ export default function App() {
             </button>
           </nav>
 
-          {/* Mobile Right Controls / User details */}
-          <div className="flex items-center gap-2">
+          {/* Right Controls / User details */}
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             {userProfile ? (
               <>
-                <div className="bg-[#052659]/80 rounded-lg px-2.5 py-1 border border-[#052659] hidden sm:flex items-center gap-1.5 text-xs text-[#E2E8F0] font-semibold">
+                <div className="bg-[#052659]/80 rounded-lg px-2 sm:px-2.5 py-1 border border-white/10 hidden sm:flex items-center gap-1.5 text-xs text-[#E2E8F0] font-semibold">
                   <User className="w-3 h-3 text-orange-500" />
-                  <span className="font-mono truncate max-w-[110px]">{userProfile.name}</span>
+                  <span className="font-mono truncate max-w-[90px] sm:max-w-[120px]">{userProfile.name}</span>
                 </div>
                 
                 <button 
@@ -1205,11 +1206,12 @@ export default function App() {
                     }));
                     setIsCreateModalOpen(true);
                   }}
-                  className="bg-orange-500 hover:bg-orange-600 text-white font-medium text-[11px] px-2.5 py-1.5 rounded-lg shadow-sm flex items-center gap-1 transition-all outline-none"
+                  className="bg-orange-500 hover:bg-orange-600 text-white font-bold text-[11px] sm:text-xs px-2.5 sm:px-3 py-1.5 rounded-lg shadow-sm flex items-center gap-1 transition-all outline-none cursor-pointer min-h-[36px]"
                   id="btn-create-header"
                 >
-                  <Plus className="w-3.5 h-3.5 text-white shrink-0" />
-                  <span>Create Listing</span>
+                  <Plus className="w-3.5 h-3.5 text-white shrink-0 stroke-[2.5]" />
+                  <span className="hidden xs:inline">Create Listing</span>
+                  <span className="xs:hidden">List</span>
                 </button>
               </>
             ) : (
@@ -1218,11 +1220,12 @@ export default function App() {
                   setActiveTab("landlord");
                   showToast("🔑 Register or access BunkBy Landlord workspace using your phone number!");
                 }}
-                className="bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white font-semibold text-[11px] px-2.5 py-1.5 rounded-lg shadow-sm flex items-center gap-1 transition-all outline-none"
+                className="bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white font-bold text-[11px] sm:text-xs px-2.5 sm:px-3 py-1.5 rounded-lg shadow-sm flex items-center gap-1 transition-all outline-none cursor-pointer min-h-[36px]"
                 id="btn-login-header"
               >
-                <User className="w-3 h-3 text-white" />
-                <span>Create Account</span>
+                <User className="w-3 h-3 text-white shrink-0" />
+                <span className="hidden xs:inline">Landlord Access</span>
+                <span className="xs:hidden">Sign In</span>
               </button>
             )}
           </div>
@@ -1230,40 +1233,47 @@ export default function App() {
         </div>
       </header>
 
-      {/* Mobile nav bar bottom */}
-      <div className="md:hidden bg-[#052659] border-b border-[#052659] flex items-center justify-around text-xs font-medium py-2.5 sticky top-18 z-35 shadow-sm">
+      {/* Mobile navigation bar top sub-header - slim, 44px touch targets, sticky below h-14 */}
+      <nav aria-label="Mobile Navigation" className="md:hidden bg-[#052659] border-b border-[#052659]/80 flex items-center justify-around text-[11px] font-medium py-1 sticky top-14 z-35 shadow-sm">
         <button 
           onClick={() => navigateTo("/", "browse")}
-          className={`flex flex-col items-center gap-1 ${activeTab === "browse" ? "text-white font-bold" : "text-[#E2E8F0]"}`}
+          className={`flex flex-col items-center justify-center py-1 px-2 rounded-md min-h-[44px] min-w-[56px] transition-colors ${activeTab === "browse" ? "text-white font-extrabold bg-[#021024]/50" : "text-[#E2E8F0] hover:text-white"}`}
         >
           <Building className="w-4 h-4 shrink-0" />
-          <span>Browse</span>
+          <span className="leading-tight mt-0.5">Browse</span>
         </button>
         <button 
           onClick={() => navigateTo("/", "landlord")}
-          className={`flex flex-col items-center gap-1 relative ${activeTab === "landlord" ? "text-white font-bold" : "text-[#E2E8F0]"}`}
+          className={`flex flex-col items-center justify-center py-1 px-2 rounded-md min-h-[44px] min-w-[56px] transition-colors relative ${activeTab === "landlord" ? "text-white font-extrabold bg-[#021024]/50" : "text-[#E2E8F0] hover:text-white"}`}
         >
           <SlidersHorizontal className="w-4 h-4 shrink-0" />
-          <span>My Portal</span>
+          <span className="leading-tight mt-0.5">Portal</span>
         </button>
         <button 
           onClick={() => navigateTo("/", "whatsapp")}
-          className={`flex flex-col items-center gap-1 ${activeTab === "whatsapp" ? "text-emerald-300 font-bold" : "text-[#E2E8F0]"}`}
+          className={`flex flex-col items-center justify-center py-1 px-2 rounded-md min-h-[44px] min-w-[56px] transition-colors ${activeTab === "whatsapp" ? "text-emerald-300 font-extrabold bg-[#021024]/50" : "text-[#E2E8F0] hover:text-emerald-300"}`}
         >
-          <MessageSquare className="w-4 h-4 shrink-0 text-emerald-600" />
-          <span>WhatsApp Bot</span>
+          <MessageSquare className="w-4 h-4 shrink-0 text-emerald-400" />
+          <span className="leading-tight mt-0.5">Bot</span>
         </button>
         <button 
           onClick={() => navigateTo("/", "account")}
-          className={`flex flex-col items-center gap-1 ${activeTab === "account" ? "text-white font-bold" : "text-[#E2E8F0]"}`}
+          className={`flex flex-col items-center justify-center py-1 px-2 rounded-md min-h-[44px] min-w-[56px] transition-colors ${activeTab === "account" ? "text-white font-extrabold bg-[#021024]/50" : "text-[#E2E8F0] hover:text-white"}`}
         >
           <Settings className="w-4 h-4 shrink-0" />
-          <span>Settings</span>
+          <span className="leading-tight mt-0.5">Account</span>
         </button>
-      </div>
+        <button 
+          onClick={() => navigateTo("/", "help")}
+          className={`flex flex-col items-center justify-center py-1 px-2 rounded-md min-h-[44px] min-w-[56px] transition-colors ${activeTab === "help" ? "text-white font-extrabold bg-[#021024]/50" : "text-[#E2E8F0] hover:text-white"}`}
+        >
+          <HelpCircle className="w-4 h-4 shrink-0" />
+          <span className="leading-tight mt-0.5">Help</span>
+        </button>
+      </nav>
 
       {/* Application Body Content */}
-      <main className="flex-grow max-w-7xl w-full mx-auto p-4 sm:p-5 lg:p-8">
+      <main className="flex-grow max-w-7xl w-full mx-auto px-3 sm:px-5 lg:px-8 py-3.5 sm:py-6">
         
         {/* TAB 1: BROWSER / ROOM DIRECTORY */}
         {activeTab === "browse" && (
@@ -1272,7 +1282,7 @@ export default function App() {
             {/* Hero Card with User Uploaded hero-background.png */}
             <section 
               id="hero-banner" 
-              className="bg-[#080f18] rounded-3xl text-white p-6 sm:p-8 md:p-12 text-center relative overflow-hidden shadow-2xl border border-slate-800/80 bg-cover bg-center"
+              className="bg-[#080f18] rounded-2xl sm:rounded-3xl text-white p-4 sm:p-7 md:p-10 text-center relative overflow-hidden shadow-xl sm:shadow-2xl border border-slate-800/80 bg-cover bg-center"
               style={{ backgroundImage: `url('/assets/Midnight Tribal Geometry with Copper Accents.png')` }}
             >
               {/* User Uploaded Hero Background Image */}
@@ -1286,24 +1296,21 @@ export default function App() {
                 }}
               />
 
-              {/* Ambient lighting glows matching copper and midnight tones */}
-              
-
-              <div className="relative z-10 max-w-3.5xl mx-auto space-y-4 sm:space-y-6">
-                <div className="inline-flex items-center gap-1.5 sm:gap-2 bg-[#052659]/80 backdrop-blur-md border border-white/20 text-white px-3 sm:px-4 py-1 sm:py-1.5 rounded-full text-[10px] sm:text-xs font-black tracking-wider shadow-sm max-w-full">
-                  <ShieldCheck className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#FF7A00] shrink-0" />
+              <div className="relative z-10 max-w-3xl mx-auto space-y-3 sm:space-y-4">
+                <div className="inline-flex items-center gap-1.5 bg-[#052659]/90 backdrop-blur-md border border-white/20 text-white px-2.5 sm:px-3.5 py-1 rounded-full text-[9px] sm:text-xs font-black tracking-wider shadow-sm max-w-full">
+                  <ShieldCheck className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-[#FF7A00] shrink-0" />
                   <span className="truncate">ZIMBABWE'S AGENT-FREE ACCOMMODATION MARKETPLACE • DEAL DIRECT</span>
                 </div>
 
-                <h1 className="text-2xl sm:text-4xl md:text-5.5xl font-display font-black tracking-tight text-white leading-tight drop-shadow-md">
+                <h1 className="text-xl sm:text-3xl md:text-5xl font-display font-black tracking-tight text-white leading-tight drop-shadow-md">
                   Find a Place to Stay in <span className="text-[#FF7A00] drop-shadow-sm">Zimbabwe</span>
                 </h1>
 
-                <p className="text-xs sm:text-sm md:text-base text-slate-200 font-medium sm:font-semibold max-w-2xl mx-auto leading-relaxed drop-shadow-sm">
-                  Browse verified rooms, cottages, apartments, guesthouses, and lodges across Harare, Bulawayo, Mutare, Gweru, and beyond. Free direct contact with landlords and hosts — zero middleman fees.
+                <p className="text-xs sm:text-sm md:text-base text-slate-200 font-medium max-w-xl mx-auto leading-relaxed drop-shadow-sm line-clamp-2 sm:line-clamp-none">
+                  Verified rooms, cottages, apartments, guesthouses, and lodges across Harare, Bulawayo, Mutare, Gweru, and beyond. Free direct contact with landlords — zero middleman fees.
                 </p>
 
-                <div className="pt-2 flex flex-wrap gap-2.5 sm:gap-3 justify-center">
+                <div className="pt-1 flex flex-wrap gap-2 sm:gap-3 justify-center">
                   <button 
                     onClick={() => {
                       if (!userProfile) {
@@ -1314,36 +1321,36 @@ export default function App() {
                         setIsCreateModalOpen(true);
                       }
                     }}
-                    className="bg-[#FF7A00] hover:bg-[#e66e00] text-white font-black px-4 sm:px-6 py-2.5 sm:py-3 rounded-xl sm:rounded-2xl shadow-lg shadow-orange-500/30 transition-all text-xs sm:text-sm flex items-center gap-1.5 sm:gap-2 cursor-pointer"
+                    className="bg-[#FF7A00] hover:bg-[#e66e00] text-white font-black px-3.5 sm:px-5 py-2 sm:py-2.5 rounded-xl shadow-lg shadow-orange-500/30 transition-all text-xs sm:text-sm flex items-center gap-1.5 cursor-pointer min-h-[38px]"
                   >
-                    <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0 stroke-[3]" />
-                    <span>List Accommodation (100% Free)</span>
+                    <Plus className="w-3.5 h-3.5 shrink-0 stroke-[3]" />
+                    <span>List Accommodation (Free)</span>
                   </button>
                   <button 
                     onClick={() => navigateTo("/", "whatsapp")}
-                    className="bg-white/15 hover:bg-white/25 text-white font-black px-4 sm:px-6 py-2.5 sm:py-3 rounded-xl sm:rounded-2xl transition-all text-xs sm:text-sm flex items-center gap-1.5 sm:gap-2 shadow-sm border border-white/20 cursor-pointer backdrop-blur-md"
+                    className="bg-white/15 hover:bg-white/25 text-white font-bold px-3.5 sm:px-5 py-2 sm:py-2.5 rounded-xl transition-all text-xs sm:text-sm flex items-center gap-1.5 shadow-sm border border-white/20 cursor-pointer backdrop-blur-md min-h-[38px]"
                   >
-                    <MessageSquare className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0 text-emerald-400 stroke-[2.5]" />
+                    <MessageSquare className="w-3.5 h-3.5 shrink-0 text-emerald-400 stroke-[2.5]" />
                     <span>Try WhatsApp Bot</span>
                   </button>
                 </div>
 
                 {/* Category Switcher Tabs: All, Residential, Hospitality */}
-                <div className="pt-4 border-t border-white/15 flex flex-wrap items-center justify-center gap-2">
+                <div className="pt-3 border-t border-white/15 flex flex-wrap items-center justify-center gap-1.5 sm:gap-2">
                   <button
                     type="button"
                     onClick={() => {
                       setSelectedCategory("all");
                       setSelectedPropertyType("");
                     }}
-                    className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer ${
+                    className={`px-3 py-1.5 sm:px-4 sm:py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 sm:gap-2 cursor-pointer ${
                       selectedCategory === "all"
                         ? "bg-[#FF7A00] text-white shadow-md shadow-orange-500/30"
                         : "bg-white/15 text-white hover:bg-white/25 border border-white/20 backdrop-blur-md"
                     }`}
                   >
                     <Building className="w-3.5 h-3.5 stroke-[2.5]" />
-                    <span>All Accommodations</span>
+                    <span>All Stays</span>
                     <span className="text-[10px] bg-black/40 px-1.5 py-0.5 rounded-full font-mono font-black text-white">
                       {listings.filter(r => r.status === "Active").length}
                     </span>
@@ -1355,14 +1362,14 @@ export default function App() {
                       setSelectedCategory("residential");
                       setSelectedPropertyType("");
                     }}
-                    className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer ${
+                    className={`px-3 py-1.5 sm:px-4 sm:py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 sm:gap-2 cursor-pointer ${
                       selectedCategory === "residential"
                         ? "bg-[#FF7A00] text-white shadow-md shadow-orange-500/30"
                         : "bg-white/15 text-white hover:bg-white/25 border border-white/20 backdrop-blur-md"
                     }`}
                   >
                     <Home className="w-3.5 h-3.5 stroke-[2.5]" />
-                    <span>🏡 Residential Housing</span>
+                    <span>Residential</span>
                     <span className="text-[10px] bg-black/40 px-1.5 py-0.5 rounded-full font-mono font-black text-white">
                       {listings.filter(r => r.status === "Active" && (r.category === "residential" || (!r.category && !["Lodge / Guesthouse", "Hotel", "Lodge", "Guesthouse", "Bed & Breakfast"].includes(r.propertyType)))).length}
                     </span>
@@ -1374,14 +1381,14 @@ export default function App() {
                       setSelectedCategory("hospitality");
                       setSelectedPropertyType("");
                     }}
-                    className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer ${
+                    className={`px-3 py-1.5 sm:px-4 sm:py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 sm:gap-2 cursor-pointer ${
                       selectedCategory === "hospitality"
                         ? "bg-[#FF7A00] text-white shadow-md shadow-orange-500/30"
                         : "bg-white/15 text-white hover:bg-white/25 border border-white/20 backdrop-blur-md"
                     }`}
                   >
                     <Hotel className="w-3.5 h-3.5 stroke-[2.5]" />
-                    <span>🏨 Hospitality & Lodges</span>
+                    <span>Hospitality</span>
                     <span className="text-[10px] bg-black/40 px-1.5 py-0.5 rounded-full font-mono font-black text-white">
                       {listings.filter(r => r.status === "Active" && (r.category === "hospitality" || ["Lodge / Guesthouse", "Hotel", "Lodge", "Guesthouse", "Bed & Breakfast"].includes(r.propertyType))).length}
                     </span>
@@ -1389,44 +1396,44 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Dynamic Filter Search Form Container */}
-              <div className="mt-6 bg-white text-slate-800 rounded-2xl p-4 md:p-5 shadow-2xl border border-slate-200 max-w-4xl mx-auto text-left relative z-10 grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
-                
+              {/* Dynamic Filter Search Form Container - Compact on mobile */}
+              <div className="mt-4 sm:mt-5 bg-white text-slate-800 rounded-2xl p-3 sm:p-4 shadow-xl border border-slate-200 max-w-3xl mx-auto text-left relative z-10 flex flex-col sm:flex-row gap-2.5 sm:gap-3 items-stretch sm:items-end">
                 {/* Search Text field */}
-                <div className="md:col-span-2 space-y-1.5">
-                  <label className="text-xs font-semibold text-slate-500 font-mono flex items-center gap-1.5 uppercase">
-                    <Search className="w-3.5 h-3.5 text-slate-400" />
+                <div className="flex-1 space-y-1">
+                  <label className="text-[11px] font-semibold text-slate-500 font-mono flex items-center gap-1 uppercase">
+                    <Search className="w-3 h-3 text-slate-400" />
                     <span>Keyword Search</span>
                   </label>
                   <div className="relative">
                     <input 
                       type="text" 
-                      placeholder={selectedCategory === "hospitality" ? "e.g. Bronte Gardens, safari lodge, pool..." : "e.g. Avonlea cozy cottage, student bedsit..."}
+                      placeholder={selectedCategory === "hospitality" ? "e.g. Bronte Gardens, safari lodge..." : "e.g. Avonlea cottage, student bedsit..."}
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
-                      className="w-full pl-3 pr-8 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-[#052659]/10 focus:border-[#052659] bg-slate-50 text-sm font-medium transition-all"
+                      className="w-full pl-3 pr-8 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-[#052659]/10 focus:border-[#052659] bg-slate-50 text-xs sm:text-sm font-medium transition-all"
                     />
                     {searchTerm && (
                       <button 
                         onClick={() => setSearchTerm("")}
                         className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                        aria-label="Clear search"
                       >
-                        <X className="w-4 h-4 shrink-0" />
+                        <X className="w-3.5 h-3.5 shrink-0" />
                       </button>
                     )}
                   </div>
                 </div>
 
                 {/* Town/City selector */}
-                <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-slate-500 font-mono uppercase">Filter By Town / City</label>
+                <div className="sm:w-44 space-y-1">
+                  <label className="text-[11px] font-semibold text-slate-500 font-mono uppercase">Town / City</label>
                   <select 
                     value={selectedCity}
                     onChange={(e) => {
                       setSelectedCity(e.target.value);
-                      setSelectedSuburb(""); // Reset suburb
+                      setSelectedSuburb("");
                     }}
-                    className="w-full py-2.5 px-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 bg-slate-50 text-sm font-medium focus:border-[#052659] transition-all cursor-pointer"
+                    className="w-full py-2 px-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 bg-slate-50 text-xs sm:text-sm font-medium focus:border-[#052659] transition-all cursor-pointer"
                   >
                     <option value="">All Cities</option>
                     {ALL_ZIM_CITIES.map(c => (
@@ -1435,55 +1442,66 @@ export default function App() {
                   </select>
                 </div>
 
-                {/* Search Trigger visual button */}
-                <div>
-                  <button className="w-full bg-[#052659] hover:bg-[#021024] text-white py-2.5 rounded-xl font-bold transition-all text-sm flex items-center justify-center gap-2 shadow-md cursor-pointer">
-                    <Search className="w-4 h-4 shrink-0" />
+                {/* Filter toggle button on mobile & search button on desktop */}
+                <div className="flex gap-2">
+                  <button 
+                    type="button"
+                    onClick={() => setShowMobileFilters(!showMobileFilters)}
+                    className={`sm:hidden flex-1 py-2 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all border ${
+                      showMobileFilters || (selectedSuburb || selectedPropertyType || selectedAmenity || selectedTenantType || minPrice !== "" || maxPrice !== "")
+                        ? "bg-orange-50 text-orange-600 border-orange-200"
+                        : "bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200"
+                    }`}
+                  >
+                    <Filter className="w-3.5 h-3.5 shrink-0" />
+                    <span>Filters {(selectedSuburb || selectedPropertyType || selectedAmenity || selectedTenantType || minPrice !== "" || maxPrice !== "") ? "• Active" : ""}</span>
+                  </button>
+
+                  <button className="flex-1 sm:flex-none sm:w-28 bg-[#052659] hover:bg-[#021024] text-white py-2 px-3.5 rounded-xl font-bold transition-all text-xs sm:text-sm flex items-center justify-center gap-1.5 shadow-md cursor-pointer min-h-[38px]">
+                    <Search className="w-3.5 h-3.5 shrink-0" />
                     <span>Search</span>
                   </button>
                 </div>
-
               </div>
             </section>
 
-            {/* Simulated Banner for WhatsApp Access */}
+            {/* Simulated Banner for WhatsApp Access - Compact, responsive */}
             <div 
               onClick={() => navigateTo("/", "whatsapp")}
-              className="bg-white border border-emerald-100 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 cursor-pointer hover:border-emerald-300 transition-all shadow-sm group"
+              className="bg-white border border-emerald-100 rounded-xl sm:rounded-2xl p-3 sm:p-4 flex items-center justify-between gap-3 cursor-pointer hover:border-emerald-300 transition-all shadow-xs group"
               id="whatsapp-promo-banner"
             >
-              <div className="flex items-center gap-3">
-                <span className="w-12 h-12 bg-emerald-50 rounded-2xl flex items-center justify-center group-hover:bg-emerald-100 transition-all border border-emerald-100 shrink-0">
-                  <MessageSquare className="w-6 h-6 text-emerald-500 fill-emerald-500/10" />
+              <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+                <span className="w-9 h-9 sm:w-11 sm:h-11 bg-emerald-50 rounded-xl flex items-center justify-center group-hover:bg-emerald-100 transition-all border border-emerald-100 shrink-0">
+                  <MessageSquare className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-500 fill-emerald-500/10" />
                 </span>
-                <div>
-                  <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
-                    Find Stays via WhatsApp
-                    <span className="inline-block px-1.5 py-0.5 text-[9px] bg-emerald-500 text-white rounded font-mono uppercase tracking-widest font-bold">Free InfoBot</span>
+                <div className="min-w-0">
+                  <h3 className="text-xs sm:text-sm font-bold text-slate-800 flex items-center gap-1.5 flex-wrap">
+                    <span>Find Stays via WhatsApp</span>
+                    <span className="inline-block px-1.5 py-0.5 text-[8px] sm:text-[9px] bg-emerald-500 text-white rounded font-mono uppercase tracking-widest font-bold">Free InfoBot</span>
                   </h3>
-                  <p className="text-xs text-slate-500">Low data? No problem. Chat with BunkBy bot to get matched accommodations sent directly to you on WhatsApp.</p>
+                  <p className="text-[11px] sm:text-xs text-slate-500 truncate sm:whitespace-normal">Low data? Chat with BunkBy bot to get matched accommodations directly on WhatsApp.</p>
                 </div>
               </div>
-              <span className="text-emerald-600 font-bold text-xs flex items-center gap-1 hover:underline self-end sm:self-auto shrink-0">
-                <span>Start Chatting</span>
+              <span className="text-emerald-600 font-bold text-xs flex items-center gap-0.5 hover:underline shrink-0">
+                <span className="hidden xs:inline">Chat</span>
                 <ChevronRight className="w-4 h-4 shrink-0" />
               </span>
             </div>
 
-            {/* Secondary Filters row (Price sliders, Amenities, Property Type, seek criteria) with clear links */}
-            <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs">
-              <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
+            {/* Secondary Filters row (Expandable on mobile, always visible on tablet/desktop) */}
+            <div className={`bg-white rounded-xl sm:rounded-2xl p-3 sm:p-4 border border-slate-200 shadow-xs ${showMobileFilters ? "block" : "hidden sm:block"}`}>
+              <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-3 sm:gap-4">
                 
                 {/* Check Filters panel */}
-                <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 w-full lg:w-auto">
-                  
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 sm:gap-3 w-full lg:w-auto">
                   {/* Suburb Select */}
                   <div className="space-y-1">
                     <label className="text-[10px] font-mono text-slate-400 font-semibold uppercase">Suburb</label>
                     <select
                       value={selectedSuburb}
                       onChange={(e) => setSelectedSuburb(e.target.value)}
-                      className="w-full text-xs font-semibold py-1.5 px-2.5 rounded-lg border border-slate-200 bg-slate-50 cursor-pointer focus:outline-none"
+                      className="w-full text-xs font-semibold py-1.5 px-2 rounded-lg border border-slate-200 bg-slate-50 cursor-pointer focus:outline-none"
                     >
                       <option value="">Any Suburb</option>
                       {getSuburbsForCity().map(s => (
@@ -1498,7 +1516,7 @@ export default function App() {
                     <select
                       value={selectedPropertyType}
                       onChange={(e) => setSelectedPropertyType(e.target.value)}
-                      className="w-full text-xs font-semibold py-1.5 px-2.5 rounded-lg border border-slate-200 bg-slate-50 cursor-pointer focus:outline-none text-slate-700"
+                      className="w-full text-xs font-semibold py-1.5 px-2 rounded-lg border border-slate-200 bg-slate-50 cursor-pointer focus:outline-none text-slate-700"
                     >
                       <option value="">All Types</option>
                       {(selectedCategory === "hospitality" 
@@ -1518,7 +1536,7 @@ export default function App() {
                     <select
                       value={selectedAmenity}
                       onChange={(e) => setSelectedAmenity(e.target.value)}
-                      className="w-full text-xs font-semibold py-1.5 px-2.5 rounded-lg border border-slate-200 bg-slate-50 cursor-pointer focus:outline-none"
+                      className="w-full text-xs font-semibold py-1.5 px-2 rounded-lg border border-slate-200 bg-slate-50 cursor-pointer focus:outline-none"
                     >
                       <option value="">Any Amenity</option>
                       {(selectedCategory === "hospitality" ? HOSPITALITY_AMENITIES : ALL_AMENITIES).map(a => (
@@ -1533,7 +1551,7 @@ export default function App() {
                     <select
                       value={selectedTenantType}
                       onChange={(e) => setSelectedTenantType(e.target.value)}
-                      className="w-full text-xs font-semibold py-1.5 px-2.5 rounded-lg border border-slate-200 bg-slate-50 cursor-pointer focus:outline-none text-slate-700"
+                      className="w-full text-xs font-semibold py-1.5 px-2 rounded-lg border border-slate-200 bg-slate-50 cursor-pointer focus:outline-none text-slate-700"
                     >
                       <option value="">Any seeking type</option>
                       <option value="Student">Student sought</option>
@@ -1544,7 +1562,7 @@ export default function App() {
                   </div>
 
                   {/* Min / Max Price fields */}
-                  <div className="space-y-1">
+                  <div className="space-y-1 col-span-2 sm:col-span-1">
                     <label className="text-[10px] font-mono text-slate-400 font-semibold uppercase">Price (USD)</label>
                     <div className="flex items-center gap-1.5">
                       <input 
@@ -1552,7 +1570,7 @@ export default function App() {
                         placeholder="Min" 
                         value={minPrice}
                         onChange={(e) => setMinPrice(e.target.value === "" ? "" : Number(e.target.value))}
-                        className="w-full text-xs py-1 px-2 border border-slate-200 rounded-md bg-slate-50 text-center"
+                        className="w-full text-xs py-1 px-1.5 border border-slate-200 rounded-md bg-slate-50 text-center"
                       />
                       <span className="text-slate-400 text-[10px]">-</span>
                       <input 
@@ -1560,30 +1578,29 @@ export default function App() {
                         placeholder="Max" 
                         value={maxPrice}
                         onChange={(e) => setMaxPrice(e.target.value === "" ? "" : Number(e.target.value))}
-                        className="w-full text-xs py-1 px-2 border border-slate-200 rounded-md bg-slate-50 text-center"
+                        className="w-full text-xs py-1 px-1.5 border border-slate-200 rounded-md bg-slate-50 text-center"
                       />
                     </div>
                   </div>
-
                 </div>
 
                 {/* Clearance Actions & Sort Controls */}
-                <div className="flex flex-wrap items-center gap-3 shrink-0 self-end lg:self-auto">
+                <div className="flex flex-wrap items-center justify-between sm:justify-end gap-2.5 w-full lg:w-auto shrink-0 pt-2 lg:pt-0 border-t lg:border-t-0 border-slate-100">
                   {(searchTerm || selectedCity || selectedSuburb || selectedAmenity || selectedPropertyType || selectedTenantType || selectedCategory !== "all" || minPrice !== "" || maxPrice !== "" || sortBy !== "newest") && (
                     <button 
                       onClick={clearAllFilters}
-                      className="text-xs text-orange-500 font-bold hover:underline flex items-center gap-1 bg-orange-50 px-3 py-1.5 rounded-lg transition-all cursor-pointer"
+                      className="text-xs text-orange-500 font-bold hover:underline flex items-center gap-1 bg-orange-50 px-2.5 py-1 rounded-lg transition-all cursor-pointer"
                     >
-                      <span>Clear All Filters</span>
+                      <span>Clear Filters</span>
                     </button>
                   )}
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1.5 ml-auto sm:ml-0">
                     <label htmlFor="sort-by-select" className="text-xs text-slate-500 font-medium">Sort:</label>
                     <select
                       id="sort-by-select"
                       value={sortBy}
                       onChange={(e) => setSortBy(e.target.value as any)}
-                      className="text-xs font-semibold bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 text-slate-700 focus:outline-none focus:border-orange-500 cursor-pointer shadow-2xs"
+                      className="text-xs font-semibold bg-white border border-slate-200 rounded-lg px-2 py-1 text-slate-700 focus:outline-none focus:border-orange-500 cursor-pointer shadow-2xs"
                     >
                       <option value="newest">Newest First</option>
                       <option value="price_asc">Price: Low to High</option>
@@ -1591,51 +1608,50 @@ export default function App() {
                       <option value="leads">Most Inquiries</option>
                     </select>
                   </div>
-                  <div className="text-xs text-slate-500 font-mono">
-                    Showing <span className="font-bold text-slate-800">{displayedListings.length}</span> active stays
+                  <div className="text-xs text-slate-500 font-mono hidden xs:block">
+                    <span className="font-bold text-slate-800">{displayedListings.length}</span> stays
                   </div>
                 </div>
-
               </div>
             </div>
 
-            {/* Rooms Cards Directory list */}
+            {/* Mobile result count header when filter panel is collapsed */}
+            <div className="sm:hidden flex items-center justify-between px-1 text-xs text-slate-600 font-medium">
+              <span>Showing <strong className="text-slate-900">{displayedListings.length}</strong> active accommodations</span>
+              <button
+                type="button"
+                onClick={() => setShowMobileFilters(!showMobileFilters)}
+                className="text-xs text-orange-600 font-bold flex items-center gap-1 hover:underline"
+              >
+                <Filter className="w-3.5 h-3.5" />
+                <span>{showMobileFilters ? "Hide Filters" : "Filter Stays"}</span>
+              </button>
+            </div>
+
+            {/* Rooms Cards Directory list - Compact, Responsive Grid */}
             {isLoading ? (
-              <div className="flex flex-col items-center justify-center py-20 gap-3">
-                <RefreshCw className="w-8 h-8 text-orange-500 animate-spin" />
-                <p className="text-slate-500 font-medium">Querying active agent-free listings...</p>
+              <div className="flex flex-col items-center justify-center py-16 gap-3">
+                <RefreshCw className="w-7 h-7 text-orange-500 animate-spin" />
+                <p className="text-slate-500 font-medium text-sm">Querying active agent-free listings...</p>
               </div>
             ) : displayedListings.length === 0 ? (
-              <div className="bg-white rounded-3xl p-12 text-center border border-slate-200 space-y-4 max-w-xl mx-auto shadow-sm">
-                <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mx-auto">
-                  <SlidersHorizontal className="w-8 h-8 text-slate-400" />
+              <div className="bg-white rounded-2xl p-8 sm:p-12 text-center border border-slate-200 space-y-3 max-w-lg mx-auto shadow-xs">
+                <div className="w-12 h-12 sm:w-16 sm:h-16 bg-slate-100 rounded-full flex items-center justify-center mx-auto text-slate-400">
+                  <SlidersHorizontal className="w-6 h-6 sm:w-8 sm:h-8" />
                 </div>
-                <h3 className="text-lg font-bold text-slate-800 font-display">No Rooms Found</h3>
-                <p className="text-sm text-slate-500">
-                  No listings matched your criteria. Try widening your search filter. Landlords can list rooms instantly for free right now to capture traffic!
+                <h3 className="text-base sm:text-lg font-bold text-slate-800 font-display">No Rooms Found</h3>
+                <p className="text-xs sm:text-sm text-slate-500">
+                  No listings matched your criteria. Try widening your search or clearing filters. Landlords can list rooms instantly for free!
                 </p>
-                <div className="pt-2 flex justify-center gap-3">
-                  <button onClick={clearAllFilters} className="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold px-4 py-2 rounded-xl transition-all">
-                    Reset Filters
-                  </button>
-                  <button 
-                    onClick={() => {
-                      if (!userProfile) {
-                        showToast("⚠️ Please create an account or log in first to create a listing.");
-                        setActiveTab("landlord");
-                      } else {
-                        setNewRoomForm(prev => ({ ...prev, landlordName: userProfile.name, phone: userProfile.phone }));
-                        setIsCreateModalOpen(true);
-                      }
-                    }} 
-                    className="bg-orange-500 hover:bg-orange-600 text-white text-xs font-semibold px-4 py-2 rounded-xl transition-all shadow-md shadow-orange-500/10"
-                  >
-                    List First Room
-                  </button>
-                </div>
+                <button
+                  onClick={clearAllFilters}
+                  className="bg-orange-50 text-orange-600 hover:bg-orange-100 text-xs font-bold px-4 py-2 rounded-xl transition-colors cursor-pointer"
+                >
+                  Clear Filters
+                </button>
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8" id="rooms-grid">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5 sm:gap-5 lg:gap-6" id="rooms-grid">
                 {displayedListings.map((room) => {
                   const isHospitality = room.category === "hospitality" || ["Lodge / Guesthouse", "Hotel", "Lodge", "Guesthouse", "Bed & Breakfast"].includes(room.propertyType);
                   const businessName = room.business_name || room.businessName;
@@ -1645,173 +1661,171 @@ export default function App() {
                       key={room.id}
                       layoutId={room.id}
                       id={`room-card-${room.id}`}
-                      className="bg-white rounded-2xl overflow-hidden border border-slate-200/80 shadow-md hover:shadow-xl hover:border-slate-300 transition-all flex flex-col group relative"
+                      className="bg-white rounded-2xl overflow-hidden border border-slate-200/90 shadow-xs hover:shadow-md hover:border-slate-300 transition-all flex flex-col group relative"
                     >
-                      {/* Room Image with overlay tags */}
+                      {/* Room Image with overlay tags - Compact aspect-ratio */}
                       <div 
                         onClick={() => {
                           setSelectedListingDetail(room);
                           setDetailActivePhotoIdx(0);
                         }}
-                        className="relative h-56 w-full overflow-hidden bg-slate-100 shrink-0 flex items-center justify-center cursor-pointer"
+                        className="relative aspect-16/10 sm:aspect-16/9 w-full overflow-hidden bg-slate-100 shrink-0 flex items-center justify-center cursor-pointer"
                       >
                         {(room.image_url || (room.images && room.images[0])) ? (
                           <img 
                             src={room.image_url || (room.images && room.images[0])} 
                             alt={room.title}
-                            className="w-full h-full object-cover transition-transform duration-550 group-hover:scale-105"
+                            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
                             referrerPolicy="no-referrer"
+                            loading="lazy"
                           />
                         ) : (
                           <span className="text-slate-400 font-mono text-xs font-bold uppercase tracking-widest">No Image</span>
                         )}
                         
-                        {/* Top ribbon tags */}
-                        <div className="absolute top-3 left-3 flex flex-wrap gap-1.5 z-10">
+                        {/* Top ribbon tags - compact */}
+                        <div className="absolute top-2.5 left-2.5 flex flex-wrap gap-1 z-10 max-w-[70%]">
                           {isHospitality ? (
-                            <span className="bg-[#052659] text-white font-bold text-[10px] tracking-wide uppercase px-2.5 py-1 rounded-full flex items-center gap-1.5 shadow-md shadow-[#052659]/30">
-                              <Hotel className="w-3 h-3 text-[#FF7A00] shrink-0" />
+                            <span className="bg-[#052659] text-white font-bold text-[9px] tracking-wide uppercase px-2 py-0.5 rounded-full flex items-center gap-1 shadow-xs">
+                              <Hotel className="w-2.5 h-2.5 text-[#FF7A00] shrink-0" />
                               <span>Hospitality</span>
                             </span>
                           ) : (
-                            <span className="bg-[#021024] text-white font-bold text-[10px] tracking-wide uppercase px-2.5 py-1 rounded-full flex items-center gap-1.5 shadow-md shadow-[#021024]/30">
-                              <Home className="w-3 h-3 text-[#FF7A00] shrink-0" />
+                            <span className="bg-[#021024] text-white font-bold text-[9px] tracking-wide uppercase px-2 py-0.5 rounded-full flex items-center gap-1 shadow-xs">
+                              <Home className="w-2.5 h-2.5 text-[#FF7A00] shrink-0" />
                               <span>Residential</span>
                             </span>
                           )}
 
-                          <span className="bg-slate-900/85 backdrop-blur-md text-[#FF7A00] font-mono font-bold text-[9px] px-2 py-0.5 rounded-full uppercase tracking-wider">
+                          <span className="bg-slate-900/85 backdrop-blur-xs text-[#FF7A00] font-mono font-bold text-[8.5px] px-1.5 py-0.5 rounded-full uppercase truncate">
                             {room.propertyType}
                           </span>
 
                           {room.isSample && (
-                            <span className="bg-amber-500/90 text-white font-mono font-bold text-[9px] px-2 py-0.5 rounded-full uppercase tracking-wider shadow-xs">
-                              Sample Listing
+                            <span className="bg-amber-500/90 text-white font-mono font-bold text-[8.5px] px-1.5 py-0.5 rounded-full uppercase shadow-2xs">
+                              Sample
                             </span>
                           )}
 
-                          {room.isVerifiedLandlord ? (
-                            <span className="bg-emerald-600 text-white font-semibold text-[10px] tracking-wide uppercase px-2 py-0.5 rounded-full flex items-center gap-1 shadow-sm">
-                              <CheckCircle className="w-3 h-3 text-white shrink-0" />
-                              <span>Verified {isHospitality ? "Host" : "Landlord"}</span>
-                            </span>
-                          ) : (
-                            <span className="bg-slate-800/80 backdrop-blur-xs text-slate-300 font-medium text-[9px] px-2 py-0.5 rounded-full">
-                              Advertiser info provided
+                          {room.isVerifiedLandlord && (
+                            <span className="bg-emerald-600 text-white font-semibold text-[8.5px] tracking-wide uppercase px-1.5 py-0.5 rounded-full flex items-center gap-0.5 shadow-2xs">
+                              <CheckCircle className="w-2.5 h-2.5 text-white shrink-0" />
+                              <span>Verified</span>
                             </span>
                           )}
                         </div>
 
-                        {/* Side cost badge */}
-                        <div className="absolute bottom-3 right-3 bg-white/95 backdrop-blur-sm shadow-md rounded-2xl px-3 py-1.5 text-right border border-slate-200">
-                          <span className="text-[10px] text-slate-500 block leading-3 font-mono font-bold uppercase">
+                        {/* Cost badge overlaid on image - clean & readable */}
+                        <div className="absolute bottom-2.5 right-2.5 bg-white/95 backdrop-blur-xs shadow-md rounded-xl px-2.5 py-1 text-right border border-slate-200">
+                          <span className="text-[9px] text-slate-500 block leading-none font-mono font-bold uppercase">
                             {isHospitality ? "Rate" : "Rent"}
                           </span>
-                          <div className="text-xl font-display font-extrabold text-slate-900">
-                            ${room.price} <span className="text-xs font-semibold text-slate-500">/{room.frequency}</span>
+                          <div className="text-base sm:text-lg font-display font-extrabold text-slate-900 leading-tight">
+                            ${room.price}<span className="text-[10px] font-semibold text-slate-500">/{room.frequency}</span>
                           </div>
                           {isHospitality ? (
-                            <span className="text-[10px] text-emerald-600 block font-mono font-bold">Direct Booking</span>
+                            <span className="text-[8.5px] text-emerald-600 block font-mono font-bold leading-none">Direct Booking</span>
                           ) : room.deposit > 0 ? (
-                            <span className="text-[10px] text-slate-400 block font-mono">Dep: ${room.deposit}</span>
+                            <span className="text-[8.5px] text-slate-400 block font-mono leading-none">Dep: ${room.deposit}</span>
                           ) : (
-                            <span className="text-[10px] text-emerald-600 block font-mono font-bold">No Deposit</span>
+                            <span className="text-[8.5px] text-emerald-600 block font-mono font-bold leading-none">No Deposit</span>
                           )}
                         </div>
                       </div>
 
-                      {/* Room Metadata */}
-                      <div className="p-5 flex-grow flex flex-col space-y-4">
+                      {/* Room Metadata - Tightly structured, readable, no excess padding */}
+                      <div className="p-3.5 sm:p-4 flex-grow flex flex-col space-y-2.5">
                         
-                        {/* Name/Heading */}
-                        <div className="space-y-1">
+                        {/* Heading & Subtitle */}
+                        <div className="space-y-0.5">
                           {isHospitality && businessName && (
-                            <div className="flex items-center gap-1.5 text-xs font-extrabold text-[#052659] uppercase tracking-wide">
-                              <Building2 className="w-3.5 h-3.5 text-[#052659] shrink-0" />
+                            <div className="flex items-center gap-1 text-[11px] font-extrabold text-[#052659] uppercase tracking-wide truncate">
+                              <Building2 className="w-3 h-3 text-[#052659] shrink-0" />
                               <span className="truncate">{businessName}</span>
                             </div>
                           )}
 
-                          <div className="flex items-start justify-between gap-1.5">
-                            <h3 
-                              onClick={() => {
-                                setSelectedListingDetail(room);
-                                setDetailActivePhotoIdx(0);
-                              }}
-                              className="text-lg font-bold text-slate-800 leading-snug line-clamp-2 hover:text-[#052659] cursor-pointer transition-colors"
-                            >
-                              {room.title}
-                            </h3>
-                          </div>
+                          <h3 
+                            onClick={() => {
+                              setSelectedListingDetail(room);
+                              setDetailActivePhotoIdx(0);
+                            }}
+                            className="text-sm sm:text-base font-bold text-slate-800 leading-snug line-clamp-1 hover:text-[#052659] cursor-pointer transition-colors"
+                            title={room.title}
+                          >
+                            {room.title}
+                          </h3>
                           
                           {/* Location lines */}
-                          <div className="space-y-1 text-xs text-slate-500">
-                            <div className="flex items-center gap-1.5 font-semibold text-slate-700">
-                              <MapPin className="w-3.5 h-3.5 text-[#FF7A00] shrink-0" />
-                              <span>{room.city}, {room.suburb}</span>
-                            </div>
-                            <p className="italic pl-5 line-clamp-1 text-slate-400">"{room.landmark}"</p>
+                          <div className="flex items-center gap-1 text-xs text-slate-600 font-medium">
+                            <MapPin className="w-3 h-3 text-[#FF7A00] shrink-0" />
+                            <span className="truncate">{room.city}, {room.suburb}</span>
+                            {room.landmark && (
+                              <span className="text-slate-400 italic text-[11px] truncate hidden xs:inline">• "{room.landmark}"</span>
+                            )}
                           </div>
                         </div>
 
-                        {/* Main criteria highlights */}
-                        <div className="bg-slate-50 rounded-xl p-3 flex justify-around text-center items-center divide-x divide-slate-200 shrink-0">
-                          <div className="w-1/2 p-1">
-                            <span className="text-[9px] uppercase tracking-wider block text-slate-400 font-mono">
-                              {isHospitality ? "Stay Type" : "Criteria"}
+                        {/* Criteria pills in single compact row */}
+                        <div className="flex items-center gap-1.5 flex-wrap text-[10px] text-slate-600 pt-0.5">
+                          <span className="bg-slate-100 text-slate-700 px-2 py-0.5 rounded-md font-medium">
+                            {isHospitality ? "Direct Stay" : `${room.tenantType} sought`}
+                          </span>
+                          <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md font-mono">
+                            {room.contactMethod}
+                          </span>
+                          {room.leadsCount ? (
+                            <span className="text-orange-600 bg-orange-50 px-1.5 py-0.5 rounded-md font-mono font-bold text-[9px] ml-auto">
+                              {room.leadsCount} inquiries
                             </span>
-                            <span className="text-xs font-bold text-slate-700">
-                              {isHospitality ? "Direct Guest Stay" : `${room.tenantType} sought`}
-                            </span>
-                          </div>
-                          <div className="w-1/2 p-1">
-                            <span className="text-[9px] uppercase tracking-wider block text-slate-400 font-mono font-bold">
-                              {isHospitality ? "Reception / Host" : "Contact Method"}
-                            </span>
-                            <span className="text-xs font-semibold text-slate-700">{room.contactMethod}</span>
-                          </div>
+                          ) : null}
                         </div>
 
-                        {/* List of amenities */}
+                        {/* List of amenities - concise badges */}
                         {room.amenities.length > 0 && (
-                          <div className="flex flex-wrap gap-1.5 shrink-0">
-                            {room.amenities.map((amenity, idx) => (
+                          <div className="flex flex-wrap gap-1 shrink-0 pt-0.5">
+                            {room.amenities.slice(0, 3).map((amenity, idx) => (
                               <span 
                                 key={idx}
-                                className={`text-[10px] font-medium py-0.5 px-2.5 rounded-full border transition-all ${
+                                className={`text-[9.5px] font-medium py-0.5 px-2 rounded-md border ${
                                   isHospitality 
                                     ? "bg-amber-50 text-amber-800 border-amber-200" 
-                                    : "bg-sky-50 text-sky-700 border-sky-100 hover:border-orange-200"
+                                    : "bg-sky-50 text-sky-700 border-sky-100"
                                 }`}
                               >
                                 {amenity}
                               </span>
                             ))}
+                            {room.amenities.length > 3 && (
+                              <span className="text-[9px] text-slate-400 py-0.5 px-1 font-mono">
+                                +{room.amenities.length - 3} more
+                              </span>
+                            )}
                           </div>
                         )}
 
                         {/* Bottom action panel with View Details & direct contact */}
-                        <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-2 mt-auto shrink-0">
+                        <div className="pt-2.5 border-t border-slate-100 flex items-center justify-between gap-2 mt-auto shrink-0">
                           <button
                             type="button"
                             onClick={() => {
                               setSelectedListingDetail(room);
                               setDetailActivePhotoIdx(0);
                             }}
-                            className="text-xs font-bold text-slate-700 hover:text-[#052659] bg-slate-100 hover:bg-slate-200 py-2 px-3 rounded-xl transition-all cursor-pointer flex items-center gap-1.5"
+                            className="text-xs font-bold text-slate-700 hover:text-[#052659] bg-slate-100 hover:bg-slate-200 py-2 px-2.5 sm:px-3 rounded-xl transition-all cursor-pointer flex items-center gap-1 min-h-[38px]"
                           >
                             <Eye className="w-3.5 h-3.5 shrink-0" />
-                            <span>View Details</span>
+                            <span>Details</span>
                           </button>
 
                           <button 
                             type="button"
                             onClick={() => handleContactLandlord(room)}
-                            className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs py-2 px-3.5 rounded-xl shadow-md transition-all flex items-center gap-1.5 cursor-pointer outline-none"
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs py-2 px-3 sm:px-3.5 rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer outline-none min-h-[38px]"
                             title="Inquire directly with host or landlord via WhatsApp"
                           >
                             <Phone className="w-3.5 h-3.5 text-white fill-white/15" />
-                            <span>{isHospitality ? "Inquire (WhatsApp)" : "Contact Landlord"}</span>
+                            <span>{isHospitality ? "Inquire" : "Contact Host"}</span>
                           </button>
                         </div>
 
@@ -1822,35 +1836,33 @@ export default function App() {
               </div>
             )}
 
-            {/* Highlighted BunkBy Promo Section */}
-            <section className="bg-orange-500/5 rounded-3xl p-6 sm:p-8 border border-orange-500/10 grid grid-cols-1 md:grid-cols-3 gap-6 items-center">
-              <div className="md:col-span-2 space-y-2">
-                <span className="text-xs font-mono font-bold text-orange-600 tracking-wider uppercase block">Free Traffic Generation</span>
-                <h2 className="text-xl sm:text-2xl font-display font-bold text-slate-900">
+            {/* Highlighted BunkBy Promo Section - Responsive & Compact */}
+            <section className="bg-orange-500/5 rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 border border-orange-500/10 grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6 items-center">
+              <div className="md:col-span-2 space-y-1.5">
+                <span className="text-[10px] sm:text-xs font-mono font-bold text-orange-600 tracking-wider uppercase block">Free Traffic Generation</span>
+                <h2 className="text-lg sm:text-2xl font-display font-bold text-slate-900">
                   Landlord: Why List With BunkBy?
                 </h2>
-                <p className="text-sm text-slate-600 leading-relaxed">
-                  Harness our exponentially growing massive tenant traffic! Our system lets you state exactly the tenant type you seek, and easily delist with a single tap as soon as your room gets occupied.
+                <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
+                  Harness our exponentially growing massive tenant traffic! Specify the tenant type you seek, and easily delist with a single tap once your room gets occupied.
                 </p>
               </div>
               <div className="flex items-center justify-center md:justify-end">
                 <button 
                   onClick={() => navigateTo("/", "whatsapp")}
-                  className="bg-[#F5EBE1] hover:bg-[#EADDCF] text-[#4A3B32] border border-[#E0D2C3] text-xs sm:text-sm font-extrabold py-3.5 px-6 rounded-2xl transition-all shadow-md shadow-amber-900/5 flex items-center justify-center gap-2.5 cursor-pointer w-full md:w-auto"
+                  className="bg-[#F5EBE1] hover:bg-[#EADDCF] text-[#4A3B32] border border-[#E0D2C3] text-xs sm:text-sm font-extrabold py-2.5 sm:py-3.5 px-4 sm:px-6 rounded-xl sm:rounded-2xl transition-all shadow-sm flex items-center justify-center gap-2 cursor-pointer w-full md:w-auto min-h-[42px]"
                 >
                   <MessageSquare className="w-4 h-4 shrink-0 text-[#25D366] fill-[#25D366]" />
-                  <span>List / browse on BunkBy whatsapp bot</span>
+                  <span>List / browse on BunkBy WhatsApp bot</span>
                 </button>
               </div>
             </section>
-
           </div>
         )}
-
         {/* TAB 2: LANDLORDS PORTAL (MY LISTINGS & ACTIVE CONSOLE) */}
         {activeTab === "landlord" && (
           !userProfile ? (
-            <div className="max-w-md mx-auto bg-white border border-slate-200 rounded-3xl p-6 md:p-8 shadow-xl space-y-6">
+            <div className="max-w-md mx-auto bg-white border border-slate-200 rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 shadow-xl space-y-4 sm:space-y-6">
               <div className="text-center space-y-2">
                 <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-2 text-2xl">
                   🏡
@@ -1987,7 +1999,7 @@ export default function App() {
             <div className="space-y-6">
               
               {/* Header and status banner */}
-              <div className="bg-[#052659] text-white rounded-3xl p-6 md:p-8 shadow-sm relative overflow-hidden flex flex-col md:flex-row items-start md:items-center justify-between gap-6 border border-[#052659]">
+              <div className="bg-[#052659] text-white rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 shadow-sm relative overflow-hidden flex flex-col md:flex-row items-start md:items-center justify-between gap-4 sm:gap-6 border border-[#052659]">
                 <div className="space-y-2">
                   <div className="inline-flex items-center gap-1.5 bg-[#FF7A00] text-white font-mono text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
                     Admin Control & Management
@@ -2053,7 +2065,7 @@ export default function App() {
                     </button>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5 sm:gap-5 lg:gap-6">
                     {listings
                       .filter(r => r.phone === userProfile.phone || r.landlordName === userProfile.name)
                       .map((room) => {
@@ -2104,7 +2116,7 @@ export default function App() {
                             </div>
 
                             {/* Card Image */}
-                            <div className="relative h-44 w-full overflow-hidden bg-slate-100 shrink-0 flex items-center justify-center">
+                            <div className="relative aspect-16/10 sm:aspect-16/9 w-full overflow-hidden bg-slate-100 shrink-0 flex items-center justify-center">
                               {(room.image_url || (room.images && room.images[0])) ? (
                                 <img 
                                   src={room.image_url || (room.images && room.images[0])} 
@@ -2121,7 +2133,7 @@ export default function App() {
                             </div>
 
                             {/* Content */}
-                            <div className="p-4 flex-grow flex flex-col justify-between space-y-4">
+                            <div className="p-3.5 sm:p-4 flex-grow flex flex-col justify-between space-y-3">
                               <div className="space-y-1">
                                 {(room.business_name || room.businessName) && (
                                   <div className="flex items-center gap-1 text-[11px] font-bold text-[#052659] uppercase tracking-wide">
@@ -2318,7 +2330,7 @@ export default function App() {
             </div>
 
             {/* WhatsApp Phone Mockup Container */}
-            <div className="bg-[#EFEAE2] border border-slate-300 rounded-3xl overflow-hidden shadow-xl flex flex-col h-[650px] relative">
+            <div className="bg-[#EFEAE2] border border-slate-300 rounded-2xl sm:rounded-3xl overflow-hidden shadow-xl flex flex-col h-[75vh] min-h-[460px] max-h-[680px] relative">
               {/* WhatsApp Brand Header */}
               <div className="bg-[#075E54] text-white px-4 py-3 flex items-center justify-between shrink-0 shadow-md">
                 <div className="flex items-center gap-3">
@@ -2837,8 +2849,8 @@ export default function App() {
                   {/* Landlords Management Table */}
                   <div className="mt-8 space-y-2">
                     <h4 className="text-sm font-bold text-slate-800">Manage Landlords</h4>
-                    <div className="overflow-x-auto bg-white border border-slate-200 rounded-xl">
-                      <table className="w-full text-left text-xs align-middle">
+                    <div className="overflow-x-auto bg-white border border-slate-200 rounded-xl -mx-1 sm:mx-0 shadow-2xs">
+                      <table className="w-full min-w-[500px] text-left text-xs align-middle">
                         <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-mono text-[9px]">
                           <tr>
                             <th className="px-4 py-3">ID / Name</th>
@@ -2905,8 +2917,8 @@ export default function App() {
                   {/* Listings Management Table */}
                   <div className="mt-8 space-y-2">
                     <h4 className="text-sm font-bold text-slate-800">Manage Listings</h4>
-                    <div className="overflow-x-auto bg-white border border-slate-200 rounded-xl">
-                      <table className="w-full text-left text-xs align-middle">
+                    <div className="overflow-x-auto bg-white border border-slate-200 rounded-xl -mx-1 sm:mx-0 shadow-2xs">
+                      <table className="w-full min-w-[500px] text-left text-xs align-middle">
                         <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-mono text-[9px]">
                           <tr>
                             <th className="px-4 py-3">ID / Title</th>
@@ -3008,8 +3020,8 @@ export default function App() {
       </main>
 
       {/* FOOTER */}
-      <footer className="bg-[#021024] text-white pt-8 border-t border-[#052659] mt-auto select-none shrink-0 text-center sm:text-left">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-8 grid grid-cols-1 md:grid-cols-3 gap-8">
+      <footer className="bg-[#021024] text-white pt-6 sm:pt-8 border-t border-[#052659] mt-auto select-none shrink-0 text-center sm:text-left">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-6 sm:pb-8 grid grid-cols-1 md:grid-cols-3 gap-5 sm:gap-8">
           
           <div className="space-y-3">
             <div className="flex items-center gap-2 justify-center sm:justify-start">
@@ -3033,17 +3045,17 @@ export default function App() {
           <div className="text-[11px] text-[#E2E8F0] font-normal space-y-2 flex flex-col items-center sm:items-start">
             <h4 className="text-white font-extrabold text-xs uppercase tracking-wider">Direct WhatsApp Connection</h4>
             <p className="text-[#E2E8F0]">Connect directly with verified landlords and hosts with zero agency middlemen fees.</p>
-            <span className="text-[9px] text-[#FF7A00] font-mono font-bold tracking-wider">BUNKBY VERIFICATION BADGE PROGRAM</span>
+            
           </div>
 
         </div>
 
         {/* ATLASMANICA BRANDING CREDIT AS USER EXPLICITLY REQUESTED */}
-        <div className="bg-[#052659] py-5 border-t border-[#052659]/50 text-center sm:text-left">
+        <div className="bg-[#052659] py-3.5 sm:py-5 border-t border-[#052659]/50 text-center sm:text-left">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="text-[11px] text-slate-300 font-normal">
               <p>© 2026 BunkBy. BunkBy is an accommodation marketplace operated by ATLAS MANICA GROUP LTD.</p>
-              <div className="flex items-center gap-4 pt-1.5 text-[11px] text-slate-300">
+              <div className="pt-1.5 text-[11px] text-slate-300">
                 <a 
                   href="/privacy-policy" 
                   onClick={(e) => { e.preventDefault(); navigateTo("/privacy-policy"); }}
@@ -3051,17 +3063,6 @@ export default function App() {
                   id="footer-privacy-policy-link"
                 >
                   Privacy Policy
-                </a>
-                <span>•</span>
-                <span className="text-slate-400">Meta WhatsApp Cloud Verified</span>
-                <span>•</span>
-                <a 
-                  href="https://wa.me/263771122334" 
-                  target="_blank" 
-                  rel="noopener noreferrer" 
-                  className="hover:text-emerald-300 transition-colors"
-                >
-                  WhatsApp Support
                 </a>
               </div>
             </div>
@@ -3080,7 +3081,7 @@ export default function App() {
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white rounded-3xl pb-6 max-w-xl w-full border border-slate-200 shadow-2xl overflow-hidden max-h-[90vh] flex flex-col"
+              className="bg-white rounded-2xl sm:rounded-3xl pb-4 sm:pb-6 max-w-xl w-full border border-slate-200 shadow-2xl overflow-hidden max-h-[94vh] flex flex-col"
             >
               
               {/* Modal header details */}
@@ -3530,7 +3531,7 @@ export default function App() {
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white rounded-3xl p-6 max-w-sm w-full border border-slate-100 shadow-2xl space-y-4 text-left"
+              className="bg-white rounded-2xl sm:rounded-3xl p-4 sm:p-6 max-w-sm w-full border border-slate-100 shadow-2xl space-y-3.5 sm:space-y-4 text-left"
             >
               <div className="text-center space-y-1 relative pb-2 border-b border-slate-100">
                 <span className="inline-block bg-orange-100 text-orange-600 font-mono text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
@@ -3635,7 +3636,7 @@ export default function App() {
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white rounded-3xl p-6 max-w-sm w-full border border-slate-100 shadow-2xl space-y-4 text-left"
+              className="bg-white rounded-2xl sm:rounded-3xl p-4 sm:p-6 max-w-sm w-full border border-slate-100 shadow-2xl space-y-3.5 sm:space-y-4 text-left"
             >
               <div className="text-center space-y-1 relative pb-2 border-b border-slate-100">
                 <span className="inline-block bg-amber-100 text-amber-700 font-mono text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider animate-pulse">
@@ -3784,7 +3785,7 @@ export default function App() {
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white rounded-3xl max-w-2xl w-full border border-slate-200 shadow-2xl overflow-hidden max-h-[92vh] flex flex-col my-auto"
+              className="bg-white rounded-2xl sm:rounded-3xl max-w-2xl w-full border border-slate-200 shadow-2xl overflow-hidden max-h-[94vh] flex flex-col my-auto"
             >
               {/* Modal Header */}
               <div className="bg-[#021024] text-white p-4 sm:p-5 flex items-center justify-between shrink-0 border-b border-[#052659]">
@@ -3810,7 +3811,7 @@ export default function App() {
               </div>
 
               {/* Scrollable Modal Content */}
-              <div className="p-5 sm:p-6 overflow-y-auto space-y-6 text-left flex-grow">
+              <div className="p-4 sm:p-6 overflow-y-auto space-y-4 sm:space-y-6 text-left flex-grow">
                 {/* Photo Gallery with Thumbnail Switcher */}
                 {(() => {
                   const photos = (selectedListingDetail.images && selectedListingDetail.images.length > 0)
@@ -3822,7 +3823,7 @@ export default function App() {
 
                   return (
                     <div className="space-y-2">
-                      <div className="relative aspect-video rounded-2xl overflow-hidden bg-slate-100 border border-slate-200 shadow-xs flex items-center justify-center">
+                      <div className="relative aspect-16/10 sm:aspect-video rounded-xl sm:rounded-2xl overflow-hidden bg-slate-100 border border-slate-200 shadow-xs flex items-center justify-center">
                         {activePhoto ? (
                           <img
                             src={activePhoto}
