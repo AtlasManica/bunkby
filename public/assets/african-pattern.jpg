@@ -1,0 +1,158 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="100%" height="100%">
+  <defs>
+    <!-- Dark midnight base gradient -->
+    <linearGradient id="midnight-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0b131e" />
+      <stop offset="35%" stop-color="#121d2b" />
+      <stop offset="70%" stop-color="#0d1622" />
+      <stop offset="100%" stop-color="#070c12" />
+    </linearGradient>
+
+    <!-- Vibrant Copper/Orange Gradient -->
+    <linearGradient id="copper-accent" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ff9d42" />
+      <stop offset="50%" stop-color="#ea580c" />
+      <stop offset="100%" stop-color="#b43403" />
+    </linearGradient>
+
+    <!-- Deep Warm Amber/Copper Glow -->
+    <linearGradient id="copper-glow" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fb923c" />
+      <stop offset="100%" stop-color="#9a3412" />
+    </linearGradient>
+
+    <!-- Dark Layered Card Slate -->
+    <linearGradient id="slate-card" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1e293b" />
+      <stop offset="100%" stop-color="#0f172a" />
+    </linearGradient>
+
+    <linearGradient id="slate-card-deep" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#182333" />
+      <stop offset="100%" stop-color="#0b121c" />
+    </linearGradient>
+
+    <!-- Drop Shadows for 3D Cards -->
+    <filter id="shadow-card" x="-20%" y="-20%" width="150%" height="150%">
+      <feDropShadow dx="-10" dy="15" stdDeviation="18" flood-color="#000000" flood-opacity="0.8" />
+    </filter>
+
+    <filter id="shadow-glow-copper" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="0" stdDeviation="25" flood-color="#ea580c" flood-opacity="0.45" />
+      <feDropShadow dx="8" dy="12" stdDeviation="15" flood-color="#000000" flood-opacity="0.7" />
+    </filter>
+
+    <!-- Traditional Shona / African Chevron & Hut Tribal Pattern Def -->
+    <pattern id="tribal-grid" width="240" height="240" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+      <!-- Diamond grid line -->
+      <path d="M 0 0 L 240 0 L 240 240 L 0 240 Z" fill="none" stroke="#25374d" stroke-width="1.5" stroke-opacity="0.4" />
+      <path d="M 0 120 L 120 0 L 240 120 L 120 240 Z" fill="none" stroke="#ea580c" stroke-width="2" stroke-opacity="0.25" stroke-dasharray="4,6" />
+      
+      <!-- African Rondavel / Hut Motif -->
+      <g opacity="0.28" transform="translate(60, 60)">
+        <!-- Conical Thatch Roof -->
+        <polygon points="60,18 20,62 100,62" fill="none" stroke="#94a3b8" stroke-width="3" />
+        <line x1="60" y1="18" x2="35" y2="62" stroke="#94a3b8" stroke-width="1.5" />
+        <line x1="60" y1="18" x2="85" y2="62" stroke="#94a3b8" stroke-width="1.5" />
+        <!-- Rondavel Wall base -->
+        <rect x="28" y="62" width="64" height="42" fill="none" stroke="#94a3b8" stroke-width="3" rx="2" />
+        <!-- Doorway -->
+        <rect x="50" y="74" width="20" height="30" fill="none" stroke="#ea580c" stroke-width="2" />
+        <!-- Windows -->
+        <rect x="34" y="72" width="10" height="10" fill="none" stroke="#94a3b8" stroke-width="1.5" />
+        <rect x="76" y="72" width="10" height="10" fill="none" stroke="#94a3b8" stroke-width="1.5" />
+      </g>
+
+      <!-- Acacia Tree & Rising Sun Motif -->
+      <g opacity="0.25" transform="translate(140, 140)">
+        <!-- Sun with radiating rays -->
+        <path d="M 30 30 A 20 20 0 0 1 70 30 Z" fill="none" stroke="#ea580c" stroke-width="2.5" />
+        <line x1="24" y1="30" x2="76" y2="30" stroke="#ea580c" stroke-width="2" />
+        <!-- Flat-top Acacia Canopy -->
+        <ellipse cx="50" cy="52" rx="36" ry="10" fill="none" stroke="#64748b" stroke-width="2" stroke-dasharray="3,3" />
+        <!-- Trunk -->
+        <path d="M 50 62 L 44 88 M 50 62 L 56 88" stroke="#64748b" stroke-width="2.5" stroke-linecap="round" />
+      </g>
+
+      <!-- Great Zimbabwe Chevron / Chevron Triangles -->
+      <g opacity="0.32" stroke="#ea580c" stroke-width="2.5" fill="none">
+        <polyline points="10,20 25,5 40,20 55,5 70,20 85,5 100,20" />
+        <polyline points="10,30 25,15 40,30 55,15 70,30 85,15 100,30" />
+      </g>
+
+      <!-- Dot matrix tribal scarification / bead pattern -->
+      <g fill="#94a3b8" opacity="0.3">
+        <circle cx="15" cy="180" r="2.5" />
+        <circle cx="30" cy="180" r="2.5" />
+        <circle cx="45" cy="180" r="2.5" />
+        <circle cx="60" cy="180" r="2.5" />
+        <circle cx="75" cy="180" r="2.5" />
+        <circle cx="90" cy="180" r="2.5" />
+        <circle cx="105" cy="180" r="2.5" />
+        <circle cx="120" cy="180" r="2.5" />
+      </g>
+    </pattern>
+  </defs>
+
+  <!-- Deep Midnight Base Canvas -->
+  <rect width="100%" height="100%" fill="url(#midnight-bg)" />
+
+  <!-- Diagonal Tribal Engraving Layer -->
+  <rect width="100%" height="100%" fill="url(#tribal-grid)" />
+
+  <!-- Radial Atmosphere Glow from Centre & Copper Accents -->
+  <circle cx="960" cy="540" r="700" fill="#0369a1" opacity="0.08" />
+  <circle cx="150" cy="150" r="450" fill="#ea580c" opacity="0.12" />
+  <circle cx="1750" cy="950" r="500" fill="#ea580c" opacity="0.16" />
+
+  <!-- ========================================================================= -->
+  <!-- TOP-LEFT 3D FLOATING LAYERED CARDS WITH COPPER ACCENTS                    -->
+  <!-- ========================================================================= -->
+  <g transform="translate(-120, -100)">
+    <!-- Base dark slate angled slab -->
+    <rect x="60" y="40" width="460" height="320" rx="42" transform="rotate(-32 290 200)" fill="url(#slate-card-deep)" filter="url(#shadow-card)" stroke="#1e293b" stroke-width="2" />
+    
+    <!-- Large Midnight Navy Plate -->
+    <rect x="90" y="70" width="400" height="300" rx="38" transform="rotate(-32 290 220)" fill="url(#slate-card)" filter="url(#shadow-card)" stroke="#334155" stroke-width="1.5" />
+    
+    <!-- Glowing Orange Copper Primary Plate -->
+    <rect x="130" y="110" width="360" height="280" rx="36" transform="rotate(-32 310 250)" fill="url(#copper-accent)" filter="url(#shadow-glow-copper)" />
+
+    <!-- Overlapping Navy Accent Chip -->
+    <rect x="160" y="140" width="240" height="190" rx="28" transform="rotate(-32 280 235)" fill="url(#slate-card)" filter="url(#shadow-card)" stroke="#475569" stroke-width="1" />
+
+    <!-- Small Floating Copper Accent Dots/Squares -->
+    <rect x="490" y="170" width="44" height="44" rx="12" transform="rotate(-32 512 192)" fill="url(#copper-glow)" filter="url(#shadow-glow-copper)" />
+    <rect x="470" y="240" width="56" height="56" rx="16" transform="rotate(-32 498 268)" fill="url(#copper-accent)" filter="url(#shadow-glow-copper)" />
+    <rect x="540" y="320" width="34" height="34" rx="10" transform="rotate(-32 557 337)" fill="url(#copper-glow)" />
+  </g>
+
+  <!-- ========================================================================= -->
+  <!-- BOTTOM-RIGHT 3D FLOATING LAYERED CARDS WITH COPPER ACCENTS                 -->
+  <!-- ========================================================================= -->
+  <g transform="translate(1320, 520)">
+    <!-- Large Base Slate Backing Plate -->
+    <rect x="120" y="100" width="620" height="520" rx="48" transform="rotate(-32 430 360)" fill="url(#slate-card-deep)" filter="url(#shadow-card)" stroke="#1e293b" stroke-width="2" />
+
+    <!-- Midnight Slate Mid Plate -->
+    <rect x="150" y="130" width="560" height="480" rx="44" transform="rotate(-32 430 370)" fill="url(#slate-card)" filter="url(#shadow-card)" stroke="#334155" stroke-width="1.5" />
+
+    <!-- Vibrant Copper Foreground Slab -->
+    <rect x="220" y="170" width="520" height="420" rx="42" transform="rotate(-32 480 380)" fill="url(#copper-accent)" filter="url(#shadow-glow-copper)" />
+
+    <!-- Secondary Overlapping Dark Navy Slab with Copper Rim -->
+    <rect x="290" y="230" width="460" height="350" rx="36" transform="rotate(-32 520 405)" fill="url(#slate-card-deep)" filter="url(#shadow-card)" stroke="#ea580c" stroke-width="1.5" stroke-opacity="0.6" />
+
+    <!-- Foreground Copper Hero Plate -->
+    <rect x="360" y="270" width="400" height="310" rx="34" transform="rotate(-32 560 425)" fill="url(#copper-accent)" filter="url(#shadow-glow-copper)" />
+
+    <!-- Floating Copper Accent Chips -->
+    <rect x="160" y="250" width="48" height="48" rx="14" transform="rotate(-32 184 274)" fill="url(#copper-glow)" filter="url(#shadow-glow-copper)" />
+    <rect x="240" y="320" width="64" height="64" rx="18" transform="rotate(-32 272 352)" fill="url(#copper-accent)" filter="url(#shadow-glow-copper)" />
+    <rect x="340" y="410" width="38" height="38" rx="12" transform="rotate(-32 359 429)" fill="url(#copper-glow)" />
+    <rect x="680" y="140" width="40" height="40" rx="12" transform="rotate(-32 700 160)" fill="url(#copper-glow)" filter="url(#shadow-glow-copper)" />
+  </g>
+
+  <!-- Subtle Vignette / Edge Shading -->
+  <rect width="100%" height="100%" fill="none" stroke="#000000" stroke-width="40" opacity="0.6" />
+</svg>

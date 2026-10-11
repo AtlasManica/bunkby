@@ -1,0 +1,44 @@
+User-agent: *
+Allow: /
+
+# Google & Gemini AI Crawlers
+User-agent: Googlebot
+Allow: /
+User-agent: Google-Extended
+Allow: /
+User-agent: GoogleOther
+Allow: /
+
+# Microsoft & Bing AI Crawlers
+User-agent: Bingbot
+Allow: /
+User-agent: msnbot
+Allow: /
+User-agent: Copilot
+Allow: /
+User-agent: BingPreview
+Allow: /
+
+# Meta Crawlers
+User-agent: FacebookExternalHit
+Allow: /
+User-agent: Facebot
+Allow: /
+User-agent: Meta-ExternalAgent
+Allow: /
+User-agent: WhatsApp
+Allow: /
+
+# General AI Crawlers & Anthropic
+User-agent: ClaudeBot
+Allow: /
+User-agent: Anthropic-AI
+Allow: /
+User-agent: Applebot
+Allow: /
+User-agent: PerplexityBot
+Allow: /
+User-agent: CCBot
+Allow: /
+
+Sitemap: https://bunkby.com/sitemap.xml

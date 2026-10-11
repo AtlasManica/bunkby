@@ -31,31 +31,45 @@ import {
   ChevronLeft,
   Camera,
   Upload,
-  Trash
+  Trash,
+  Building2,
+  Hotel,
+  Home,
+  Bed,
+  Coffee,
+  Briefcase,
+  Star,
+  AlertTriangle,
+  Lock,
+  Key,
+  Copy,
+  Check,
+  Eye,
+  Flag,
+  Filter
 } from "lucide-react";
-import { RoomListing, PropertyType, TenantType, ContactMethod, RentFrequency, ChatMessage } from "./types";
-import { INITIAL_ROOMS, ALL_ZIM_CITIES, ALL_AMENITIES, ALL_PROPERTY_TYPES, DEFAULT_ROOM_IMAGES } from "./initialData";
+import { RoomListing, PropertyType, TenantType, ContactMethod, RentFrequency, ChatMessage, ListingCategory } from "./types";
+import { 
+  INITIAL_ROOMS, 
+  ALL_ZIM_CITIES, 
+  ALL_AMENITIES, 
+  ALL_PROPERTY_TYPES, 
+  DEFAULT_ROOM_IMAGES,
+  RESIDENTIAL_PROPERTY_TYPES,
+  HOSPITALITY_PROPERTY_TYPES,
+  RESIDENTIAL_AMENITIES,
+  HOSPITALITY_AMENITIES
+} from "./initialData";
 import { motion, AnimatePresence } from "motion/react";
 
-// BunkBy Orange Stacked Squares Logo Component
+// BunkBy Orange Stacked Squares Logo Component (Exact uploaded brand logo on white background)
 const BunkByLogo = ({ className = "w-10 h-10" }: { className?: string }) => (
-  <div className={`${className} bg-white rounded-xl flex items-center justify-center shadow-sm border border-slate-100 shrink-0 select-none`}>
-    <div className="flex flex-col gap-0.5 items-center justify-center">
-      {/* Top Stacked Square */}
-      <div className="relative w-3.5 h-3.5">
-        {/* Shadow square */}
-        <div className="absolute top-[1.5px] left-[1.5px] w-full h-full bg-[#CC5200] rounded-[2px]"></div>
-        {/* Front active orange square */}
-        <div className="absolute top-0 left-0 w-full h-full bg-[#FF7A00] rounded-[2px]"></div>
-      </div>
-      {/* Bottom Stacked Square */}
-      <div className="relative w-3.5 h-3.5">
-        {/* Shadow square */}
-        <div className="absolute top-[1.5px] left-[1.5px] w-full h-full bg-[#CC5200] rounded-[2px]"></div>
-        {/* Front active orange square */}
-        <div className="absolute top-0 left-0 w-full h-full bg-[#FF7A00] rounded-[2px]"></div>
-      </div>
-    </div>
+  <div className={`${className} bg-white rounded-xl overflow-hidden p-0.5 border border-white/20 shadow-xs flex items-center justify-center shrink-0 select-none`}>
+    <img 
+      src="/bunkby-logo.svg" 
+      alt="BunkBy Logo" 
+      className="w-full h-full object-contain"
+    />
   </div>
 );
 
@@ -66,6 +80,9 @@ export default function App() {
   // Room Listings State
   const [listings, setListings] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+
+  // Card photo swipe tracking: listingId -> active photo index
+  const [cardPhotoIndices, setCardPhotoIndices] = useState<Record<string | number, number>>({});
 
   // Simulated landlords registry for offline verification mapping
   const [allLandlords, setAllLandlords] = useState<any[]>([]);
@@ -110,14 +127,40 @@ export default function App() {
   const [selectedSuburb, setSelectedSuburb] = useState("");
   const [selectedAmenity, setSelectedAmenity] = useState("");
   const [selectedTenantType, setSelectedTenantType] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState<"all" | "residential" | "hospitality">("all");
+  const [selectedPropertyType, setSelectedPropertyType] = useState("");
   const [minPrice, setMinPrice] = useState<number | "">("");
   const [maxPrice, setMaxPrice] = useState<number | "">("");
+  const [sortBy, setSortBy] = useState<"newest" | "price_asc" | "price_desc" | "leads">("newest");
+  const [pendingDirectListingId, setPendingDirectListingId] = useState<string | null>(null);
+
+  // Accommodation Detail Modal State
+  const [selectedListingDetail, setSelectedListingDetail] = useState<RoomListing | null>(null);
+  const [detailActivePhotoIdx, setDetailActivePhotoIdx] = useState(0);
+
+  // Report Suspicious Listing Modal State
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+  const [reportingListing, setReportingListing] = useState<RoomListing | null>(null);
+  const [reportReason, setReportReason] = useState("Suspected scam / fake advertiser");
+  const [reportDetails, setReportDetails] = useState("");
+  const [reportReporterName, setReportReporterName] = useState("");
+  const [reportReporterPhone, setReportReporterPhone] = useState("");
+  const [isSubmittingReport, setIsSubmittingReport] = useState(false);
+
+  // WhatsApp Cloud API status check
+  const [whatsAppStatus, setWhatsAppStatus] = useState<{ metaConfigured: boolean; checked: boolean }>({
+    metaConfigured: false,
+    checked: false
+  });
 
   // Simulated Account State (Supports phone number accounts for landlords, starts null for flow)
   const [userProfile, setUserProfile] = useState<{
+    id?: number;
     name: string;
     phone: string;
     isVerified: boolean;
+    token?: string;
+    hasPin?: boolean;
     whatsappLinked?: boolean;
     role?: string;
   } | null>(() => {
@@ -145,12 +188,101 @@ export default function App() {
   const [billingProvider, setBillingProvider] = useState<"EcoCash" | "InnBucks">("EcoCash");
   const [isPaying, setIsPaying] = useState(false);
 
-  // Login form state for quick account setup
+  // Login form state for account setup with Security PIN
   const [loginPhone, setLoginPhone] = useState("");
   const [loginName, setLoginName] = useState("");
+  const [loginPin, setLoginPin] = useState("");
+  const [showPinHelp, setShowPinHelp] = useState(false);
   const [authMode, setAuthMode] = useState<"login" | "signup">("login");
   const [isAuthLoading, setIsAuthLoading] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
+
+  // Initialize filters & tab from URL on first mount
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const q = params.get("q");
+      const city = params.get("city");
+      const suburb = params.get("suburb");
+      const cat = params.get("cat");
+      const propType = params.get("type");
+      const amenity = params.get("amenity");
+      const tenant = params.get("tenant");
+      const min = params.get("min");
+      const max = params.get("max");
+      const sort = params.get("sort");
+      const tab = params.get("tab");
+      const listingId = params.get("listing");
+
+      if (q) setSearchTerm(q);
+      if (city) setSelectedCity(city);
+      if (suburb) setSelectedSuburb(suburb);
+      if (cat && ["all", "residential", "hospitality"].includes(cat)) setSelectedCategory(cat as any);
+      if (propType) setSelectedPropertyType(propType);
+      if (amenity) setSelectedAmenity(amenity);
+      if (tenant) setSelectedTenantType(tenant);
+      if (min) setMinPrice(Number(min));
+      if (max) setMaxPrice(Number(max));
+      if (sort && ["newest", "price_asc", "price_desc", "leads"].includes(sort)) setSortBy(sort as any);
+      if (tab && ["browse", "landlord", "whatsapp", "account", "help"].includes(tab)) setActiveTab(tab as any);
+      if (listingId) setPendingDirectListingId(listingId);
+    } catch (e) {
+      console.warn("Could not parse URL params", e);
+    }
+  }, []);
+
+  // When listings load and pendingDirectListingId is present, auto-open that listing detail modal
+  useEffect(() => {
+    if (pendingDirectListingId && listings.length > 0) {
+      const found = listings.find(l => String(l.id) === String(pendingDirectListingId));
+      if (found) {
+        setSelectedListingDetail(found);
+        setPendingDirectListingId(null);
+      }
+    }
+  }, [pendingDirectListingId, listings]);
+
+  // Keep URL search query updated with active filters
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams();
+      if (searchTerm) params.set("q", searchTerm);
+      if (selectedCity) params.set("city", selectedCity);
+      if (selectedSuburb) params.set("suburb", selectedSuburb);
+      if (selectedCategory !== "all") params.set("cat", selectedCategory);
+      if (selectedPropertyType) params.set("type", selectedPropertyType);
+      if (selectedAmenity) params.set("amenity", selectedAmenity);
+      if (selectedTenantType) params.set("tenant", selectedTenantType);
+      if (minPrice !== "") params.set("min", String(minPrice));
+      if (maxPrice !== "") params.set("max", String(maxPrice));
+      if (sortBy !== "newest") params.set("sort", sortBy);
+      if (activeTab !== "browse") params.set("tab", activeTab);
+      if (selectedListingDetail) params.set("listing", String(selectedListingDetail.id));
+
+      const newSearch = params.toString();
+      const newUrl = newSearch ? `${window.location.pathname}?${newSearch}` : window.location.pathname;
+      window.history.replaceState(null, "", newUrl);
+    } catch (_) {}
+  }, [
+    searchTerm, selectedCity, selectedSuburb, selectedCategory,
+    selectedPropertyType, selectedAmenity, selectedTenantType,
+    minPrice, maxPrice, sortBy, activeTab, selectedListingDetail
+  ]);
+
+  // Query WhatsApp Cloud API config state from server
+  useEffect(() => {
+    fetch("/api/whatsapp")
+      .then(res => res.json())
+      .then(data => {
+        setWhatsAppStatus({
+          metaConfigured: Boolean(data.metaConfigured),
+          checked: true
+        });
+      })
+      .catch(() => {
+        setWhatsAppStatus({ metaConfigured: false, checked: true });
+      });
+  }, []);
 
   // Landlord verification States
   const [verificationStatus, setVerificationStatus] = useState<string>("unverified");
@@ -164,6 +296,8 @@ export default function App() {
   const [isEditing, setIsEditing] = useState<string | null>(null);
   const [newRoomForm, setNewRoomForm] = useState({
     title: "",
+    category: "residential" as ListingCategory,
+    business_name: "",
     city: "Harare",
     suburb: "",
     landmark: "",
@@ -185,7 +319,7 @@ export default function App() {
     {
       id: "msg-1",
       sender: "bot",
-      text: "*Salibonani / Mhoro!* Welcome to *BunkBy Chatbot* 🏡📲\n\nI am BunkBy's official automated assistant. I connect landlords & renters immediately without any greedy agents! \n\n*What would you like to do?*\n👉 Say _\"show rooms in Harare under $40\"_ to browse.\n👉 Say _\"list a room\"_ or describe your cottage to start rent listings for free.\n👉 Ask _\"why is it free?\"_ to understand our traffic model.",
+      text: "*Salibonani / Mhoro!* Welcome to *BunkBy Chatbot* 🏡🏨📲\n\nI am BunkBy's automated assistant for Zimbabwe's agent-free accommodation marketplace. Deal direct with landlords & hosts with zero middleman fees!\n\n*What would you like to do?*\n👉 _\"show rooms in Harare under $150\"_ (Residential cottages, rooms, flats)\n👉 _\"find guesthouses or lodges in Bulawayo\"_ (Hospitality stays)\n👉 _\"list my property\"_ (Landlords list 100% free, lodges deal direct)",
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     }
   ]);
@@ -242,8 +376,15 @@ export default function App() {
     }
 
     const firstImg = uploadedImages.length > 0 ? uploadedImages[0] : (newRoomForm.imageUrl || DEFAULT_ROOM_IMAGES[0]);
+    const isHospitality = newRoomForm.category === "hospitality" || 
+      HOSPITALITY_PROPERTY_TYPES.includes(newRoomForm.propertyType) ||
+      ["Lodge / Guesthouse", "Hotel", "Lodge", "Guesthouse", "Bed & Breakfast"].includes(newRoomForm.propertyType);
+
     const payload = {
       ...newRoomForm,
+      category: (isHospitality ? "hospitality" : "residential") as ListingCategory,
+      business_name: newRoomForm.business_name || (isHospitality ? newRoomForm.title : ""),
+      businessName: newRoomForm.business_name || (isHospitality ? newRoomForm.title : ""),
       image_url: firstImg,
       images: uploadedImages.length > 0 ? uploadedImages : [newRoomForm.imageUrl || DEFAULT_ROOM_IMAGES[0]],
       isVerifiedLandlord: userProfile?.isVerified || false
@@ -251,6 +392,8 @@ export default function App() {
 
     const isPremiumType = 
       newRoomForm.propertyType === "Lodge / Guesthouse" ||
+      newRoomForm.propertyType === "Hotel" ||
+      newRoomForm.propertyType === "Lodge" ||
       newRoomForm.propertyType === "Boarding House" ||
       newRoomForm.propertyType === "House Sale";
 
@@ -268,13 +411,20 @@ export default function App() {
   };
 
   const executeSaveListing = async (payload: any, makePremium = false) => {
+    const isHospitality = payload.category === "hospitality" || 
+      HOSPITALITY_PROPERTY_TYPES.includes(payload.propertyType);
+
     const finalPayload = {
       ...payload,
+      category: isHospitality ? "hospitality" : "residential",
+      business_name: payload.business_name || payload.businessName || "",
+      businessName: payload.business_name || payload.businessName || "",
       isPremium: makePremium,
       expiryDate: makePremium ? new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString() : undefined,
       verification_status: "Active",
-      landlord_id: userProfile?.id || null, // Assuming landlord has id
-      image_url: uploadedImages.length > 0 ? uploadedImages[0] : null,
+      landlord_id: userProfile?.id || (userProfile?.phone ? Number(userProfile.phone.replace(/\D/g, "")) : null),
+      token: userProfile?.token,
+      image_url: uploadedImages.length > 0 ? uploadedImages[0] : (payload.image_url || null),
       contact_phone: payload.phone,
       property_type: payload.propertyType,
       tenant_type: payload.tenantType,
@@ -288,19 +438,26 @@ export default function App() {
       if (isEditing) {
         const res = await fetch(`/api/rooms/${isEditing}`, {
            method: "PUT",
-           headers: { "Content-Type": "application/json" },
+           headers: { 
+             "Content-Type": "application/json",
+             "x-landlord-token": userProfile?.token || ""
+           },
            body: JSON.stringify(finalPayload)
         });
         if (res.ok) {
            setListings(prev => prev.map(item => String(item.id) === String(isEditing) ? { ...item, ...finalPayload, price: Number(finalPayload.price), deposit: Number(finalPayload.deposit) } : item));
-           showToast("✨ Room specifications updated successfully!");
+           showToast("✨ Accommodation specifications updated successfully!");
         } else {
-           showToast("⚠️ Failed to update room data");
+           const errData = await res.json().catch(() => ({}));
+           showToast(errData.error || "⚠️ Failed to update room data");
         }
       } else {
         const res = await fetch("/api/listings", {
            method: "POST",
-           headers: { "Content-Type": "application/json" },
+           headers: { 
+             "Content-Type": "application/json",
+             "x-landlord-token": userProfile?.token || ""
+           },
            body: JSON.stringify(finalPayload)
         });
         if (res.ok) {
@@ -310,10 +467,11 @@ export default function App() {
               ...finalPayload,
               status: "Active",
               leadsCount: 0,
+              isSample: false,
               created_at: new Date().toISOString()
            };
            setListings(prev => [newListing, ...prev]);
-           showToast(makePremium ? "✨ Premium Listing activated for 30 Days successfully!" : "🎉 Room listed live on BunkBy for FREE!");
+           showToast(makePremium ? "✨ Premium Listing activated for 30 Days successfully!" : "🎉 Listing published live on BunkBy!");
         } else {
            showToast("⚠️ Network issue, unable to list room right now");
         }
@@ -332,6 +490,8 @@ export default function App() {
     // Reset form
     setNewRoomForm({
       title: "",
+      category: "residential",
+      business_name: "",
       city: "Harare",
       suburb: "",
       landmark: "",
@@ -344,7 +504,7 @@ export default function App() {
       contactMethod: "Call / Whatsapp",
       phone: userProfile?.phone || "",
       landlordName: userProfile?.name || "",
-      image_url: ""
+      imageUrl: DEFAULT_ROOM_IMAGES[0]
     });
   };
 
@@ -358,6 +518,14 @@ export default function App() {
       showToast("⚠️ WhatsApp Phone Number is required for listing contacts!");
       return;
     }
+    if (authMode === "signup" && (!loginPin.trim() || loginPin.trim().length < 4)) {
+      showToast("⚠️ Security PIN (at least 4 digits) is required to protect your landlord account.");
+      return;
+    }
+    if (authMode === "login" && (!loginPin.trim() || loginPin.trim().length < 4)) {
+      showToast("⚠️ Please enter your 4-digit Security PIN to log in (Demo PIN: 1234).");
+      return;
+    }
 
     setIsAuthLoading(true);
     try {
@@ -367,7 +535,8 @@ export default function App() {
         body: JSON.stringify({
           action: authMode,
           phone: loginPhone.trim(),
-          name: loginName.trim()
+          name: loginName.trim(),
+          pin: loginPin.trim()
         })
       });
       const data = await res.json();
@@ -377,23 +546,28 @@ export default function App() {
         const profile = {
           id: data.landlord.id,
           name: profileName,
-          phone: loginPhone.trim(), // Kept locally for listings
+          phone: loginPhone.trim(),
+          token: data.token,
+          hasPin: true,
           isVerified: data.landlord.isVerified || data.landlord.verification_status === 'verified' || false,
           whatsappLinked: true,
-          role: profileName === "Tatenda E. Chikura" ? "Admin" : "Landlord"
+          role: data.landlord.role || (profileName === "Tatenda E. Chikura" ? "Admin" : "Landlord")
         };
         setUserProfile(profile);
         localStorage.setItem("bunkby_landlord_profile", JSON.stringify(profile));
         showToast(authMode === "login" 
-          ? `🎉 Welcome back, ${profile.name}! Your account is now active.` 
+          ? `🎉 Welcome back, ${profile.name}! Account authenticated.` 
           : `🎉 Welcome ${profile.name}! Your account was created successfully.`
         );
+        setLoginPin("");
       } else {
-        if (data.code === "ALREADY_EXISTS") {
-          showToast(`⚠️ An account already exists with this name. Directing to Log In.`);
+        if (data.code === "PIN_REQUIRED" || data.code === "INVALID_PIN") {
+          showToast(`🔒 ${data.error || "Incorrect Security PIN."}`);
+        } else if (data.code === "ALREADY_EXISTS") {
+          showToast(`⚠️ An account already exists with this phone number. Directing to Log In.`);
           setAuthMode("login");
         } else if (data.code === "ACCOUNT_NOT_FOUND") {
-          showToast(`⚠️ No account detected with this name. Please Create an Account first.`);
+          showToast(`⚠️ No account detected with this phone number. Please Create an Account first.`);
           setAuthMode("signup");
         } else {
           showToast(`⚠️ Auth Failed: ${data.error || "Please try again."}`);
@@ -404,6 +578,78 @@ export default function App() {
     } finally {
       setIsAuthLoading(false);
     }
+  };
+
+  // Account Recovery State & Handler
+  const [isRecoveryModalOpen, setIsRecoveryModalOpen] = useState(false);
+  const [recoveryPhone, setRecoveryPhone] = useState("");
+  const [recoveryName, setRecoveryName] = useState("");
+  const [recoveryNewPin, setRecoveryNewPin] = useState("");
+  const [isRecovering, setIsRecovering] = useState(false);
+
+  const handleAccountRecovery = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!recoveryName.trim() || !recoveryPhone.trim() || !recoveryNewPin.trim()) {
+      showToast("⚠️ Full Name, Phone, and New 4-digit PIN are required.");
+      return;
+    }
+    if (recoveryNewPin.trim().length < 4) {
+      showToast("⚠️ New PIN must be at least 4 digits.");
+      return;
+    }
+    setIsRecovering(true);
+    try {
+      const res = await fetch("/api/landlords", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "recover",
+          name: recoveryName.trim(),
+          phone: recoveryPhone.trim(),
+          newPin: recoveryNewPin.trim()
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        const profile = {
+          id: data.landlord.id,
+          name: data.landlord.name,
+          phone: recoveryPhone.trim(),
+          token: data.token,
+          hasPin: true,
+          isVerified: data.landlord.isVerified || false,
+          whatsappLinked: true,
+          role: data.landlord.role || "Landlord"
+        };
+        setUserProfile(profile);
+        localStorage.setItem("bunkby_landlord_profile", JSON.stringify(profile));
+        showToast("🎉 PIN reset successful! Welcome back.");
+        setIsRecoveryModalOpen(false);
+        setRecoveryNewPin("");
+      } else {
+        showToast(`🔒 ${data.error || "Recovery failed. Please verify registered details or contact support."}`);
+      }
+    } catch (_) {
+      showToast("⚠️ Network issue during account recovery.");
+    } finally {
+      setIsRecovering(false);
+    }
+  };
+
+  const handleLogout = () => {
+    if (userProfile?.token) {
+      fetch("/api/landlords/logout", {
+        method: "POST",
+        headers: { 
+          "Content-Type": "application/json",
+          "x-landlord-token": userProfile.token,
+          "Authorization": `Bearer ${userProfile.token}`
+        }
+      }).catch(() => {});
+    }
+    setUserProfile(null);
+    localStorage.removeItem("bunkby_landlord_profile");
+    showToast("🔑 Successfully logged out.");
   };
 
   // Camera state
@@ -486,7 +732,17 @@ export default function App() {
   // Toggle Room Inactive/Delisted ("as soon as they get a tenant")
   const handleToggleDelist = async (id: string | number) => {
     try {
-      const res = await fetch(`/api/rooms/${id}/toggle-status`, { method: "POST" });
+      const res = await fetch(`/api/rooms/${id}/toggle-status`, { 
+        method: "POST",
+        headers: { 
+          "Content-Type": "application/json",
+          "x-landlord-token": userProfile?.token || ""
+        },
+        body: JSON.stringify({
+          landlord_id: userProfile?.id,
+          token: userProfile?.token
+        })
+      });
       if (res.ok) {
         const data = await res.json();
         setListings(prev => prev.map(item => {
@@ -498,7 +754,8 @@ export default function App() {
           return item;
         }));
       } else {
-        showToast("⚠️ Could not toggle status");
+        const errData = await res.json().catch(() => ({}));
+        showToast(errData.error || "⚠️ Could not change room status.");
       }
     } catch (e) {
       console.error(e);
@@ -510,10 +767,20 @@ export default function App() {
   const handleDeleteListing = async (id: string | number) => {
     if (!confirm("Are you sure you want to permanently delete this listing from BunkBy?")) return;
     try {
-      const res = await fetch(`/api/rooms/${id}`, { method: "DELETE" });
+      const res = await fetch(`/api/rooms/${id}`, { 
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          "x-landlord-token": userProfile?.token || "",
+          "Authorization": userProfile?.token ? `Bearer ${userProfile.token}` : ""
+        }
+      });
       if (res.ok) {
         setListings(prev => prev.filter(item => String(item.id) !== String(id)));
         showToast("🗑️ Listing deleted permanently.");
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        showToast(errData.error || "⚠️ Could not delete listing");
       }
     } catch (e) {
       console.error(e);
@@ -549,12 +816,19 @@ export default function App() {
     setListings(prev => prev.map(item => String(item.id) === String(room.id) ? { ...item, leadsCount: (item.leadsCount || 0) + 1 } : item));
     fetch(`/api/rooms/${room.id}/lead`, { method: "POST" }).catch(e => console.error("Failed to update lead count", e));
 
-    // Direct prefilled whatsapp text with renter details!
-    const waText = encodeURIComponent(`Hi ${room.landlordName}, I saw your listing for "${room.title}" listed on BunkBy for $${room.price}/${room.frequency}. Is it still available for rent? My name is ${softGateName} (Phone: ${softGatePhone}).`);
+    // Direct prefilled whatsapp text with renter / guest details!
+    const isHospitality = room.category === "hospitality" || 
+      HOSPITALITY_PROPERTY_TYPES.includes(room.propertyType);
+    const hostDisplayName = room.business_name || room.businessName || room.landlordName;
+    const waText = encodeURIComponent(
+      isHospitality
+        ? `Hello ${hostDisplayName}, I saw your property "${room.title}" listed on BunkBy ($${room.price}/${room.frequency}). I would like to inquire about room availability and direct booking. My name is ${softGateName} (Phone: ${softGatePhone}).`
+        : `Hi ${room.landlordName}, I saw your listing for "${room.title}" listed on BunkBy for $${room.price}/${room.frequency}. Is it still available for rent? My name is ${softGateName} (Phone: ${softGatePhone}).`
+    );
     const waLink = `https://wa.me/${room.phone}?text=${waText}`;
 
     // Open direct WhatsApp connection
-    showToast(`📱 Redirecting to WhatsApp line with ${room.landlordName}. Lead recorded!`);
+    showToast(`📱 Connecting directly to ${hostDisplayName} on WhatsApp. Lead recorded!`);
     
     // Reset state & close modal
     setIsSoftGateOpen(false);
@@ -611,7 +885,7 @@ export default function App() {
               propertyType: parsedRoom.propertyType || "Single Room",
               tenantType: parsedRoom.tenantType || "General",
               amenities: parsedRoom.amenities || ["Borehole", "Reliable water"],
-              contactMethod: "Whatsapp",
+              contactMethod: (parsedRoom.contactMethod as ContactMethod) || "Whatsapp",
               phone: parsedRoom.phone || "0771122334",
               landlordName: parsedRoom.landlordName || "WhatsApp User",
               verification_status: "Active",
@@ -627,8 +901,12 @@ export default function App() {
             .then(res => res.json())
             .then(data => {
               const newRoom: RoomListing = {
-                id: data.id,
+                id: String(data.id || Date.now()),
                 ...payloadRoom,
+                contactMethod: (payloadRoom.contactMethod as ContactMethod) || "Whatsapp",
+                propertyType: (payloadRoom.propertyType as PropertyType) || "Single Room",
+                tenantType: (payloadRoom.tenantType as TenantType) || "General",
+                frequency: (payloadRoom.frequency as RentFrequency) || "Month",
                 images: [payloadRoom.image_url],
                 isVerifiedLandlord: false,
                 status: "Active",
@@ -697,11 +975,27 @@ export default function App() {
       const term = searchTerm.toLowerCase();
       const matchesText = 
         room.title.toLowerCase().includes(term) ||
+        (room.business_name && room.business_name.toLowerCase().includes(term)) ||
+        (room.businessName && room.businessName.toLowerCase().includes(term)) ||
         room.city.toLowerCase().includes(term) ||
         room.suburb.toLowerCase().includes(term) ||
         room.landmark.toLowerCase().includes(term) ||
         room.landlordName.toLowerCase().includes(term);
       if (!matchesText) return false;
+    }
+
+    // Category filter
+    if (selectedCategory !== "all") {
+      const isHosp = room.category === "hospitality" || 
+        HOSPITALITY_PROPERTY_TYPES.includes(room.propertyType) ||
+        ["Lodge / Guesthouse", "Hotel", "Lodge", "Guesthouse", "Bed & Breakfast"].includes(room.propertyType);
+      const roomCat = isHosp ? "hospitality" : "residential";
+      if (roomCat !== selectedCategory) return false;
+    }
+
+    // Property Type filter
+    if (selectedPropertyType && room.propertyType !== selectedPropertyType) {
+      return false;
     }
 
     // City Filter
@@ -737,14 +1031,28 @@ export default function App() {
     return true;
   });
 
+  // Apply active sorting criterion
+  const displayedListings = [...filteredListings].sort((a, b) => {
+    if (sortBy === "price_asc") return a.price - b.price;
+    if (sortBy === "price_desc") return b.price - a.price;
+    if (sortBy === "leads") return (b.leadsCount || 0) - (a.leadsCount || 0);
+    // default: newest
+    const timeA = new Date(a.createdAt || a.created_at || 0).getTime();
+    const timeB = new Date(b.createdAt || b.created_at || 0).getTime();
+    return timeB - timeA;
+  });
+
   const clearAllFilters = () => {
     setSearchTerm("");
     setSelectedCity("");
     setSelectedSuburb("");
     setSelectedAmenity("");
     setSelectedTenantType("");
+    setSelectedCategory("all");
+    setSelectedPropertyType("");
     setMinPrice("");
     setMaxPrice("");
+    setSortBy("newest");
     showToast("🧹 All filters cleared!");
   };
 
@@ -773,7 +1081,7 @@ export default function App() {
             animate={{ opacity: 1, y: 16 }}
             exit={{ opacity: 0, y: -20 }}
             id="app-toast"
-            className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-[#0B2545] text-white py-3 px-6 rounded-xl shadow-xl flex items-center gap-3 border border-orange-500 max-w-md"
+            className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-[#052659] text-[#E2E8F0] py-3 px-6 rounded-xl shadow-xl flex items-center gap-3 border border-[#FF7A00] max-w-md"
           >
             <Sparkles className="w-5 h-5 text-orange-400 shrink-0" />
             <p className="text-sm font-semibold">{toastMessage}</p>
@@ -781,8 +1089,8 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* Main Top Header: Navigation (Interiors styled in navy blue) */}
-      <header id="main-header" className="bg-[#0B2545] text-white border-b border-sky-900 sticky top-0 z-40 shadow-sm">
+      {/* Main Top Header: Navigation (#E2E8F0 background with palette accents) */}
+      <header id="main-header" className="bg-[#052659] text-white border-b border-[#052659] sticky top-0 z-40 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-18 flex items-center justify-between">
           
           {/* Logo Brand with custom icon */}
@@ -796,44 +1104,44 @@ export default function App() {
               <span className="text-2xl font-display font-black uppercase tracking-tight text-white md:text-2.5xl">
                 Bunk<span className="text-[#FF7A00]">By</span>
               </span>
-              <p className="text-[10px] text-sky-200 tracking-wider font-mono font-bold">100% FREE • AGENT-FREE</p>
+              <p className="text-[10px] text-[#E2E8F0] tracking-wider font-mono font-bold">100% FREE • AGENT-FREE</p>
             </div>
           </div>
 
-          {/* Nav items */}
-          <nav className="hidden md:flex items-center gap-1 text-sm">
+          {/* Nav items with small compact selected highlights */}
+          <nav className="hidden md:flex items-center gap-1 text-xs">
             <button 
               onClick={() => setActiveTab("browse")}
-              className={`px-3.5 py-2 rounded-xl transition-all ${activeTab === "browse" ? "bg-white/15 text-white shadow-inner font-extrabold" : "hover:text-white text-sky-100 hover:bg-white/5 font-bold"}`}
+              className={`px-2.5 py-1.5 rounded-lg transition-all ${activeTab === "browse" ? "bg-[#021024] text-white font-extrabold shadow-xs border border-white/10" : "hover:text-white text-slate-200 hover:bg-[#021024]/40 font-semibold"}`}
               id="nav-browse"
             >
               Browse Listings
             </button>
             <button 
               onClick={() => setActiveTab("landlord")}
-              className={`px-3.5 py-2 rounded-xl transition-all ${activeTab === "landlord" ? "bg-white/15 text-white shadow-inner font-extrabold" : "hover:text-white text-sky-100 hover:bg-white/5 font-bold"}`}
+              className={`px-2.5 py-1.5 rounded-lg transition-all ${activeTab === "landlord" ? "bg-[#021024] text-white font-extrabold shadow-xs border border-white/10" : "hover:text-white text-slate-200 hover:bg-[#021024]/40 font-semibold"}`}
               id="nav-landlord"
             >
               Landlords Portal
             </button>
             <button 
               onClick={() => setActiveTab("whatsapp")}
-              className={`px-3.5 py-2 rounded-xl transition-all flex items-center gap-2 ${activeTab === "whatsapp" ? "bg-white/15 text-white shadow-inner font-extrabold" : "hover:text-white text-sky-100 hover:bg-white/5 font-bold"}`}
+              className={`px-2.5 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${activeTab === "whatsapp" ? "bg-[#021024] text-white font-extrabold shadow-xs border border-white/10" : "hover:text-white text-slate-200 hover:bg-[#021024]/40 font-semibold"}`}
               id="nav-whatsapp"
             >
-              <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></div>
+              <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></div>
               WhatsApp Chatbot
             </button>
             <button 
               onClick={() => setActiveTab("account")}
-              className={`px-3.5 py-2 rounded-xl transition-all ${activeTab === "account" ? "bg-white/15 text-white shadow-inner font-extrabold" : "hover:text-white text-sky-100 hover:bg-white/5 font-bold"}`}
+              className={`px-2.5 py-1.5 rounded-lg transition-all ${activeTab === "account" ? "bg-[#021024] text-white font-extrabold shadow-xs border border-white/10" : "hover:text-white text-slate-200 hover:bg-[#021024]/40 font-semibold"}`}
               id="nav-account"
             >
               Account
             </button>
             <button 
               onClick={() => setActiveTab("help")}
-              className={`px-3.5 py-2 rounded-xl transition-all ${activeTab === "help" ? "bg-white/15 text-white shadow-inner font-extrabold" : "hover:text-white text-sky-100 hover:bg-white/5 font-bold"}`}
+              className={`px-2.5 py-1.5 rounded-lg transition-all ${activeTab === "help" ? "bg-[#021024] text-white font-extrabold shadow-xs border border-white/10" : "hover:text-white text-slate-200 hover:bg-[#021024]/40 font-semibold"}`}
               id="nav-help"
             >
               Help & FAQ
@@ -841,12 +1149,12 @@ export default function App() {
           </nav>
 
           {/* Mobile Right Controls / User details */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             {userProfile ? (
               <>
-                <div className="bg-white/10 rounded-xl px-3 py-1.5 border border-white/5 hidden sm:flex items-center gap-2 text-xs text-white font-semibold">
-                  <User className="w-3.5 h-3.5 text-orange-400" />
-                  <span className="font-mono truncate max-w-[120px]">{userProfile.name}</span>
+                <div className="bg-[#052659]/80 rounded-lg px-2.5 py-1 border border-[#052659] hidden sm:flex items-center gap-1.5 text-xs text-[#E2E8F0] font-semibold">
+                  <User className="w-3 h-3 text-orange-500" />
+                  <span className="font-mono truncate max-w-[110px]">{userProfile.name}</span>
                 </div>
                 
                 <button 
@@ -859,10 +1167,10 @@ export default function App() {
                     }));
                     setIsCreateModalOpen(true);
                   }}
-                  className="bg-orange-500 hover:bg-orange-600 text-white font-medium text-[11px] px-3 py-2 rounded-lg shadow-md shadow-orange-500/15 flex items-center gap-1.5 transition-all outline-none"
+                  className="bg-orange-500 hover:bg-orange-600 text-white font-medium text-[11px] px-2.5 py-1.5 rounded-lg shadow-sm flex items-center gap-1 transition-all outline-none"
                   id="btn-create-header"
                 >
-                  <Plus className="w-4 h-4 text-white shrink-0" />
+                  <Plus className="w-3.5 h-3.5 text-white shrink-0" />
                   <span>Create Listing</span>
                 </button>
               </>
@@ -872,10 +1180,10 @@ export default function App() {
                   setActiveTab("landlord");
                   showToast("🔑 Register or access BunkBy Landlord workspace using your phone number!");
                 }}
-                className="bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white font-medium text-xs px-4 py-2.5 rounded-xl shadow-lg flex items-center gap-1.5 transition-all outline-none"
+                className="bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white font-semibold text-[11px] px-2.5 py-1.5 rounded-lg shadow-sm flex items-center gap-1 transition-all outline-none"
                 id="btn-login-header"
               >
-                <User className="w-3.5 h-3.5 text-white animate-pulse" />
+                <User className="w-3 h-3 text-white" />
                 <span>Create Account</span>
               </button>
             )}
@@ -885,31 +1193,31 @@ export default function App() {
       </header>
 
       {/* Mobile nav bar bottom */}
-      <div className="md:hidden bg-white border-b border-slate-200 flex items-center justify-around text-xs font-medium py-2.5 sticky top-18 z-35 shadow-sm">
+      <div className="md:hidden bg-[#052659] border-b border-[#052659] flex items-center justify-around text-xs font-medium py-2.5 sticky top-18 z-35 shadow-sm">
         <button 
           onClick={() => setActiveTab("browse")}
-          className={`flex flex-col items-center gap-1 ${activeTab === "browse" ? "text-sky-600 font-bold" : "text-slate-500"}`}
+          className={`flex flex-col items-center gap-1 ${activeTab === "browse" ? "text-white font-bold" : "text-[#E2E8F0]"}`}
         >
           <Building className="w-4 h-4 shrink-0" />
           <span>Browse</span>
         </button>
         <button 
           onClick={() => setActiveTab("landlord")}
-          className={`flex flex-col items-center gap-1 relative ${activeTab === "landlord" ? "text-sky-600 font-bold" : "text-slate-500"}`}
+          className={`flex flex-col items-center gap-1 relative ${activeTab === "landlord" ? "text-white font-bold" : "text-[#E2E8F0]"}`}
         >
           <SlidersHorizontal className="w-4 h-4 shrink-0" />
           <span>My Portal</span>
         </button>
         <button 
           onClick={() => setActiveTab("whatsapp")}
-          className={`flex flex-col items-center gap-1 ${activeTab === "whatsapp" ? "text-emerald-600 font-bold" : "text-slate-500"}`}
+          className={`flex flex-col items-center gap-1 ${activeTab === "whatsapp" ? "text-emerald-300 font-bold" : "text-[#E2E8F0]"}`}
         >
-          <MessageSquare className="w-4 h-4 shrink-0 text-emerald-500" />
+          <MessageSquare className="w-4 h-4 shrink-0 text-emerald-600" />
           <span>WhatsApp Bot</span>
         </button>
         <button 
           onClick={() => setActiveTab("account")}
-          className={`flex flex-col items-center gap-1 ${activeTab === "account" ? "text-sky-600 font-bold" : "text-slate-500"}`}
+          className={`flex flex-col items-center gap-1 ${activeTab === "account" ? "text-white font-bold" : "text-[#E2E8F0]"}`}
         >
           <Settings className="w-4 h-4 shrink-0" />
           <span>Settings</span>
@@ -923,30 +1231,42 @@ export default function App() {
         {activeTab === "browse" && (
           <div className="space-y-6">
             
-            {/* Dynamic Hero Banner matching Bubble dashboard layout */}
+            {/* Hero Card with Midnight Tribal Geometry with Copper Accents Background */}
             <section 
               id="hero-banner" 
-              className="blue-gradient rounded-3xl text-white p-6 sm:p-8 md:p-12 text-center relative overflow-hidden shadow-sm border border-blue-900/40"
+              className="bg-[#0b131e] rounded-3xl text-white p-6 sm:p-8 md:p-12 text-center relative overflow-hidden shadow-2xl border border-slate-800"
             >
-              {/* Abs decoration shapes for design craft */}
-              <div className="absolute top-0 right-0 w-64 h-64 bg-orange-500/10 rounded-full blur-3xl -mr-20 -mt-20"></div>
-              <div className="absolute bottom-0 left-0 w-80 h-80 bg-blue-500/15 rounded-full blur-3xl -ml-20 -mb-20"></div>
+              {/* Midnight Tribal Geometry with Copper Accents Background Image */}
+              <img
+                src="/assets/midnight-tribal-geometry.svg"
+                alt="Midnight Tribal Geometry with Copper Accents"
+                className="absolute inset-0 w-full h-full object-cover pointer-events-none select-none opacity-95"
+                referrerPolicy="no-referrer"
+                onError={(e) => {
+                  (e.currentTarget as HTMLImageElement).src = "/hero-pattern.jpg";
+                }}
+              />
 
-              <div className="relative max-w-3xl mx-auto space-y-4">
-                <div className="inline-flex items-center gap-2 bg-white/10 border border-white/5 text-white px-4 py-1.5 rounded-full text-xs font-semibold backdrop-blur-sm">
-                  <ShieldCheck className="w-4 h-4 text-orange-400" />
-                  <span>Trusted Rooms In Your Desired Area</span>
+              {/* Ambient lighting glows matching copper and midnight tones */}
+              <div className="absolute top-0 right-0 w-80 h-80 bg-[#ea580c]/15 rounded-full blur-3xl -mr-20 -mt-20 pointer-events-none"></div>
+              <div className="absolute bottom-0 left-0 w-80 h-80 bg-[#ff7a00]/15 rounded-full blur-3xl -ml-20 -mb-20 pointer-events-none"></div>
+              <div className="absolute inset-0 bg-[#070c12]/20 pointer-events-none"></div>
+
+              <div className="relative z-10 max-w-3.5xl mx-auto space-y-4 sm:space-y-6">
+                <div className="inline-flex items-center gap-1.5 sm:gap-2 bg-[#052659]/80 backdrop-blur-md border border-white/20 text-white px-3 sm:px-4 py-1 sm:py-1.5 rounded-full text-[10px] sm:text-xs font-black tracking-wider shadow-sm max-w-full">
+                  <ShieldCheck className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#FF7A00] shrink-0" />
+                  <span className="truncate">ZIMBABWE'S AGENT-FREE ACCOMMODATION MARKETPLACE • DEAL DIRECT</span>
                 </div>
 
-                <h1 className="text-3.5xl sm:text-4.5xl md:text-5.5xl font-display font-extrabold tracking-tight text-white leading-tight">
-                  Find Your Room in <span className="text-[#FF7A00]">Zimbabwe</span>
+                <h1 className="text-2xl sm:text-4xl md:text-5.5xl font-display font-black tracking-tight text-white leading-tight drop-shadow-md">
+                  Find a Place to Stay in <span className="text-[#FF7A00] drop-shadow-sm">Zimbabwe</span>
                 </h1>
 
-                <p className="text-sm sm:text-base text-slate-200 max-w-2xl mx-auto leading-relaxed">
-                  Browse verified rooms, guesthouses and property rentals in Harare, Bulawayo, Mutare, Gweru and beyond. We connect landlords and tenants directly. Free from greedy agent middleman cuts!
+                <p className="text-xs sm:text-sm md:text-base text-slate-200 font-medium sm:font-semibold max-w-2xl mx-auto leading-relaxed drop-shadow-sm">
+                  Browse verified rooms, cottages, apartments, guesthouses, and lodges across Harare, Bulawayo, Mutare, Gweru, and beyond. Free direct contact with landlords and hosts — zero middleman fees.
                 </p>
 
-                <div className="pt-3 flex flex-wrap gap-3 justify-center">
+                <div className="pt-2 flex flex-wrap gap-2.5 sm:gap-3 justify-center">
                   <button 
                     onClick={() => {
                       if (!userProfile) {
@@ -957,23 +1277,83 @@ export default function App() {
                         setIsCreateModalOpen(true);
                       }
                     }}
-                    className="bg-orange-500 hover:bg-orange-600 text-white font-bold px-6 py-3 rounded-2xl shadow-lg shadow-orange-500/25 transition-all text-sm flex items-center gap-2"
+                    className="bg-[#FF7A00] hover:bg-[#e66e00] text-white font-black px-4 sm:px-6 py-2.5 sm:py-3 rounded-xl sm:rounded-2xl shadow-lg shadow-orange-500/30 transition-all text-xs sm:text-sm flex items-center gap-1.5 sm:gap-2 cursor-pointer"
                   >
-                    <Plus className="w-4 h-4 shrink-0" />
-                    <span>Create New Listing</span>
+                    <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0 stroke-[3]" />
+                    <span>List Accommodation (100% Free)</span>
                   </button>
                   <button 
                     onClick={() => setActiveTab("whatsapp")}
-                    className="bg-white/15 hover:bg-white/25 border border-white/10 text-white font-bold px-6 py-3 rounded-2xl transition-all text-sm flex items-center gap-2 backdrop-blur-sm"
+                    className="bg-white/15 hover:bg-white/25 text-white font-black px-4 sm:px-6 py-2.5 sm:py-3 rounded-xl sm:rounded-2xl transition-all text-xs sm:text-sm flex items-center gap-1.5 sm:gap-2 shadow-sm border border-white/20 cursor-pointer backdrop-blur-md"
                   >
-                    <MessageSquare className="w-4 h-4 shrink-0 text-emerald-400" />
+                    <MessageSquare className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0 text-emerald-400 stroke-[2.5]" />
                     <span>Try WhatsApp Bot</span>
+                  </button>
+                </div>
+
+                {/* Category Switcher Tabs: All, Residential, Hospitality */}
+                <div className="pt-4 border-t border-white/15 flex flex-wrap items-center justify-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedCategory("all");
+                      setSelectedPropertyType("");
+                    }}
+                    className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer ${
+                      selectedCategory === "all"
+                        ? "bg-[#FF7A00] text-white shadow-md shadow-orange-500/30"
+                        : "bg-white/15 text-white hover:bg-white/25 border border-white/20 backdrop-blur-md"
+                    }`}
+                  >
+                    <Building className="w-3.5 h-3.5 stroke-[2.5]" />
+                    <span>All Accommodations</span>
+                    <span className="text-[10px] bg-black/40 px-1.5 py-0.5 rounded-full font-mono font-black text-white">
+                      {listings.filter(r => r.status === "Active").length}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedCategory("residential");
+                      setSelectedPropertyType("");
+                    }}
+                    className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer ${
+                      selectedCategory === "residential"
+                        ? "bg-[#FF7A00] text-white shadow-md shadow-orange-500/30"
+                        : "bg-white/15 text-white hover:bg-white/25 border border-white/20 backdrop-blur-md"
+                    }`}
+                  >
+                    <Home className="w-3.5 h-3.5 stroke-[2.5]" />
+                    <span>🏡 Residential Housing</span>
+                    <span className="text-[10px] bg-black/40 px-1.5 py-0.5 rounded-full font-mono font-black text-white">
+                      {listings.filter(r => r.status === "Active" && (r.category === "residential" || (!r.category && !["Lodge / Guesthouse", "Hotel", "Lodge", "Guesthouse", "Bed & Breakfast"].includes(r.propertyType)))).length}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedCategory("hospitality");
+                      setSelectedPropertyType("");
+                    }}
+                    className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer ${
+                      selectedCategory === "hospitality"
+                        ? "bg-[#FF7A00] text-white shadow-md shadow-orange-500/30"
+                        : "bg-white/15 text-white hover:bg-white/25 border border-white/20 backdrop-blur-md"
+                    }`}
+                  >
+                    <Hotel className="w-3.5 h-3.5 stroke-[2.5]" />
+                    <span>🏨 Hospitality & Lodges</span>
+                    <span className="text-[10px] bg-black/40 px-1.5 py-0.5 rounded-full font-mono font-black text-white">
+                      {listings.filter(r => r.status === "Active" && (r.category === "hospitality" || ["Lodge / Guesthouse", "Hotel", "Lodge", "Guesthouse", "Bed & Breakfast"].includes(r.propertyType))).length}
+                    </span>
                   </button>
                 </div>
               </div>
 
-              {/* Dynamic Filter Search Form Container Overlay */}
-              <div className="mt-8 md:mt-12 bg-white text-slate-800 rounded-2xl p-4 md:p-5 shadow-xl border border-slate-200 max-w-4xl mx-auto text-left relative z-10 grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+              {/* Dynamic Filter Search Form Container */}
+              <div className="mt-6 bg-white text-slate-800 rounded-2xl p-4 md:p-5 shadow-2xl border border-slate-200 max-w-4xl mx-auto text-left relative z-10 grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
                 
                 {/* Search Text field */}
                 <div className="md:col-span-2 space-y-1.5">
@@ -984,10 +1364,10 @@ export default function App() {
                   <div className="relative">
                     <input 
                       type="text" 
-                      placeholder="e.g. Avonlea cozy cottage, student bedsit..."
+                      placeholder={selectedCategory === "hospitality" ? "e.g. Bronte Gardens, safari lodge, pool..." : "e.g. Avonlea cozy cottage, student bedsit..."}
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
-                      className="w-full pl-3 pr-8 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-900/10 focus:border-blue-900 bg-slate-50 text-sm font-medium transition-all"
+                      className="w-full pl-3 pr-8 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-[#052659]/10 focus:border-[#052659] bg-slate-50 text-sm font-medium transition-all"
                     />
                     {searchTerm && (
                       <button 
@@ -1009,7 +1389,7 @@ export default function App() {
                       setSelectedCity(e.target.value);
                       setSelectedSuburb(""); // Reset suburb
                     }}
-                    className="w-full py-2.5 px-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 bg-slate-50 text-sm font-medium focus:border-blue-900 transition-all cursor-pointer"
+                    className="w-full py-2.5 px-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 bg-slate-50 text-sm font-medium focus:border-[#052659] transition-all cursor-pointer"
                   >
                     <option value="">All Cities</option>
                     {ALL_ZIM_CITIES.map(c => (
@@ -1020,7 +1400,7 @@ export default function App() {
 
                 {/* Search Trigger visual button */}
                 <div>
-                  <button className="w-full bg-[#0B2545] hover:bg-[#134074] text-white py-2.5 rounded-xl font-bold transition-all text-sm flex items-center justify-center gap-2 shadow-md">
+                  <button className="w-full bg-[#052659] hover:bg-[#021024] text-white py-2.5 rounded-xl font-bold transition-all text-sm flex items-center justify-center gap-2 shadow-md cursor-pointer">
                     <Search className="w-4 h-4 shrink-0" />
                     <span>Search</span>
                   </button>
@@ -1041,10 +1421,10 @@ export default function App() {
                 </span>
                 <div>
                   <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
-                    Find Rooms via WhatsApp
+                    Find Stays via WhatsApp
                     <span className="inline-block px-1.5 py-0.5 text-[9px] bg-emerald-500 text-white rounded font-mono uppercase tracking-widest font-bold">Free InfoBot</span>
                   </h3>
-                  <p className="text-xs text-slate-500">Low data? No problem. Chat with BunkBy bot to get matched rooms sent directly to you on WhatsApp.</p>
+                  <p className="text-xs text-slate-500">Low data? No problem. Chat with BunkBy bot to get matched accommodations sent directly to you on WhatsApp.</p>
                 </div>
               </div>
               <span className="text-emerald-600 font-bold text-xs flex items-center gap-1 hover:underline self-end sm:self-auto shrink-0">
@@ -1053,12 +1433,12 @@ export default function App() {
               </span>
             </div>
 
-            {/* Secondary Filters row (Price sliders, Amenities, seek criteria) with clear links */}
-            <div className="bg-white rounded-2xl p-4 border border-slate-200">
+            {/* Secondary Filters row (Price sliders, Amenities, Property Type, seek criteria) with clear links */}
+            <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs">
               <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
                 
                 {/* Check Filters panel */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 w-full lg:w-auto">
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 w-full lg:w-auto">
                   
                   {/* Suburb Select */}
                   <div className="space-y-1">
@@ -1075,6 +1455,26 @@ export default function App() {
                     </select>
                   </div>
 
+                  {/* Dynamic Property Type Select */}
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-mono text-slate-400 font-semibold uppercase">Property Type</label>
+                    <select
+                      value={selectedPropertyType}
+                      onChange={(e) => setSelectedPropertyType(e.target.value)}
+                      className="w-full text-xs font-semibold py-1.5 px-2.5 rounded-lg border border-slate-200 bg-slate-50 cursor-pointer focus:outline-none text-slate-700"
+                    >
+                      <option value="">All Types</option>
+                      {(selectedCategory === "hospitality" 
+                        ? HOSPITALITY_PROPERTY_TYPES 
+                        : selectedCategory === "residential"
+                          ? RESIDENTIAL_PROPERTY_TYPES
+                          : ALL_PROPERTY_TYPES
+                      ).map(pt => (
+                        <option key={pt} value={pt}>{pt}</option>
+                      ))}
+                    </select>
+                  </div>
+
                   {/* Amenity Select */}
                   <div className="space-y-1">
                     <label className="text-[10px] font-mono text-slate-400 font-semibold uppercase">Amenity</label>
@@ -1084,7 +1484,7 @@ export default function App() {
                       className="w-full text-xs font-semibold py-1.5 px-2.5 rounded-lg border border-slate-200 bg-slate-50 cursor-pointer focus:outline-none"
                     >
                       <option value="">Any Amenity</option>
-                      {ALL_AMENITIES.map(a => (
+                      {(selectedCategory === "hospitality" ? HOSPITALITY_AMENITIES : ALL_AMENITIES).map(a => (
                         <option key={a} value={a}>{a}</option>
                       ))}
                     </select>
@@ -1092,7 +1492,7 @@ export default function App() {
 
                   {/* Tenant seeks criteria selector */}
                   <div className="space-y-1">
-                    <label className="text-[10px] font-mono text-slate-400 font-semibold uppercase">Tenant Type</label>
+                    <label className="text-[10px] font-mono text-slate-400 font-semibold uppercase">Tenant / Guest</label>
                     <select
                       value={selectedTenantType}
                       onChange={(e) => setSelectedTenantType(e.target.value)}
@@ -1108,7 +1508,7 @@ export default function App() {
 
                   {/* Min / Max Price fields */}
                   <div className="space-y-1">
-                    <label className="text-[10px] font-mono text-slate-400 font-semibold uppercase">Price Bracket (USD)</label>
+                    <label className="text-[10px] font-mono text-slate-400 font-semibold uppercase">Price (USD)</label>
                     <div className="flex items-center gap-1.5">
                       <input 
                         type="number" 
@@ -1130,18 +1530,32 @@ export default function App() {
 
                 </div>
 
-                {/* Clearance Actions */}
-                <div className="flex items-center gap-3 shrink-0 self-end lg:self-auto">
-                  {(searchTerm || selectedCity || selectedSuburb || selectedAmenity || selectedTenantType || minPrice !== "" || maxPrice !== "") && (
+                {/* Clearance Actions & Sort Controls */}
+                <div className="flex flex-wrap items-center gap-3 shrink-0 self-end lg:self-auto">
+                  {(searchTerm || selectedCity || selectedSuburb || selectedAmenity || selectedPropertyType || selectedTenantType || selectedCategory !== "all" || minPrice !== "" || maxPrice !== "" || sortBy !== "newest") && (
                     <button 
                       onClick={clearAllFilters}
-                      className="text-xs text-orange-500 font-bold hover:underline flex items-center gap-1 bg-orange-50 px-3 py-1.5 rounded-lg transition-all"
+                      className="text-xs text-orange-500 font-bold hover:underline flex items-center gap-1 bg-orange-50 px-3 py-1.5 rounded-lg transition-all cursor-pointer"
                     >
                       <span>Clear All Filters</span>
                     </button>
                   )}
+                  <div className="flex items-center gap-2">
+                    <label htmlFor="sort-by-select" className="text-xs text-slate-500 font-medium">Sort:</label>
+                    <select
+                      id="sort-by-select"
+                      value={sortBy}
+                      onChange={(e) => setSortBy(e.target.value as any)}
+                      className="text-xs font-semibold bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 text-slate-700 focus:outline-none focus:border-orange-500 cursor-pointer shadow-2xs"
+                    >
+                      <option value="newest">Newest First</option>
+                      <option value="price_asc">Price: Low to High</option>
+                      <option value="price_desc">Price: High to Low</option>
+                      <option value="leads">Most Inquiries</option>
+                    </select>
+                  </div>
                   <div className="text-xs text-slate-500 font-mono">
-                    Showing <span className="font-semibold text-slate-800">{filteredListings.length}</span> active rooms
+                    Showing <span className="font-bold text-slate-800">{displayedListings.length}</span> active stays
                   </div>
                 </div>
 
@@ -1154,7 +1568,7 @@ export default function App() {
                 <RefreshCw className="w-8 h-8 text-orange-500 animate-spin" />
                 <p className="text-slate-500 font-medium">Querying active agent-free listings...</p>
               </div>
-            ) : filteredListings.length === 0 ? (
+            ) : displayedListings.length === 0 ? (
               <div className="bg-white rounded-3xl p-12 text-center border border-slate-200 space-y-4 max-w-xl mx-auto shadow-sm">
                 <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mx-auto">
                   <SlidersHorizontal className="w-8 h-8 text-slate-400" />
@@ -1184,122 +1598,190 @@ export default function App() {
                 </div>
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8 hover:cursor-pointer" id="rooms-grid">
-                {filteredListings.map((room) => (
-                  <motion.div 
-                    key={room.id}
-                    layoutId={room.id}
-                    id={`room-card-${room.id}`}
-                    className="bg-white rounded-2xl overflow-hidden border border-slate-200/80 shadow-md hover:shadow-xl hover:border-slate-300 transition-all flex flex-col group relative"
-                  >
-                    {/* Room Image with overlay tags */}
-                    <div className="relative h-56 w-full overflow-hidden bg-slate-100 shrink-0 flex items-center justify-center">
-                      {(room.image_url || (room.images && room.images[0])) ? (
-                        <img 
-                          src={room.image_url || (room.images && room.images[0])} 
-                          alt={room.title}
-                          className="w-full h-full object-cover transition-transform duration-550 group-hover:scale-105"
-                          referrerPolicy="no-referrer"
-                        />
-                      ) : (
-                        <span className="text-slate-400 font-mono text-xs font-bold uppercase tracking-widest">No Image</span>
-                      )}
-                      
-                      {/* Top ribbon tags */}
-                      <div className="absolute top-3 left-3 flex flex-wrap gap-1.5 z-10">
-                        {room.isVerifiedLandlord && (
-                          <span className="bg-emerald-500 text-white font-semibold text-[10px] tracking-wide uppercase px-2.5 py-1 rounded-full flex items-center gap-1.5 shadow-md shadow-emerald-500/15">
-                            <CheckCircle className="w-3 h-3 text-white fill-white/10 shrink-0" />
-                            <span>Verified Landlord</span>
-                          </span>
-                        )}
-                        <span className="bg-slate-900/80 backdrop-blur-md text-[#FF7A00] font-mono font-bold text-[9px] px-2 py-0.5 rounded-full uppercase tracking-wider">
-                          {room.propertyType}
-                        </span>
-                      </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8" id="rooms-grid">
+                {displayedListings.map((room) => {
+                  const isHospitality = room.category === "hospitality" || ["Lodge / Guesthouse", "Hotel", "Lodge", "Guesthouse", "Bed & Breakfast"].includes(room.propertyType);
+                  const businessName = room.business_name || room.businessName;
 
-                      {/* Side cost badge matching ZimRooms design */}
-                      <div className="absolute bottom-3 right-3 bg-white/95 backdrop-blur-sm shadow-md rounded-2xl px-3 py-1.5 text-right border border-slate-200">
-                        <span className="text-[10px] text-slate-500 block leading-3 font-mono font-bold uppercase">Rent</span>
-                        <div className="text-xl font-display font-extrabold text-slate-900">
-                          ${room.price} <span className="text-xs font-semibold text-slate-500">/{room.frequency}</span>
-                        </div>
-                        {room.deposit > 0 ? (
-                          <span className="text-[10px] text-slate-400 block font-mono">Dep: ${room.deposit}</span>
+                  return (
+                    <motion.div 
+                      key={room.id}
+                      layoutId={room.id}
+                      id={`room-card-${room.id}`}
+                      className="bg-white rounded-2xl overflow-hidden border border-slate-200/80 shadow-md hover:shadow-xl hover:border-slate-300 transition-all flex flex-col group relative"
+                    >
+                      {/* Room Image with overlay tags */}
+                      <div 
+                        onClick={() => {
+                          setSelectedListingDetail(room);
+                          setDetailActivePhotoIdx(0);
+                        }}
+                        className="relative h-56 w-full overflow-hidden bg-slate-100 shrink-0 flex items-center justify-center cursor-pointer"
+                      >
+                        {(room.image_url || (room.images && room.images[0])) ? (
+                          <img 
+                            src={room.image_url || (room.images && room.images[0])} 
+                            alt={room.title}
+                            className="w-full h-full object-cover transition-transform duration-550 group-hover:scale-105"
+                            referrerPolicy="no-referrer"
+                          />
                         ) : (
-                          <span className="text-[10px] text-emerald-600 block font-mono font-bold">No Deposit</span>
+                          <span className="text-slate-400 font-mono text-xs font-bold uppercase tracking-widest">No Image</span>
                         )}
-                      </div>
-                    </div>
-
-                    {/* Room Metadata */}
-                    <div className="p-5 flex-grow flex flex-col space-y-4">
-                      
-                      {/* Name/Heading */}
-                      <div className="space-y-1">
-                        <div className="flex items-start justify-between gap-1.5">
-                          <h3 className="text-lg font-bold text-slate-800 leading-snug line-clamp-2">
-                            {room.title}
-                          </h3>
-                        </div>
                         
-                        {/* Location lines */}
-                        <div className="space-y-1 text-xs text-slate-500">
-                          <div className="flex items-center gap-1.5 font-semibold text-slate-700">
-                            <MapPin className="w-3.5 h-3.5 text-orange-500 shrink-0" />
-                            <span>{room.city}, {room.suburb}</span>
-                          </div>
-                          <p className="italic pl-5 line-clamp-1 text-slate-400">"{room.landmark}"</p>
-                        </div>
-                      </div>
-
-                      {/* Main criteria highlights */}
-                      <div className="bg-slate-50 rounded-xl p-3 flex justify-around text-center items-center divide-x divide-slate-200 shrink-0">
-                        <div className="w-1/2 p-1">
-                          <span className="text-[9px] uppercase tracking-wider block text-slate-400 font-mono">Tough Criteria</span>
-                          <span className="text-xs font-bold text-slate-700">{room.tenantType} sought</span>
-                        </div>
-                        <div className="w-1/2 p-1">
-                          <span className="text-[9px] uppercase tracking-wider block text-slate-400 font-mono font-bold">Contact</span>
-                          <span className="text-xs font-semibold text-slate-700">{room.contactMethod}</span>
-                        </div>
-                      </div>
-
-                      {/* List of amenities matching Bubble schema */}
-                      {room.amenities.length > 0 && (
-                        <div className="flex flex-wrap gap-1.5 shrink-0">
-                          {room.amenities.map((amenity, idx) => (
-                            <span 
-                              key={idx}
-                              className="text-[10px] font-medium bg-sky-50 text-sky-700 py-0.5 px-2.5 rounded-full border border-sky-100 hover:border-orange-200 transition-all"
-                            >
-                              {amenity}
+                        {/* Top ribbon tags */}
+                        <div className="absolute top-3 left-3 flex flex-wrap gap-1.5 z-10">
+                          {isHospitality ? (
+                            <span className="bg-[#052659] text-white font-bold text-[10px] tracking-wide uppercase px-2.5 py-1 rounded-full flex items-center gap-1.5 shadow-md shadow-[#052659]/30">
+                              <Hotel className="w-3 h-3 text-[#FF7A00] shrink-0" />
+                              <span>Hospitality</span>
                             </span>
-                          ))}
-                        </div>
-                      )}
+                          ) : (
+                            <span className="bg-[#021024] text-white font-bold text-[10px] tracking-wide uppercase px-2.5 py-1 rounded-full flex items-center gap-1.5 shadow-md shadow-[#021024]/30">
+                              <Home className="w-3 h-3 text-[#FF7A00] shrink-0" />
+                              <span>Residential</span>
+                            </span>
+                          )}
 
-                      {/* Bottom action panel with traffic view incrementing */}
-                      <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-2 mt-auto shrink-0">
-                        <div className="text-slate-400 text-xs">
-                          <div className="flex items-center gap-1 text-[11px] font-mono">
-                            <Clock className="w-3.5 h-3.5 shrink-0" />
-                            <span>{new Date(room.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}</span>
+                          <span className="bg-slate-900/85 backdrop-blur-md text-[#FF7A00] font-mono font-bold text-[9px] px-2 py-0.5 rounded-full uppercase tracking-wider">
+                            {room.propertyType}
+                          </span>
+
+                          {room.isSample && (
+                            <span className="bg-amber-500/90 text-white font-mono font-bold text-[9px] px-2 py-0.5 rounded-full uppercase tracking-wider shadow-xs">
+                              Sample Listing
+                            </span>
+                          )}
+
+                          {room.isVerifiedLandlord ? (
+                            <span className="bg-emerald-600 text-white font-semibold text-[10px] tracking-wide uppercase px-2 py-0.5 rounded-full flex items-center gap-1 shadow-sm">
+                              <CheckCircle className="w-3 h-3 text-white shrink-0" />
+                              <span>Verified {isHospitality ? "Host" : "Landlord"}</span>
+                            </span>
+                          ) : (
+                            <span className="bg-slate-800/80 backdrop-blur-xs text-slate-300 font-medium text-[9px] px-2 py-0.5 rounded-full">
+                              Advertiser info provided
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Side cost badge */}
+                        <div className="absolute bottom-3 right-3 bg-white/95 backdrop-blur-sm shadow-md rounded-2xl px-3 py-1.5 text-right border border-slate-200">
+                          <span className="text-[10px] text-slate-500 block leading-3 font-mono font-bold uppercase">
+                            {isHospitality ? "Rate" : "Rent"}
+                          </span>
+                          <div className="text-xl font-display font-extrabold text-slate-900">
+                            ${room.price} <span className="text-xs font-semibold text-slate-500">/{room.frequency}</span>
+                          </div>
+                          {isHospitality ? (
+                            <span className="text-[10px] text-emerald-600 block font-mono font-bold">Direct Booking</span>
+                          ) : room.deposit > 0 ? (
+                            <span className="text-[10px] text-slate-400 block font-mono">Dep: ${room.deposit}</span>
+                          ) : (
+                            <span className="text-[10px] text-emerald-600 block font-mono font-bold">No Deposit</span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Room Metadata */}
+                      <div className="p-5 flex-grow flex flex-col space-y-4">
+                        
+                        {/* Name/Heading */}
+                        <div className="space-y-1">
+                          {isHospitality && businessName && (
+                            <div className="flex items-center gap-1.5 text-xs font-extrabold text-[#052659] uppercase tracking-wide">
+                              <Building2 className="w-3.5 h-3.5 text-[#052659] shrink-0" />
+                              <span className="truncate">{businessName}</span>
+                            </div>
+                          )}
+
+                          <div className="flex items-start justify-between gap-1.5">
+                            <h3 
+                              onClick={() => {
+                                setSelectedListingDetail(room);
+                                setDetailActivePhotoIdx(0);
+                              }}
+                              className="text-lg font-bold text-slate-800 leading-snug line-clamp-2 hover:text-[#052659] cursor-pointer transition-colors"
+                            >
+                              {room.title}
+                            </h3>
+                          </div>
+                          
+                          {/* Location lines */}
+                          <div className="space-y-1 text-xs text-slate-500">
+                            <div className="flex items-center gap-1.5 font-semibold text-slate-700">
+                              <MapPin className="w-3.5 h-3.5 text-[#FF7A00] shrink-0" />
+                              <span>{room.city}, {room.suburb}</span>
+                            </div>
+                            <p className="italic pl-5 line-clamp-1 text-slate-400">"{room.landmark}"</p>
                           </div>
                         </div>
 
-                        <button 
-                          onClick={() => handleContactLandlord(room)}
-                          className="bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs py-2 px-4 rounded-xl shadow-md transition-all flex items-center gap-1.5 group-hover:scale-102 shrink-0 outline-none"
-                        >
-                          <Phone className="w-3.5 h-3.5 text-white fill-white/15" />
-                          <span>Contact WhatsApp</span>
-                        </button>
-                      </div>
+                        {/* Main criteria highlights */}
+                        <div className="bg-slate-50 rounded-xl p-3 flex justify-around text-center items-center divide-x divide-slate-200 shrink-0">
+                          <div className="w-1/2 p-1">
+                            <span className="text-[9px] uppercase tracking-wider block text-slate-400 font-mono">
+                              {isHospitality ? "Stay Type" : "Criteria"}
+                            </span>
+                            <span className="text-xs font-bold text-slate-700">
+                              {isHospitality ? "Direct Guest Stay" : `${room.tenantType} sought`}
+                            </span>
+                          </div>
+                          <div className="w-1/2 p-1">
+                            <span className="text-[9px] uppercase tracking-wider block text-slate-400 font-mono font-bold">
+                              {isHospitality ? "Reception / Host" : "Contact Method"}
+                            </span>
+                            <span className="text-xs font-semibold text-slate-700">{room.contactMethod}</span>
+                          </div>
+                        </div>
 
-                    </div>
-                  </motion.div>
-                ))}
+                        {/* List of amenities */}
+                        {room.amenities.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5 shrink-0">
+                            {room.amenities.map((amenity, idx) => (
+                              <span 
+                                key={idx}
+                                className={`text-[10px] font-medium py-0.5 px-2.5 rounded-full border transition-all ${
+                                  isHospitality 
+                                    ? "bg-amber-50 text-amber-800 border-amber-200" 
+                                    : "bg-sky-50 text-sky-700 border-sky-100 hover:border-orange-200"
+                                }`}
+                              >
+                                {amenity}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Bottom action panel with View Details & direct contact */}
+                        <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-2 mt-auto shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedListingDetail(room);
+                              setDetailActivePhotoIdx(0);
+                            }}
+                            className="text-xs font-bold text-slate-700 hover:text-[#052659] bg-slate-100 hover:bg-slate-200 py-2 px-3 rounded-xl transition-all cursor-pointer flex items-center gap-1.5"
+                          >
+                            <Eye className="w-3.5 h-3.5 shrink-0" />
+                            <span>View Details</span>
+                          </button>
+
+                          <button 
+                            type="button"
+                            onClick={() => handleContactLandlord(room)}
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs py-2 px-3.5 rounded-xl shadow-md transition-all flex items-center gap-1.5 cursor-pointer outline-none"
+                            title="Inquire directly with host or landlord via WhatsApp"
+                          >
+                            <Phone className="w-3.5 h-3.5 text-white fill-white/15" />
+                            <span>{isHospitality ? "Inquire (WhatsApp)" : "Contact Landlord"}</span>
+                          </button>
+                        </div>
+
+                      </div>
+                    </motion.div>
+                  );
+                })}
               </div>
             )}
 
@@ -1307,25 +1789,20 @@ export default function App() {
             <section className="bg-orange-500/5 rounded-3xl p-6 sm:p-8 border border-orange-500/10 grid grid-cols-1 md:grid-cols-3 gap-6 items-center">
               <div className="md:col-span-2 space-y-2">
                 <span className="text-xs font-mono font-bold text-orange-600 tracking-wider uppercase block">Free Traffic Generation</span>
-                <h2 className="text-xl sm:text-2xl font-display font-bold text-blue-950">
+                <h2 className="text-xl sm:text-2xl font-display font-bold text-slate-900">
                   Landlord: Why List With BunkBy?
                 </h2>
                 <p className="text-sm text-slate-600 leading-relaxed">
-                  Most platforms lock your property behind paywalls or enforce expensive agent cuts. BunkBy is <strong>100% free</strong> for normal landlords. We are building massive tenant traffic! Our system lets you state exactly the student or general tenant type you seek, and easily delist with a single tap as soon as your room gets occupied.
+                  Harness our exponentially growing massive tenant traffic! Our system lets you state exactly the tenant type you seek, and easily delist with a single tap as soon as your room gets occupied.
                 </p>
               </div>
-              <div className="bg-white rounded-2xl p-5 border border-orange-100 shadow-sm space-y-3">
-                <div className="flex items-center gap-2">
-                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0"></span>
-                  <span className="text-xs font-bold font-mono text-slate-500 uppercase">Interactive Bot Enabled</span>
-                </div>
-                <h4 className="text-sm font-bold text-blue-950">Ready to test listing via chat?</h4>
-                <p className="text-xs text-slate-400">Our high-fidelity WhatsApp assistant can scrape your text instantly. Just tell BunkBy Bot to draft your room.</p>
+              <div className="flex items-center justify-center md:justify-end">
                 <button 
                   onClick={() => setActiveTab("whatsapp")}
-                  className="w-full bg-[#0B2545] hover:bg-[#134074] text-white text-xs font-bold py-2 rounded-xl transition-all shadow-sm"
+                  className="bg-[#F5EBE1] hover:bg-[#EADDCF] text-[#4A3B32] border border-[#E0D2C3] text-xs sm:text-sm font-extrabold py-3.5 px-6 rounded-2xl transition-all shadow-md shadow-amber-900/5 flex items-center justify-center gap-2.5 cursor-pointer w-full md:w-auto"
                 >
-                  Launch Bot Simulator
+                  <MessageSquare className="w-4 h-4 shrink-0 text-[#25D366] fill-[#25D366]" />
+                  <span>List / browse on BunkBy whatsapp bot</span>
                 </button>
               </div>
             </section>
@@ -1355,14 +1832,14 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => setAuthMode("login")}
-                  className={`w-1/2 rounded-xl text-xs py-2.5 font-bold transition-all ${authMode === "login" ? "bg-white text-blue-950 shadow-sm" : "text-slate-500 hover:text-slate-800"}`}
+                  className={`w-1/2 rounded-xl text-xs py-2.5 font-bold transition-all ${authMode === "login" ? "bg-white text-[#052659] shadow-sm" : "text-slate-500 hover:text-slate-800"}`}
                 >
                   Log In
                 </button>
                 <button
                   type="button"
                   onClick={() => setAuthMode("signup")}
-                  className={`w-1/2 rounded-xl text-xs py-2.5 font-bold transition-all ${authMode === "signup" ? "bg-white text-blue-950 shadow-sm" : "text-slate-500 hover:text-slate-800"}`}
+                  className={`w-1/2 rounded-xl text-xs py-2.5 font-bold transition-all ${authMode === "signup" ? "bg-white text-[#052659] shadow-sm" : "text-slate-500 hover:text-slate-800"}`}
                 >
                   Create Account
                 </button>
@@ -1375,13 +1852,10 @@ export default function App() {
                     type="text" 
                     value={loginName}
                     onChange={(e) => setLoginName(e.target.value)}
-                    placeholder="e.g. Tendai Musonza" 
+                    placeholder="Full name" 
                     className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm focus:outline-none focus:border-orange-500 transition-all font-medium text-slate-800"
                     required
                   />
-                  <p className="text-[10px] text-slate-400 mt-1 pl-1">
-                    Used to retrieve your account (Login / Signup)
-                  </p>
                 </div>
 
                 <div>
@@ -1394,19 +1868,68 @@ export default function App() {
                       type="tel" 
                       value={loginPhone}
                       onChange={(e) => setLoginPhone(e.target.value)}
-                      placeholder="e.g. 773043376" 
+                      placeholder="774*******" 
                       className="w-full bg-slate-50 border border-slate-200 rounded-2xl pl-20 pr-4 py-3 text-sm focus:outline-none focus:border-orange-500 font-mono transition-all font-medium text-slate-800"
                       required
                     />
                   </div>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-bold text-slate-600 uppercase flex items-center gap-1.5">
+                      <span>Account Security PIN</span>
+                      <span className="text-[10px] text-slate-400 font-normal lowercase font-sans">
+                        {authMode === "signup" ? "(recommended, 4+ digits)" : "(if previously set)"}
+                      </span>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setShowPinHelp(!showPinHelp)}
+                      className="text-[11px] text-orange-500 hover:underline font-semibold"
+                    >
+                      {showPinHelp ? "Hide help" : "Why a PIN?"}
+                    </button>
+                  </div>
+                  <input
+                    type="password"
+                    maxLength={8}
+                    value={loginPin}
+                    onChange={(e) => setLoginPin(e.target.value.replace(/\D/g, ""))}
+                    placeholder={authMode === "signup" ? "Set a 4 to 8-digit PIN to lock your account" : "Enter your PIN"}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm focus:outline-none focus:border-orange-500 font-mono transition-all font-medium text-slate-800"
+                  />
+                  {showPinHelp && (
+                    <div className="mt-2 bg-blue-50/70 border border-blue-200/50 rounded-xl p-3 text-[11px] text-slate-600 leading-relaxed">
+                      💡 <strong>Account Protection:</strong> Adding a PIN prevents unauthorized users from claiming or editing your listings using just your publicly visible phone number.
+                    </div>
+                  )}
                   <p className="text-[10px] text-slate-400 mt-1 pl-1">
-                    Enter numbers only starting with your local code (e.g., 773043376)
+                    {authMode === "signup" 
+                      ? "A 4-digit PIN is required to protect your listings against unauthorized edits." 
+                      : "Enter your 4-digit PIN."}
                   </p>
                 </div>
 
+                {authMode === "login" && (
+                  <div className="flex justify-end items-center text-[11px] px-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRecoveryPhone(loginPhone || "");
+                        setRecoveryName(loginName || "");
+                        setIsRecoveryModalOpen(true);
+                      }}
+                      className="text-orange-600 hover:underline font-bold cursor-pointer"
+                    >
+                      Forgot PIN? / Recover Account
+                    </button>
+                  </div>
+                )}
+
                 <div className="flex justify-center pt-2">
                   <button 
-                    type="submit"
+                    type="submit" 
                     disabled={isAuthLoading}
                     className="w-full py-3.5 px-4 bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 disabled:from-slate-300 disabled:to-slate-300 text-white font-bold rounded-2xl transition-all text-xs shadow hover:shadow-md flex items-center justify-center gap-2 outline-none cursor-pointer"
                   >
@@ -1422,45 +1945,18 @@ export default function App() {
                   </button>
                 </div>
               </form>
-
-              <div className="relative flex py-1 items-center">
-                <div className="flex-grow border-t border-slate-100"></div>
-                <span className="flex-shrink mx-3 text-xs text-slate-400 uppercase font-mono font-bold">OR DEMO ACCESS</span>
-                <div className="flex-grow border-t border-slate-100"></div>
-              </div>
-
-              <div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const profile = {
-                      name: "Tatenda E. Chikura",
-                      phone: "0773043376",
-                      isVerified: true,
-                      whatsappLinked: true,
-                      role: "Admin"
-                    };
-                    setUserProfile(profile);
-                    localStorage.setItem("bunkby_landlord_profile", JSON.stringify(profile));
-                    showToast("⚡ Logged in with default Admin demo landlord account!");
-                  }}
-                  className="w-full bg-slate-50 hover:bg-slate-100 text-sky-700 hover:text-sky-800 font-bold py-3 rounded-2xl transition-all text-xs border border-slate-200 flex items-center justify-center gap-2 outline-none"
-                >
-                  🔑 Sign in with Default Admin Demo Account
-                </button>
-              </div>
             </div>
           ) : (
             <div className="space-y-6">
               
               {/* Header and status banner */}
-              <div className="blue-gradient text-white rounded-3xl p-6 md:p-8 shadow-sm relative overflow-hidden flex flex-col md:flex-row items-start md:items-center justify-between gap-6 border border-blue-900/40">
+              <div className="bg-[#052659] text-white rounded-3xl p-6 md:p-8 shadow-sm relative overflow-hidden flex flex-col md:flex-row items-start md:items-center justify-between gap-6 border border-[#052659]">
                 <div className="space-y-2">
                   <div className="inline-flex items-center gap-1.5 bg-[#FF7A00] text-white font-mono text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
                     Admin Control & Management
                   </div>
                   <h2 className="text-2.5xl font-display font-black text-white">My Landlord Listings</h2>
-                  <p className="text-sm text-slate-200 font-medium max-w-xl">
+                  <p className="text-sm text-[#E2E8F0] font-medium max-w-xl">
                     Inspect lead analytics, edit room specifications, or quickly delist/delete properties as soon as a tenant checks in. BunkBy protects landlords free of agency fees.
                   </p>
                 </div>
@@ -1514,7 +2010,7 @@ export default function App() {
                         setNewRoomForm(prev => ({ ...prev, landlordName: userProfile.name, phone: userProfile.phone }));
                         setIsCreateModalOpen(true);
                       }}
-                      className="bg-[#0B2545] hover:bg-[#134074] text-white text-xs font-bold px-5 py-2.5 rounded-xl transition-all shadow-md"
+                      className="bg-[#052659] hover:bg-[#021024] text-white text-xs font-bold px-5 py-2.5 rounded-xl transition-all shadow-md"
                     >
                       Create Your First Listing
                     </button>
@@ -1556,6 +2052,18 @@ export default function App() {
                                   ⭐ Paid Premium
                                 </span>
                               )}
+
+                              {(room.category === "hospitality" || ["Lodge / Guesthouse", "Hotel", "Lodge", "Guesthouse", "Bed & Breakfast"].includes(room.propertyType)) ? (
+                                <span className="bg-[#052659] text-white font-bold text-[9px] uppercase tracking-wider px-2 py-0.5 rounded-full shadow-sm flex items-center gap-1">
+                                  <Hotel className="w-2.5 h-2.5 text-[#FF7A00]" />
+                                  <span>Hospitality</span>
+                                </span>
+                              ) : (
+                                <span className="bg-[#021024] text-white font-bold text-[9px] uppercase tracking-wider px-2 py-0.5 rounded-full shadow-sm flex items-center gap-1">
+                                  <Home className="w-2.5 h-2.5 text-[#FF7A00]" />
+                                  <span>Residential</span>
+                                </span>
+                              )}
                             </div>
 
                             {/* Card Image */}
@@ -1578,6 +2086,12 @@ export default function App() {
                             {/* Content */}
                             <div className="p-4 flex-grow flex flex-col justify-between space-y-4">
                               <div className="space-y-1">
+                                {(room.business_name || room.businessName) && (
+                                  <div className="flex items-center gap-1 text-[11px] font-bold text-[#052659] uppercase tracking-wide">
+                                    <Building2 className="w-3 h-3 text-[#052659] shrink-0" />
+                                    <span className="truncate">{room.business_name || room.businessName}</span>
+                                  </div>
+                                )}
                                 <h4 className="text-sm font-bold text-slate-800 truncate">{room.title}</h4>
                                 <p className="text-xs text-slate-500 flex items-center gap-1.5">
                                   <MapPin className="w-3 h-3 text-orange-500" />
@@ -1636,6 +2150,8 @@ export default function App() {
                                     onClick={() => {
                                       setNewRoomForm({
                                         title: room.title,
+                                        category: room.category || (["Lodge / Guesthouse", "Hotel", "Lodge", "Guesthouse", "Bed & Breakfast"].includes(room.propertyType) ? "hospitality" : "residential"),
+                                        business_name: room.business_name || room.businessName || "",
                                         city: room.city,
                                         suburb: room.suburb,
                                         landmark: room.landmark,
@@ -1654,7 +2170,7 @@ export default function App() {
                                       setIsEditing(room.id);
                                       setIsCreateModalOpen(true);
                                     }}
-                                    className="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-3 py-1.5 rounded-lg transition-all"
+                                    className="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-3 py-1.5 rounded-lg transition-all cursor-pointer"
                                   >
                                     Edit details
                                   </button>
@@ -1709,22 +2225,199 @@ export default function App() {
           )
         )}
 
-        {/* TAB 3: WHATSAPP CHATBOT (COMING SOON) */}
+        {/* TAB 3: WHATSAPP CHATBOT (PHASE 2 CLOUD API INTEGRATION & SIMULATOR) */}
         {activeTab === "whatsapp" && (
-          <div className="space-y-6 flex flex-col items-center justify-center py-20">
-            <div className="max-w-2xl mx-auto text-center space-y-4">
-              <div className="w-20 h-20 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-4">
-                <MessageSquare className="w-10 h-10 shrink-0 text-emerald-500" />
+          <div className="max-w-3xl mx-auto space-y-4 font-sans animate-fade-in">
+            {/* Meta Cloud API Architecture Banner */}
+            <div className="bg-[#021024] text-white p-4 rounded-2xl border border-slate-700/50 shadow-md flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className={`w-10 h-10 rounded-xl ${whatsAppStatus.metaConfigured ? "bg-emerald-500/20 border-emerald-500/30" : "bg-amber-500/20 border-amber-500/30"} border flex items-center justify-center shrink-0`}>
+                  <MessageSquare className={`w-5 h-5 ${whatsAppStatus.metaConfigured ? "text-emerald-400" : "text-amber-400"}`} />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="text-sm font-bold text-white">BunkBy WhatsApp Assistant</h3>
+                    {whatsAppStatus.metaConfigured ? (
+                      <span className="bg-emerald-500/20 text-emerald-300 text-[10px] font-mono px-2 py-0.5 rounded-full font-bold border border-emerald-500/30">
+                        Meta Cloud API · Live
+                      </span>
+                    ) : (
+                      <span className="bg-amber-500/20 text-amber-300 text-[10px] font-mono px-2 py-0.5 rounded-full font-bold border border-amber-500/30">
+                        Local Simulator · Awaiting Meta Approval / Credentials
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-slate-300 mt-0.5">
+                    Webhook: <code className="text-emerald-300 font-mono text-[11px]">/api/whatsapp</code> • Single source of truth database • Real listings
+                  </p>
+                </div>
               </div>
-              <span className="bg-emerald-100 text-emerald-800 font-mono text-xs font-bold tracking-wider uppercase px-3 py-1.5 rounded-full">
-                WhatsApp Chatbot Simulator
-              </span>
-              <h2 className="text-3xl font-display font-black text-slate-950">
-                Coming Soon!
-              </h2>
-              <p className="text-base text-slate-500 font-medium">
-                The conversational WhatsApp chatbot is coming soon since we haven't connected it yet. Stay tuned for the magical experience of listing and matching rooms straight from WhatsApp!
-              </p>
+              <div className="flex items-center gap-2 w-full md:w-auto">
+                <button
+                  type="button"
+                  onClick={() => {
+                    fetch("/api/whatsapp/test", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ phone: "263771122334", text: "cancel" })
+                    }).then(() => {
+                      setChatMessages([
+                        {
+                          id: `msg-${Date.now()}`,
+                          sender: "bot",
+                          text: "🔄 *Session reset.* You can now search for properties or type *list* to post accommodation!",
+                          timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+                        }
+                      ]);
+                      showToast("WhatsApp session reset!");
+                    });
+                  }}
+                  className="px-3 py-1.5 rounded-xl text-xs font-bold bg-white/10 hover:bg-white/20 text-white transition-all flex items-center gap-1.5 cursor-pointer"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  Reset Session
+                </button>
+              </div>
+            </div>
+
+            {/* WhatsApp Phone Mockup Container */}
+            <div className="bg-[#EFEAE2] border border-slate-300 rounded-3xl overflow-hidden shadow-xl flex flex-col h-[650px] relative">
+              {/* WhatsApp Brand Header */}
+              <div className="bg-[#075E54] text-white px-4 py-3 flex items-center justify-between shrink-0 shadow-md">
+                <div className="flex items-center gap-3">
+                  <div className="relative">
+                    <div className="w-10 h-10 rounded-full bg-white flex items-center justify-center font-bold text-[#075E54] text-lg select-none shadow-sm">
+                      B
+                    </div>
+                    <div className={`w-3 h-3 ${whatsAppStatus.metaConfigured ? "bg-emerald-400" : "bg-amber-400"} rounded-full absolute bottom-0 right-0 border-2 border-[#075E54]`}></div>
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-1.5">
+                      <h4 className="font-bold text-sm text-white leading-tight">BunkBy Zimbabwe</h4>
+                      {whatsAppStatus.metaConfigured && (
+                        <CheckCircle className="w-3.5 h-3.5 text-emerald-300 fill-emerald-300" />
+                      )}
+                    </div>
+                    <p className="text-[11px] text-emerald-100 font-medium">
+                      {whatsAppStatus.metaConfigured ? "Official Business Account • Online" : "Chatbot Preview / Simulator Mode"}
+                    </p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <span className="text-[10px] bg-[#128C7E] text-emerald-100 font-mono px-2 py-0.5 rounded-full font-bold">
+                    {whatsAppStatus.metaConfigured ? "Direct WhatsApp Access" : "Interactive Simulator"}
+                  </span>
+                </div>
+              </div>
+
+              {/* Chat Message Stream */}
+              <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                {chatMessages.map((msg) => {
+                  const isUser = msg.sender === "user";
+                  return (
+                    <div
+                      key={msg.id}
+                      className={`flex ${isUser ? "justify-end" : "justify-start"} animate-fade-in`}
+                    >
+                      <div
+                        className={`max-w-[85%] md:max-w-[75%] rounded-2xl p-3.5 shadow-sm text-xs md:text-sm leading-relaxed ${
+                          isUser
+                            ? "bg-[#DCF8C6] text-slate-800 rounded-tr-none"
+                            : "bg-white text-slate-800 rounded-tl-none border border-slate-200/60"
+                        }`}
+                      >
+                        {/* Parse and render formatted text */}
+                        <div className="whitespace-pre-line space-y-2 font-sans">
+                          {msg.text.split("\n\n---\n\n").map((part, pIdx) => {
+                            // Detect photo card links
+                            const photoMatch = part.match(/🖼️ \[Photo:\s*(https?:\/\/[^\]]+)\]/);
+                            const cleanPart = part.replace(/🖼️ \[Photo:\s*https?:\/\/[^\]]+\]\s*/g, "");
+
+                            return (
+                              <div key={pIdx} className={pIdx > 0 ? "pt-2 border-t border-slate-100" : ""}>
+                                {photoMatch && photoMatch[1] && (
+                                  <div className="mb-2 rounded-xl overflow-hidden border border-slate-200 aspect-video bg-slate-100">
+                                    <img
+                                      src={photoMatch[1]}
+                                      alt="Listing"
+                                      className="w-full h-full object-cover"
+                                      referrerPolicy="no-referrer"
+                                    />
+                                  </div>
+                                )}
+                                <div className="text-slate-800 leading-relaxed font-sans">
+                                  {cleanPart}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                        <div className={`text-[9px] mt-1 text-right font-mono ${isUser ? "text-emerald-800/70" : "text-slate-400"}`}>
+                          {msg.timestamp}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {isBotTyping && (
+                  <div className="flex justify-start">
+                    <div className="bg-white border border-slate-200 rounded-2xl rounded-tl-none px-4 py-2.5 shadow-sm flex items-center gap-1.5">
+                      <div className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce"></div>
+                      <div className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce [animation-delay:0.2s]"></div>
+                      <div className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce [animation-delay:0.4s]"></div>
+                    </div>
+                  </div>
+                )}
+                <div ref={chatEndRef} />
+              </div>
+
+              {/* Quick Suggestion Chips */}
+              <div className="px-3 py-2 bg-[#F0F2F5] border-t border-slate-200 flex items-center gap-1.5 overflow-x-auto shrink-0 scrollbar-none">
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider shrink-0 pl-1">Quick:</span>
+                {[
+                  "rooms in Avondale under $250",
+                  "cottages in Belvedere",
+                  "lodges in Victoria Falls",
+                  "list",
+                  "cancel"
+                ].map((chip) => (
+                  <button
+                    key={chip}
+                    type="button"
+                    onClick={() => handleSendChat(chip)}
+                    className="shrink-0 text-xs bg-white hover:bg-emerald-50 hover:text-[#075E54] border border-slate-300 text-slate-700 font-medium px-2.5 py-1 rounded-full transition-all shadow-2xs"
+                  >
+                    {chip}
+                  </button>
+                ))}
+              </div>
+
+              {/* Chat Input Bar */}
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  handleSendChat();
+                }}
+                className="p-3 bg-[#F0F2F5] border-t border-slate-300 flex items-center gap-2 shrink-0"
+              >
+                <input
+                  type="text"
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  placeholder="Type a search or command (e.g. rooms in Avonlea, or 'list')..."
+                  className="flex-1 bg-white border border-slate-300 rounded-full px-4 py-2.5 text-xs md:text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#128C7E]"
+                  id="whatsapp-chat-input"
+                />
+                <button
+                  type="submit"
+                  disabled={!chatInput.trim()}
+                  className="w-10 h-10 rounded-full bg-[#128C7E] hover:bg-[#075E54] disabled:opacity-40 disabled:hover:bg-[#128C7E] text-white flex items-center justify-center transition-all shadow-md shrink-0 cursor-pointer"
+                  id="whatsapp-chat-send"
+                >
+                  <Send className="w-4 h-4 ml-0.5" />
+                </button>
+              </form>
             </div>
           </div>
         )}
@@ -1751,14 +2444,14 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => setAuthMode("login")}
-                  className={`w-1/2 rounded-xl text-xs py-2.5 font-bold transition-all ${authMode === "login" ? "bg-white text-blue-950 shadow-sm" : "text-slate-500 hover:text-slate-800"}`}
+                  className={`w-1/2 rounded-xl text-xs py-2.5 font-bold transition-all ${authMode === "login" ? "bg-white text-[#052659] shadow-sm" : "text-slate-500 hover:text-slate-800"}`}
                 >
                   Log In
                 </button>
                 <button
                   type="button"
                   onClick={() => setAuthMode("signup")}
-                  className={`w-1/2 rounded-xl text-xs py-2.5 font-bold transition-all ${authMode === "signup" ? "bg-white text-blue-950 shadow-sm" : "text-slate-500 hover:text-slate-800"}`}
+                  className={`w-1/2 rounded-xl text-xs py-2.5 font-bold transition-all ${authMode === "signup" ? "bg-white text-[#052659] shadow-sm" : "text-slate-500 hover:text-slate-800"}`}
                 >
                   Create Account
                 </button>
@@ -1771,13 +2464,10 @@ export default function App() {
                     type="text" 
                     value={loginName}
                     onChange={(e) => setLoginName(e.target.value)}
-                    placeholder="e.g. Tendai Musonza" 
+                    placeholder="Full name" 
                     className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm focus:outline-none focus:border-orange-500 transition-all font-medium text-slate-800"
                     required
                   />
-                  <p className="text-[10px] text-slate-400 mt-1 pl-1">
-                    Used to retrieve your account (Login / Signup)
-                  </p>
                 </div>
 
                 <div>
@@ -1790,18 +2480,58 @@ export default function App() {
                       type="tel" 
                       value={loginPhone}
                       onChange={(e) => setLoginPhone(e.target.value)}
-                      placeholder="e.g. 773043376" 
+                      placeholder="774*******" 
                       className="w-full bg-slate-50 border border-slate-200 rounded-2xl pl-20 pr-4 py-3 text-sm focus:outline-none focus:border-orange-500 font-mono transition-all font-medium text-slate-800"
                       required
                     />
                   </div>
                 </div>
 
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-bold text-slate-600 uppercase flex items-center gap-1.5">
+                      <span>Account Security PIN</span>
+                      <span className="text-[10px] text-slate-400 font-normal lowercase font-sans">
+                        {authMode === "signup" ? "(recommended, 4+ digits)" : "(if previously set)"}
+                      </span>
+                    </label>
+                  </div>
+                  <input
+                    type="password"
+                    maxLength={8}
+                    value={loginPin}
+                    onChange={(e) => setLoginPin(e.target.value.replace(/\D/g, ""))}
+                    placeholder={authMode === "signup" ? "Set a 4 to 8-digit PIN to secure your account" : "Enter your PIN"}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm focus:outline-none focus:border-orange-500 font-mono transition-all font-medium text-slate-800"
+                  />
+                  <p className="text-[10px] text-slate-400 mt-1 pl-1">
+                    {authMode === "signup" 
+                      ? "A 4-digit PIN is required to secure your account." 
+                      : "Enter your 4-digit PIN."}
+                  </p>
+                </div>
+
+                {authMode === "login" && (
+                  <div className="flex justify-end items-center text-[11px] px-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRecoveryPhone(loginPhone || "");
+                        setRecoveryName(loginName || "");
+                        setIsRecoveryModalOpen(true);
+                      }}
+                      className="text-orange-600 hover:underline font-bold cursor-pointer"
+                    >
+                      Forgot PIN? / Recover
+                    </button>
+                  </div>
+                )}
+
                 <div className="flex justify-center pt-2">
                   <button 
-                    type="submit"
+                    type="submit" 
                     disabled={isAuthLoading}
-                    className="w-full py-3.5 px-4 bg-gradient-to-r from-blue-950 to-blue-900 hover:from-blue-900 hover:to-blue-800 disabled:from-slate-300 disabled:to-slate-300 text-white font-bold rounded-2xl transition-all text-sm shadow hover:shadow-md flex items-center justify-center gap-2 outline-none cursor-pointer"
+                    className="w-full py-3.5 px-4 bg-[#052659] hover:bg-[#021024] disabled:bg-slate-300 text-white font-bold rounded-2xl transition-all text-sm shadow hover:shadow-md flex items-center justify-center gap-2 outline-none cursor-pointer"
                   >
                     {isAuthLoading ? (
                       <div className="flex items-center gap-1">
@@ -1852,12 +2582,8 @@ export default function App() {
                   </div>
                   
                   <button
-                    onClick={() => {
-                      setUserProfile(null);
-                      localStorage.removeItem("bunkby_landlord_profile");
-                      showToast("🔑 Successfully logged out.");
-                    }}
-                    className="bg-red-50 hover:bg-red-105 hover:text-red-700 transition-all text-red-650 font-bold text-xs py-2 px-4 rounded-xl border border-red-150 shadow-sm self-start sm:self-center"
+                    onClick={handleLogout}
+                    className="bg-red-50 hover:bg-red-100 text-red-600 hover:text-red-700 transition-all font-bold text-xs py-2 px-4 rounded-xl border border-red-200 shadow-xs self-start sm:self-center cursor-pointer"
                   >
                     Log Out
                   </button>
@@ -2004,7 +2730,7 @@ export default function App() {
                     <button
                       type="submit"
                       disabled={isSubmittingVerification}
-                      className="w-full bg-[#0B2545] hover:bg-[#134074] text-white py-2.5 rounded-xl font-bold transition-all text-xs shadow-sm flex items-center justify-center gap-1.5 disabled:opacity-50"
+                      className="w-full bg-[#052659] hover:bg-[#021024] text-white py-2.5 rounded-xl font-bold transition-all text-xs shadow-sm flex items-center justify-center gap-1.5 disabled:opacity-50"
                     >
                       <span>{isSubmittingVerification ? "Uploading Files..." : "Submit Verification Papers"}</span>
                     </button>
@@ -2037,7 +2763,7 @@ export default function App() {
                       onClick={() => {
                         showToast("✨ Linked WhatsApp credentials saved.");
                       }}
-                      className="bg-[#0B2545] hover:bg-[#134074] text-white font-bold text-xs py-2 px-4 rounded-lg transition-all shadow-sm"
+                      className="bg-[#052659] hover:bg-[#021024] text-white font-bold text-xs py-2 px-4 rounded-lg transition-all shadow-sm"
                     >
                       Save Changes
                     </button>
@@ -2050,7 +2776,7 @@ export default function App() {
                 <div className="bg-orange-500/5 border border-orange-500/20 rounded-2xl p-5 shadow-sm space-y-4">
                   <div className="flex items-center gap-2">
                     <ShieldCheck className="w-5 h-5 text-orange-500" />
-                    <h3 className="text-sm font-bold text-blue-950 font-mono uppercase tracking-wide">Administrator Access Panel</h3>
+                    <h3 className="text-sm font-bold text-[#052659] font-mono uppercase tracking-wide">Administrator Access Panel</h3>
                   </div>
                   <p className="text-xs text-slate-600">
                     You have administrator access on BunkBy. This lets you moderate complaints, verify landlords, or review/delete database entries.
@@ -2100,7 +2826,14 @@ export default function App() {
                                 {(landlord.verification_status !== "verified" && !landlord.isVerified) && (
                                   <button onClick={async () => {
                                     try {
-                                      const res = await fetch("/api/admin", { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'verify', id: landlord.id }) });
+                                      const res = await fetch("/api/admin", { 
+                                        method: 'POST', 
+                                        headers: { 
+                                          'Content-Type': 'application/json',
+                                          'x-landlord-token': userProfile?.token || ''
+                                        }, 
+                                        body: JSON.stringify({ action: 'verify', id: landlord.id }) 
+                                      });
                                       if (res.ok) {
                                         showToast("✅ Landlord verified successfully.");
                                         setAllLandlords(prev => prev.map(l => l.id === landlord.id ? { ...l, verification_status: 'verified', isVerified: true } : l));
@@ -2110,7 +2843,14 @@ export default function App() {
                                 )}
                                 <button onClick={async () => {
                                     try {
-                                      const res = await fetch("/api/admin", { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'deleteLandlord', id: landlord.id }) });
+                                      const res = await fetch("/api/admin", { 
+                                        method: 'POST', 
+                                        headers: { 
+                                          'Content-Type': 'application/json',
+                                          'x-landlord-token': userProfile?.token || ''
+                                        }, 
+                                        body: JSON.stringify({ action: 'deleteLandlord', id: landlord.id }) 
+                                      });
                                       if (res.ok) {
                                         showToast("✅ Landlord deleted.");
                                         setAllLandlords(prev => prev.filter(l => l.id !== landlord.id));
@@ -2147,7 +2887,14 @@ export default function App() {
                               <td className="px-4 py-3">
                                 <button onClick={async () => {
                                     try {
-                                      const res = await fetch("/api/admin", { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'deleteListing', targetId: list.id }) });
+                                      const res = await fetch("/api/admin", { 
+                                        method: 'POST', 
+                                        headers: { 
+                                          'Content-Type': 'application/json',
+                                          'x-landlord-token': userProfile?.token || ''
+                                        }, 
+                                        body: JSON.stringify({ action: 'deleteListing', targetId: list.id }) 
+                                      });
                                       if (res.ok) {
                                         showToast("✅ Listing deleted.");
                                         setListings(prev => prev.filter(l => l.id !== list.id));
@@ -2218,7 +2965,7 @@ export default function App() {
       </main>
 
       {/* FOOTER */}
-      <footer className="bg-[#0B1B33] text-white pt-8 border-t border-slate-900 mt-auto select-none shrink-0 text-center sm:text-left">
+      <footer className="bg-[#021024] text-white pt-8 border-t border-[#052659] mt-auto select-none shrink-0 text-center sm:text-left">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-8 grid grid-cols-1 md:grid-cols-3 gap-8">
           
           <div className="space-y-3">
@@ -2228,34 +2975,34 @@ export default function App() {
                 Bunk<span className="text-[#FF7A00]">By</span>
               </span>
             </div>
-            <p className="text-[11px] text-slate-400 font-normal leading-relaxed">
-              Agent-free, high-converting WhatsApp chatbot system for renting rooms, apartments, and cottages instantly.
+            <p className="text-[11px] text-[#E2E8F0] font-normal leading-relaxed">
+              Zimbabwe's agent-free accommodation marketplace for rooms, cottages, flats, guesthouses, and lodges with direct WhatsApp connection.
             </p>
           </div>
 
-          <div className="space-y-2.5 flex flex-col items-center sm:items-start text-[11px] text-slate-400 font-normal">
+          <div className="space-y-2.5 flex flex-col items-center sm:items-start text-[11px] text-[#E2E8F0] font-normal">
             <h4 className="text-white font-extrabold text-xs uppercase tracking-wider">Active Directories</h4>
-            <div className="flex flex-wrap gap-2 justify-center sm:justify-start text-slate-400">
-              <span>Harare</span> • <span>Bulawayo</span> • <span>Gweru</span> • <span>Mutare</span>
+            <div className="flex flex-wrap gap-2 justify-center sm:justify-start text-[#E2E8F0]">
+              <span>Harare</span> • <span>Bulawayo</span> • <span>Gweru</span> • <span>Mutare</span> • <span>Victoria Falls</span>
             </div>
           </div>
 
-          <div className="text-[11px] text-slate-400 font-normal space-y-2 flex flex-col items-center sm:items-start">
-            <h4 className="text-white font-extrabold text-xs uppercase tracking-wider">WhatsApp Assistant</h4>
-            <p className="text-slate-400">Save landlord contact numbers straight onto your smartphone bundle.</p>
-            <span className="text-[9px] text-orange-400 font-mono font-bold tracking-wider">BUNKBY VERIFICATION BADGE PROGRAM</span>
+          <div className="text-[11px] text-[#E2E8F0] font-normal space-y-2 flex flex-col items-center sm:items-start">
+            <h4 className="text-white font-extrabold text-xs uppercase tracking-wider">Direct WhatsApp Connection</h4>
+            <p className="text-[#E2E8F0]">Connect directly with verified landlords and hosts with zero agency middlemen fees.</p>
+            <span className="text-[9px] text-[#FF7A00] font-mono font-bold tracking-wider">BUNKBY VERIFICATION BADGE PROGRAM</span>
           </div>
 
         </div>
 
         {/* ATLASMANICA BRANDING CREDIT AS USER EXPLICITLY REQUESTED */}
-        <div className="bg-black py-5 border-t border-slate-900 text-center sm:text-left">
+        <div className="bg-[#052659] py-5 border-t border-[#052659]/50 text-center sm:text-left">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
-            <div className="text-[11px] text-slate-400 font-normal">
-              <p>© 2026 BunkyBy. BunkBy is a trading name of Atlas Manica Ltd, a company registered in England and Wales</p>
+            <div className="text-[11px] text-slate-300 font-normal">
+              <p>© 2026 BunkBy. BunkBy is an accommodation marketplace operated by ATLAS MANICA GROUP LTD.</p>
             </div>
-            <div className="text-[10px] text-slate-500 font-bold tracking-wider font-mono">
-              ZIMBABWE'S PREMIUM INDEPENDENT RENTAL HOUSING NETWORK
+            <div className="text-[10px] text-[#FF7A00] font-bold tracking-wider font-mono">
+              ZIMBABWE'S AGENT-FREE ACCOMMODATION MARKETPLACE
             </div>
           </div>
         </div>
@@ -2273,16 +3020,16 @@ export default function App() {
             >
               
               {/* Modal header details */}
-              <div className="bg-[#0B2545] text-white p-5 flex items-center justify-between shrink-0 select-none border-b border-sky-900">
+              <div className="bg-[#052659] text-white p-5 flex items-center justify-between shrink-0 select-none border-b border-[#052659]">
                 <div className="flex items-center gap-2">
                   <BunkByLogo className="w-8 h-8" />
-                  <h3 className="font-display font-black text-lg">
+                  <h3 className="font-display font-black text-lg text-white">
                     {isEditing ? "Edit Room Specification" : "List Your Room For Free"}
                   </h3>
                 </div>
                 <button 
                   onClick={() => setIsCreateModalOpen(false)}
-                  className="p-1.5 rounded-xl hover:bg-white/10 text-white/80 hover:text-white"
+                  className="p-1.5 rounded-xl hover:bg-[#021024] text-[#E2E8F0] hover:text-white"
                 >
                   <X className="w-5 h-5 shrink-0" />
                 </button>
@@ -2291,16 +3038,84 @@ export default function App() {
               {/* Form field listing details scrollable container */}
               <form onSubmit={handleSaveListing} className="p-6 overflow-y-auto space-y-5 text-left flex-grow">
                 
+                {/* Category Switcher */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wide">Marketplace Category*</label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setNewRoomForm(prev => ({ 
+                        ...prev, 
+                        category: "residential", 
+                        propertyType: "Room (In Main House)", 
+                        frequency: "Month", 
+                        tenantType: "General" 
+                      }))}
+                      className={`p-3 rounded-xl border text-left flex items-center gap-3 transition-all cursor-pointer ${
+                        newRoomForm.category !== "hospitality"
+                          ? "border-[#021024] bg-[#021024] text-white shadow-sm"
+                          : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100"
+                      }`}
+                    >
+                      <Home className={`w-5 h-5 ${newRoomForm.category !== "hospitality" ? "text-[#FF7A00]" : "text-slate-400"}`} />
+                      <div>
+                        <div className="text-xs font-bold leading-none">Residential Rental</div>
+                        <div className={`text-[10px] mt-1 ${newRoomForm.category !== "hospitality" ? "text-slate-300" : "text-slate-400"}`}>Rooms, flats & cottages</div>
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setNewRoomForm(prev => ({ 
+                        ...prev, 
+                        category: "hospitality", 
+                        propertyType: "Lodge / Guesthouse", 
+                        frequency: "Night", 
+                        tenantType: "Guest" 
+                      }))}
+                      className={`p-3 rounded-xl border text-left flex items-center gap-3 transition-all cursor-pointer ${
+                        newRoomForm.category === "hospitality"
+                          ? "border-[#052659] bg-[#052659] text-white shadow-sm"
+                          : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100"
+                      }`}
+                    >
+                      <Hotel className={`w-5 h-5 ${newRoomForm.category === "hospitality" ? "text-[#FF7A00]" : "text-slate-400"}`} />
+                      <div>
+                        <div className="text-xs font-bold leading-none">Hospitality & Stays</div>
+                        <div className={`text-[10px] mt-1 ${newRoomForm.category === "hospitality" ? "text-[#E2E8F0]" : "text-slate-400"}`}>Lodges, guesthouses & hotels</div>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Business Name for Hospitality */}
+                {newRoomForm.category === "hospitality" && (
+                  <div className="space-y-1.5 animate-fade-in">
+                    <label className="text-xs font-bold text-[#052659] uppercase tracking-wide flex items-center gap-1.5">
+                      <Building2 className="w-3.5 h-3.5" />
+                      <span>Business / Establishment Name*</span>
+                    </label>
+                    <input 
+                      type="text" 
+                      placeholder="e.g. Cresta Lodge Harare or Highlands Villa Suites"
+                      required
+                      value={newRoomForm.business_name || ""}
+                      onChange={(e) => setNewRoomForm(prev => ({ ...prev, business_name: e.target.value }))}
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-[#052659]/30 bg-blue-50/30 text-xs font-medium focus:ring-1 focus:ring-[#052659] focus:outline-none"
+                    />
+                  </div>
+                )}
+
                 {/* Heading details */}
                 <div className="space-y-1.5 col-span-2">
                   <label className="text-xs font-bold text-slate-500 uppercase tracking-wide">Property / Listing Title*</label>
                   <input 
                     type="text" 
-                    placeholder="e.g. Elegant Single Room with Tiled Floors"
+                    placeholder={newRoomForm.category === "hospitality" ? "e.g. Deluxe Double Room with En-Suite & Breakfast" : "e.g. Elegant Single Room with Tiled Floors"}
                     required
                     value={newRoomForm.title}
                     onChange={(e) => setNewRoomForm(prev => ({ ...prev, title: e.target.value }))}
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-medium focus:ring-1 focus:ring-blue-900 focus:outline-none"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-medium focus:ring-1 focus:ring-[#052659] focus:outline-none"
                   />
                 </div>
 
@@ -2328,7 +3143,7 @@ export default function App() {
                       required
                       value={newRoomForm.suburb}
                       onChange={(e) => setNewRoomForm(prev => ({ ...prev, suburb: e.target.value }))}
-                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-medium focus:ring-1 focus:ring-blue-900 focus:outline-none"
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-medium focus:ring-1 focus:ring-[#052659] focus:outline-none"
                     />
                   </div>
                 </div>
@@ -2342,33 +3157,37 @@ export default function App() {
                     required
                     value={newRoomForm.landmark}
                     onChange={(e) => setNewRoomForm(prev => ({ ...prev, landmark: e.target.value }))}
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-medium focus:ring-1 focus:ring-blue-900 focus:outline-none"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-medium focus:ring-1 focus:ring-[#052659] focus:outline-none"
                   />
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
                   {/* Price USD */}
                   <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wide">Monthly Rent (USD)*</label>
+                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wide">
+                      {newRoomForm.category === "hospitality" ? "Nightly Rate (USD)*" : "Monthly Rent (USD)*"}
+                    </label>
                     <input 
                       type="number" 
                       required
                       min={0}
                       value={newRoomForm.price}
                       onChange={(e) => setNewRoomForm(prev => ({ ...prev, price: Number(e.target.value) }))}
-                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-medium focus:ring-1 focus:ring-blue-900 focus:outline-none"
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-medium focus:ring-1 focus:ring-[#052659] focus:outline-none"
                     />
                   </div>
 
                   {/* Deposit Price */}
                   <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wide">Security Deposit (USD)</label>
+                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wide">
+                      {newRoomForm.category === "hospitality" ? "Damage Deposit (USD - Optional)" : "Security Deposit (USD)"}
+                    </label>
                     <input 
                       type="number" 
                       min={0}
                       value={newRoomForm.deposit}
                       onChange={(e) => setNewRoomForm(prev => ({ ...prev, deposit: Number(e.target.value) }))}
-                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-medium focus:ring-1 focus:ring-blue-900 focus:outline-none"
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-medium focus:ring-1 focus:ring-[#052659] focus:outline-none"
                     />
                   </div>
                 </div>
@@ -2382,24 +3201,40 @@ export default function App() {
                       onChange={(e) => setNewRoomForm(prev => ({ ...prev, propertyType: e.target.value as PropertyType }))}
                       className="w-full py-2.5 px-3 rounded-xl border border-slate-200 text-xs font-medium bg-slate-50 focus:outline-none cursor-pointer"
                     >
-                      {ALL_PROPERTY_TYPES.map(pt => (
-                        <option key={pt} value={pt}>{pt}</option>
-                      ))}
+                      {newRoomForm.category === "hospitality" 
+                        ? ["Lodge / Guesthouse", "Hotel", "Bed & Breakfast", "Self-Catering Cottage"].map(pt => (
+                            <option key={pt} value={pt}>{pt}</option>
+                          ))
+                        : ALL_PROPERTY_TYPES.map(pt => (
+                            <option key={pt} value={pt}>{pt}</option>
+                          ))
+                      }
                     </select>
                   </div>
 
                   {/* Tenant seeks selector */}
                   <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wide">Preferred Tenant Type</label>
+                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wide">
+                      {newRoomForm.category === "hospitality" ? "Guest Audience" : "Preferred Tenant Type"}
+                    </label>
                     <select
                       value={newRoomForm.tenantType}
                       onChange={(e) => setNewRoomForm(prev => ({ ...prev, tenantType: e.target.value as TenantType }))}
                       className="w-full py-2.5 px-3 rounded-xl border border-slate-200 text-xs font-medium bg-slate-50 focus:outline-none cursor-pointer"
                     >
-                      <option value="General">General sought</option>
-                      <option value="Student">Student sought</option>
-                      <option value="Single">Single sought</option>
-                      <option value="Guest">Guest sought</option>
+                      {newRoomForm.category === "hospitality" ? (
+                        <>
+                          <option value="Guest">Guests / Travelers</option>
+                          <option value="General">General Travelers</option>
+                        </>
+                      ) : (
+                        <>
+                          <option value="General">General sought</option>
+                          <option value="Student">Student sought</option>
+                          <option value="Single">Single sought</option>
+                          <option value="Guest">Guest sought</option>
+                        </>
+                      )}
                     </select>
                   </div>
                 </div>
@@ -2407,15 +3242,15 @@ export default function App() {
                 <div className="grid grid-cols-2 gap-4">
                   {/* Rent Frequency */}
                   <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wide">Rent Cycle Frequency</label>
+                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wide">Rent / Rate Cycle</label>
                     <select
                       value={newRoomForm.frequency}
                       onChange={(e) => setNewRoomForm(prev => ({ ...prev, frequency: e.target.value as RentFrequency }))}
                       className="w-full py-2.5 px-3 rounded-xl border border-slate-200 text-xs font-medium bg-slate-50 focus:outline-none cursor-pointer"
                     >
                       <option value="Month">Per Month</option>
-                      <option value="Semester">Per Semester</option>
                       <option value="Night">Per Night</option>
+                      <option value="Semester">Per Semester</option>
                       <option value="Hour">Per Hour</option>
                     </select>
                   </div>
@@ -2482,7 +3317,7 @@ export default function App() {
 
                   {/* Camera snapping view */}
                   {cameraActive ? (
-                    <div className="border border-slate-300 rounded-xl overflow-hidden bg-black aspect-video relative flex flex-col items-center justify-center">
+                    <div className="border border-slate-300 rounded-xl overflow-hidden bg-[#052659] aspect-video relative flex flex-col items-center justify-center">
                       <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover" />
                       <div className="absolute bottom-3 left-0 right-0 flex items-center justify-center gap-3 px-4">
                         <button 
@@ -2872,6 +3707,513 @@ export default function App() {
               <p className="text-[10px] text-center text-slate-400">
                 ⭐ Upon approval, your premium ad remains 100% active and searchable in Zimbabwe's feed for 30 calendar days.
               </p>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* ACCOMMODATION DETAIL VIEW MODAL */}
+      <AnimatePresence>
+        {selectedListingDetail && (
+          <div className="fixed inset-0 bg-slate-950/75 backdrop-blur-xs flex items-center justify-center z-50 p-3 sm:p-4 overflow-y-auto">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-3xl max-w-2xl w-full border border-slate-200 shadow-2xl overflow-hidden max-h-[92vh] flex flex-col my-auto"
+            >
+              {/* Modal Header */}
+              <div className="bg-[#021024] text-white p-4 sm:p-5 flex items-center justify-between shrink-0 border-b border-[#052659]">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-xl bg-orange-500/20 border border-orange-500/30 flex items-center justify-center">
+                    <Building className="w-4 h-4 text-orange-500" />
+                  </div>
+                  <div>
+                    <h3 className="font-display font-black text-base sm:text-lg text-white leading-tight">
+                      {selectedListingDetail.title}
+                    </h3>
+                    <p className="text-xs text-slate-300 font-mono">
+                      {selectedListingDetail.city}, {selectedListingDetail.suburb}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setSelectedListingDetail(null)}
+                  className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-slate-200 hover:text-white transition-all cursor-pointer"
+                >
+                  <X className="w-5 h-5 shrink-0" />
+                </button>
+              </div>
+
+              {/* Scrollable Modal Content */}
+              <div className="p-5 sm:p-6 overflow-y-auto space-y-6 text-left flex-grow">
+                {/* Photo Gallery with Thumbnail Switcher */}
+                {(() => {
+                  const photos = (selectedListingDetail.images && selectedListingDetail.images.length > 0)
+                    ? selectedListingDetail.images
+                    : selectedListingDetail.image_url
+                      ? [selectedListingDetail.image_url]
+                      : [];
+                  const activePhoto = photos[detailActivePhotoIdx] || photos[0];
+
+                  return (
+                    <div className="space-y-2">
+                      <div className="relative aspect-video rounded-2xl overflow-hidden bg-slate-100 border border-slate-200 shadow-xs flex items-center justify-center">
+                        {activePhoto ? (
+                          <img
+                            src={activePhoto}
+                            alt={selectedListingDetail.title}
+                            className="w-full h-full object-cover"
+                            referrerPolicy="no-referrer"
+                          />
+                        ) : (
+                          <div className="text-slate-400 font-mono text-xs font-bold uppercase tracking-widest">
+                            No photograph provided
+                          </div>
+                        )}
+                        <div className="absolute top-3 left-3 flex flex-wrap gap-1.5">
+                          {selectedListingDetail.isSample && (
+                            <span className="bg-amber-500 text-white font-mono font-bold text-[9px] px-2.5 py-1 rounded-full uppercase tracking-wider shadow-sm">
+                              Sample Listing
+                            </span>
+                          )}
+                          <span className="bg-[#021024]/85 text-white font-mono font-bold text-[9px] px-2.5 py-1 rounded-full uppercase tracking-wider">
+                            {selectedListingDetail.propertyType}
+                          </span>
+                        </div>
+                      </div>
+
+                      {photos.length > 1 && (
+                        <div className="flex gap-2 overflow-x-auto py-1">
+                          {photos.map((p, idx) => (
+                            <button
+                              key={idx}
+                              type="button"
+                              onClick={() => setDetailActivePhotoIdx(idx)}
+                              className={`relative w-20 h-14 rounded-xl overflow-hidden border-2 transition-all shrink-0 cursor-pointer ${
+                                detailActivePhotoIdx === idx ? "border-orange-500 ring-2 ring-orange-500/20" : "border-slate-200 hover:opacity-80"
+                              }`}
+                            >
+                              <img src={p} alt={`Thumbnail ${idx + 1}`} className="w-full h-full object-cover" />
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+
+                {/* Key Pricing & Category Highlights */}
+                <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200 flex flex-wrap items-center justify-between gap-4">
+                  <div>
+                    <span className="text-[10px] text-slate-500 uppercase font-mono font-bold tracking-wider block">
+                      {(selectedListingDetail.category === "hospitality" || ["Lodge / Guesthouse", "Hotel", "Lodge", "Guesthouse", "Bed & Breakfast"].includes(selectedListingDetail.propertyType))
+                        ? "Accommodation Rate"
+                        : "Rental Price"}
+                    </span>
+                    <div className="text-2xl sm:text-3xl font-display font-black text-slate-900">
+                      ${selectedListingDetail.price}{" "}
+                      <span className="text-xs font-bold text-slate-500 font-mono">
+                        /{selectedListingDetail.frequency}
+                      </span>
+                    </div>
+                    {selectedListingDetail.deposit > 0 ? (
+                      <span className="text-xs text-slate-500 font-mono">Security Deposit: ${selectedListingDetail.deposit}</span>
+                    ) : (
+                      <span className="text-xs text-emerald-600 font-mono font-bold">No Deposit Required</span>
+                    )}
+                  </div>
+
+                  <div className="text-right space-y-1">
+                    <span className="inline-block bg-[#052659] text-white font-bold text-xs px-3 py-1 rounded-full">
+                      {(selectedListingDetail.category === "hospitality" || ["Lodge / Guesthouse", "Hotel", "Lodge", "Guesthouse", "Bed & Breakfast"].includes(selectedListingDetail.propertyType))
+                        ? "🏨 Hospitality / Lodge Stay"
+                        : "🏡 Residential Housing"}
+                    </span>
+                    <div className="text-xs text-slate-500 font-mono">
+                      Status: <strong className="text-emerald-600">{selectedListingDetail.status || "Active"}</strong>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Location & Landmark */}
+                <div className="space-y-1.5">
+                  <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest font-mono">Location & Landmark</h4>
+                  <div className="flex items-start gap-2 text-slate-700 text-sm font-semibold">
+                    <MapPin className="w-4 h-4 text-orange-500 shrink-0 mt-0.5" />
+                    <div>
+                      <span>{selectedListingDetail.city}, {selectedListingDetail.suburb}</span>
+                      {selectedListingDetail.landmark && (
+                        <p className="text-xs text-slate-500 font-normal italic mt-0.5">
+                          Landmark: "{selectedListingDetail.landmark}"
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Description, if provided */}
+                {selectedListingDetail.description && (
+                  <div className="space-y-1.5">
+                    <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest font-mono">Description</h4>
+                    <p className="text-xs sm:text-sm text-slate-600 leading-relaxed bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+                      {selectedListingDetail.description}
+                    </p>
+                  </div>
+                )}
+
+                {/* Amenities */}
+                {selectedListingDetail.amenities && selectedListingDetail.amenities.length > 0 && (
+                  <div className="space-y-2">
+                    <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest font-mono">Included Amenities</h4>
+                    <div className="flex flex-wrap gap-2">
+                      {selectedListingDetail.amenities.map((amenity: string, idx: number) => (
+                        <span
+                          key={idx}
+                          className="text-xs font-semibold py-1 px-3 rounded-xl bg-sky-50 text-sky-800 border border-sky-100 flex items-center gap-1.5"
+                        >
+                          <CheckCircle className="w-3.5 h-3.5 text-sky-600" />
+                          <span>{amenity}</span>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Advertiser & Verification Details */}
+                <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200 space-y-2">
+                  <h4 className="text-xs font-bold text-slate-500 uppercase font-mono tracking-wide">
+                    Advertiser Information
+                  </h4>
+                  <div className="flex items-center justify-between flex-wrap gap-2 text-xs">
+                    <div>
+                      <p className="font-bold text-slate-800">
+                        {selectedListingDetail.business_name || selectedListingDetail.businessName || selectedListingDetail.landlordName}
+                      </p>
+                      <p className="text-slate-500 font-mono text-[11px]">
+                        Preferred contact: {selectedListingDetail.contactMethod || "Call / WhatsApp"}
+                      </p>
+                    </div>
+                    {selectedListingDetail.isVerifiedLandlord ? (
+                      <span className="bg-emerald-100 text-emerald-800 font-bold uppercase text-[10px] px-2.5 py-1 rounded-full flex items-center gap-1 font-mono">
+                        <CheckCircle className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>Verified Advertiser</span>
+                      </span>
+                    ) : (
+                      <span className="bg-slate-200 text-slate-600 font-medium text-[10px] px-2.5 py-1 rounded-full font-mono">
+                        Advertiser info provided · Not audited
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Trust Notice & Reporting */}
+                <div className="p-3 bg-amber-50/70 border border-amber-200/60 rounded-xl flex items-center justify-between gap-3 text-xs">
+                  <div className="text-amber-800 leading-snug">
+                    <span className="font-bold">Trust & Safety:</span> BunkBy is an open marketplace. Never send money or deposits without inspecting the property in person.
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setReportingListing(selectedListingDetail);
+                      setIsReportModalOpen(true);
+                    }}
+                    className="shrink-0 text-red-600 hover:text-red-700 hover:underline font-bold flex items-center gap-1 text-[11px] cursor-pointer"
+                  >
+                    <AlertTriangle className="w-3.5 h-3.5" />
+                    <span>Report Listing</span>
+                  </button>
+                </div>
+
+                {/* Primary Action Button */}
+                <div className="pt-2 flex flex-col sm:flex-row gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedListingDetail(null)}
+                    className="sm:w-1/3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-3 px-4 rounded-2xl text-xs transition-all text-center cursor-pointer"
+                  >
+                    Close
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const room = selectedListingDetail;
+                      setSelectedListingDetail(null);
+                      handleContactLandlord(room);
+                    }}
+                    className="sm:w-2/3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3.5 px-6 rounded-2xl text-sm shadow-lg shadow-emerald-600/20 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    <Phone className="w-4 h-4 fill-white/20" />
+                    <span>Inquire with Advertiser via WhatsApp</span>
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* REPORT SUSPICIOUS LISTING MODAL */}
+      <AnimatePresence>
+        {isReportModalOpen && reportingListing && (
+          <div className="fixed inset-0 bg-slate-950/75 flex items-center justify-center z-55 p-4 overflow-y-auto">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-3xl p-6 max-w-md w-full border border-slate-200 shadow-2xl space-y-4 text-left font-sans my-auto"
+            >
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                <div className="flex items-center gap-2 text-red-600">
+                  <AlertTriangle className="w-5 h-5 shrink-0" />
+                  <h3 className="font-display font-black text-base text-slate-900">Report Listing</h3>
+                </div>
+                <button
+                  onClick={() => {
+                    setIsReportModalOpen(false);
+                    setReportingListing(null);
+                  }}
+                  className="p-1 rounded-lg text-slate-400 hover:text-slate-600"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs text-slate-600 space-y-0.5">
+                <p className="font-bold text-slate-800">{reportingListing.title}</p>
+                <p className="text-slate-500">{reportingListing.city}, {reportingListing.suburb} • ${reportingListing.price}/{reportingListing.frequency}</p>
+              </div>
+
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  setIsSubmittingReport(true);
+                  try {
+                    const res = await fetch(`/api/rooms/${reportingListing.id}/report`, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        reason: reportReason,
+                        details: reportDetails,
+                        reporterName: reportReporterName,
+                        reporterPhone: reportReporterPhone
+                      })
+                    });
+                    if (res.ok) {
+                      showToast("🛡️ Thank you. Report submitted to moderation for review.");
+                      setIsReportModalOpen(false);
+                      setReportingListing(null);
+                      setReportDetails("");
+                    } else {
+                      showToast("⚠️ Could not submit report. Please try again.");
+                    }
+                  } catch (err) {
+                    showToast("⚠️ Network issue submitting report.");
+                  } finally {
+                    setIsSubmittingReport(false);
+                  }
+                }}
+                className="space-y-3"
+              >
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1">
+                    Reason for report *
+                  </label>
+                  <select
+                    value={reportReason}
+                    onChange={(e) => setReportReason(e.target.value)}
+                    className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-xs bg-slate-50 font-medium focus:outline-none"
+                  >
+                    <option value="Suspected scam / fake advertiser">Suspected scam / fake advertiser</option>
+                    <option value="Already occupied / unavailable">Already occupied / unavailable</option>
+                    <option value="Incorrect pricing or deposit details">Incorrect pricing or deposit details</option>
+                    <option value="Misleading location or pictures">Misleading location or pictures</option>
+                    <option value="Offensive or inappropriate content">Offensive or inappropriate content</option>
+                    <option value="Other concern">Other concern</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1">
+                    Additional Details
+                  </label>
+                  <textarea
+                    rows={3}
+                    value={reportDetails}
+                    onChange={(e) => setReportDetails(e.target.value)}
+                    placeholder="Provide any relevant context to help our moderators review..."
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-medium focus:outline-none"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1">
+                      Your Name (optional)
+                    </label>
+                    <input
+                      type="text"
+                      value={reportReporterName}
+                      onChange={(e) => setReportReporterName(e.target.value)}
+                      placeholder="e.g. Tendai"
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-medium focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1">
+                      Your Phone (optional)
+                    </label>
+                    <input
+                      type="text"
+                      value={reportReporterPhone}
+                      onChange={(e) => setReportReporterPhone(e.target.value)}
+                      placeholder="e.g. 0773043376"
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-medium focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="pt-2 flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsReportModalOpen(false);
+                      setReportingListing(null);
+                    }}
+                    className="w-1/3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 rounded-xl text-xs transition-all"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmittingReport}
+                    className="w-2/3 bg-red-600 hover:bg-red-700 disabled:bg-slate-300 text-white font-bold py-2.5 rounded-xl text-xs shadow-md transition-all"
+                  >
+                    {isSubmittingReport ? "Submitting..." : "Submit Report"}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* ACCOUNT RECOVERY & PIN RESET MODAL */}
+      <AnimatePresence>
+        {isRecoveryModalOpen && (
+          <div className="fixed inset-0 bg-slate-950/75 backdrop-blur-xs flex items-center justify-center z-50 p-3 sm:p-4 overflow-y-auto">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-3xl p-6 max-w-md w-full border border-slate-200 shadow-2xl space-y-4 text-left font-sans my-auto"
+            >
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                <div className="flex items-center gap-2 text-[#052659]">
+                  <ShieldCheck className="w-5 h-5 shrink-0 text-orange-500" />
+                  <h3 className="font-display font-black text-base text-slate-900">Account Recovery & PIN Reset</h3>
+                </div>
+                <button
+                  onClick={() => setIsRecoveryModalOpen(false)}
+                  className="p-1 rounded-lg text-slate-400 hover:text-slate-600 cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="bg-blue-50/70 border border-blue-200/50 rounded-2xl p-3.5 text-xs text-slate-600 leading-relaxed space-y-1">
+                <p className="font-bold text-slate-800">🔒 Protecting Your Listings & Account</p>
+                <p>
+                  To prevent unauthorized account takeovers, PIN reset requires matching your registered Full Name and WhatsApp phone number.
+                </p>
+              </div>
+
+              {/* Instant WhatsApp Support Recovery Channel */}
+              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-2xl space-y-2">
+                <p className="text-[11px] font-bold text-emerald-900">Prefer automated WhatsApp assistance?</p>
+                <a
+                  href={`https://wa.me/263771122334?text=${encodeURIComponent(
+                    `Hello BunkBy Zimbabwe Support, I need to reset my landlord account PIN. My name is ${recoveryName || "registered owner"} and my phone number is ${recoveryPhone || "provided"}.`
+                  )}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full bg-[#25D366] hover:bg-[#1EBE5D] text-white font-bold py-2 px-3 rounded-xl text-xs flex items-center justify-center gap-2 transition-all shadow-xs"
+                >
+                  <MessageSquare className="w-3.5 h-3.5" />
+                  <span>Request Reset via BunkBy WhatsApp</span>
+                </a>
+              </div>
+
+              <div className="relative flex py-1 items-center">
+                <div className="flex-grow border-t border-slate-100"></div>
+                <span className="flex-shrink mx-2 text-[10px] text-slate-400 uppercase font-mono font-bold">OR IN-APP RESET</span>
+                <div className="flex-grow border-t border-slate-100"></div>
+              </div>
+
+              <form onSubmit={handleAccountRecovery} className="space-y-3 font-sans">
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1">
+                    Registered Full Name *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={recoveryName}
+                    onChange={(e) => setRecoveryName(e.target.value)}
+                    placeholder="e.g. Tendai Musonza"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-medium focus:outline-none focus:border-orange-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1">
+                    WhatsApp Phone Number *
+                  </label>
+                  <input
+                    type="tel"
+                    required
+                    value={recoveryPhone}
+                    onChange={(e) => setRecoveryPhone(e.target.value)}
+                    placeholder="e.g. 0773043376 or 263773043376"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-medium font-mono focus:outline-none focus:border-orange-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1">
+                    New 4-digit Security PIN *
+                  </label>
+                  <input
+                    type="password"
+                    maxLength={8}
+                    required
+                    value={recoveryNewPin}
+                    onChange={(e) => setRecoveryNewPin(e.target.value.replace(/\D/g, ""))}
+                    placeholder="Enter new 4 to 8-digit PIN"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-medium font-mono focus:outline-none focus:border-orange-500"
+                  />
+                  <p className="text-[10px] text-slate-400 mt-1 pl-1">
+                    Will be required for all future logins on this phone number.
+                  </p>
+                </div>
+
+                <div className="pt-2 flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setIsRecoveryModalOpen(false)}
+                    className="w-1/3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 rounded-xl text-xs transition-all cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isRecovering}
+                    className="w-2/3 bg-[#052659] hover:bg-[#021024] disabled:bg-slate-300 text-white font-bold py-2.5 rounded-xl text-xs shadow-md transition-all cursor-pointer"
+                  >
+                    {isRecovering ? "Verifying..." : "Update PIN & Log In"}
+                  </button>
+                </div>
+              </form>
             </motion.div>
           </div>
         )}

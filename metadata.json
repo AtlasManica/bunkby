@@ -1,6 +1,6 @@
 {
   "name": "BunkBy",
-  "description": "A free room and apartment rental platform for landlords with tenant matching and WhatsApp chatbot integration.",
+  "description": "Zimbabwe's agent-free accommodation marketplace for rooms, cottages, apartments, guesthouses, and lodges with direct WhatsApp connection.",
   "requestFramePermissions": ["camera"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

@@ -7,9 +7,32 @@
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 }
 
-/* Custom visual accents (premium deep navy blue gradient) */
-.blue-gradient {
-  background: linear-gradient(135deg, #0A192F 0%, #172A45 100%);
+/* Custom visual accents from the user's exact color palette */
+/* #021024: Primary Deep Midnight Dark Navy */
+/* #052659: Royal Navy Blue Accent */
+
+.bg-brand-dark {
+  background-color: #021024;
+}
+
+.bg-brand-accent {
+  background-color: #052659;
+}
+
+.text-brand-dark {
+  color: #021024;
+}
+
+.text-brand-accent {
+  color: #052659;
+}
+
+.border-brand-dark {
+  border-color: #021024;
+}
+
+.border-brand-accent {
+  border-color: #052659;
 }
 
 .whatsapp-green {

@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 472 680" width="100%" height="100%">
+  <!-- White Background Container as requested -->
+  <rect width="472" height="680" fill="#FFFFFF" />
+
+  <!-- TOP GROUP -->
+  <!-- Back square: darker burnt orange layer, offset left and down -->
+  <rect x="100" y="80" width="238" height="238" fill="#E65100" />
+  <!-- Front square: bright orange, offset right and up -->
+  <rect x="127" y="55" width="238" height="238" fill="#FF6D00" />
+
+  <!-- BOTTOM GROUP -->
+  <!-- Back square: darker burnt orange layer, offset left and down -->
+  <rect x="105" y="375" width="234" height="234" fill="#E65100" />
+  <!-- Front square: bright orange, offset right and up -->
+  <rect x="127" y="352" width="238" height="238" fill="#FF6D00" />
+</svg>
