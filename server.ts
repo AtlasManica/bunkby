@@ -14,8 +14,9 @@ import { processWhatsAppMessage, ensureChatbotTable } from "./server/whatsappEng
 const app = express();
 const PORT = 3000;
 
-// Body parsing middleware
-app.use(express.json());
+// Body parsing middleware with generous size limit for high-res images
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
 // Initialize SQLite database with auto-recovery from file corruption
 function initDatabase() {
@@ -149,6 +150,36 @@ const db = initDatabase();
 // Health check endpoint
 app.get("/api/health", (req, res) => {
   res.json({ status: "ok" });
+});
+
+// Endpoint to store exact custom background image directly onto disk
+app.post("/api/upload-hero-image", (req, res) => {
+  try {
+    const { imageData } = req.body;
+    if (!imageData) return res.status(400).json({ error: "No image data provided" });
+    
+    const matches = imageData.match(/^data:image\/([A-Za-z-+\/]+);base64,(.+)$/);
+    const buffer = matches ? Buffer.from(matches[2], "base64") : Buffer.from(imageData, "base64");
+    
+    const publicDir = path.join(process.cwd(), "public");
+    if (!fs.existsSync(publicDir)) fs.mkdirSync(publicDir, { recursive: true });
+    
+    // Save under all standard names so every route finds it immediately
+    fs.writeFileSync(path.join(publicDir, "hero-background.png"), buffer);
+    fs.writeFileSync(path.join(publicDir, "Midnight Tribal Geometry with Copper Accents.png"), buffer);
+    fs.writeFileSync(path.join(publicDir, "hero-pattern.jpg"), buffer);
+    
+    const distDir = path.join(process.cwd(), "dist");
+    if (fs.existsSync(distDir)) {
+      fs.writeFileSync(path.join(distDir, "hero-background.png"), buffer);
+      fs.writeFileSync(path.join(distDir, "Midnight Tribal Geometry with Copper Accents.png"), buffer);
+      fs.writeFileSync(path.join(distDir, "hero-pattern.jpg"), buffer);
+    }
+    
+    res.json({ success: true, url: "/hero-background.png?t=" + Date.now() });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Cryptographic PIN hashing & verification helpers (Node.js crypto scrypt)

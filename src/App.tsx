@@ -1231,26 +1231,25 @@ export default function App() {
         {activeTab === "browse" && (
           <div className="space-y-6">
             
-            {/* Hero Card with Midnight Tribal Geometry with Copper Accents Background */}
+            {/* Hero Card with User Uploaded hero-background.png */}
             <section 
               id="hero-banner" 
-              className="bg-[#0b131e] rounded-3xl text-white p-6 sm:p-8 md:p-12 text-center relative overflow-hidden shadow-2xl border border-slate-800"
+              className="bg-[#080f18] rounded-3xl text-white p-6 sm:p-8 md:p-12 text-center relative overflow-hidden shadow-2xl border border-slate-800/80 bg-cover bg-center"
+              style={{ backgroundImage: `url('/assets/Midnight Tribal Geometry with Copper Accents.png')` }}
             >
-              {/* Midnight Tribal Geometry with Copper Accents Background Image */}
+              {/* User Uploaded Hero Background Image */}
               <img
-                src="/assets/midnight-tribal-geometry.svg"
-                alt="Midnight Tribal Geometry with Copper Accents"
-                className="absolute inset-0 w-full h-full object-cover pointer-events-none select-none opacity-95"
+                src="/assets/Midnight Tribal Geometry with Copper Accents.png"
+                alt="BunkBy Hero Background"
+                className="absolute inset-0 w-full h-full object-cover pointer-events-none select-none"
                 referrerPolicy="no-referrer"
                 onError={(e) => {
-                  (e.currentTarget as HTMLImageElement).src = "/hero-pattern.jpg";
+                  (e.currentTarget as HTMLImageElement).src = "/hero-background.png";
                 }}
               />
 
               {/* Ambient lighting glows matching copper and midnight tones */}
-              <div className="absolute top-0 right-0 w-80 h-80 bg-[#ea580c]/15 rounded-full blur-3xl -mr-20 -mt-20 pointer-events-none"></div>
-              <div className="absolute bottom-0 left-0 w-80 h-80 bg-[#ff7a00]/15 rounded-full blur-3xl -ml-20 -mb-20 pointer-events-none"></div>
-              <div className="absolute inset-0 bg-[#070c12]/20 pointer-events-none"></div>
+              
 
               <div className="relative z-10 max-w-3.5xl mx-auto space-y-4 sm:space-y-6">
                 <div className="inline-flex items-center gap-1.5 sm:gap-2 bg-[#052659]/80 backdrop-blur-md border border-white/20 text-white px-3 sm:px-4 py-1 sm:py-1.5 rounded-full text-[10px] sm:text-xs font-black tracking-wider shadow-sm max-w-full">
