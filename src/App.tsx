@@ -1,3 +1,4 @@
+import PrivacyPolicy from "./PrivacyPolicy";
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -75,6 +76,7 @@ const BunkByLogo = ({ className = "w-10 h-10" }: { className?: string }) => (
 
 export default function App() {
   // Current active tab of the app
+  const [currentPath, setCurrentPath] = useState<string>(() => typeof window !== "undefined" ? window.location.pathname : "/");
   const [activeTab, setActiveTab] = useState<"browse" | "landlord" | "whatsapp" | "account" | "help">("browse");
 
   // Room Listings State
@@ -197,6 +199,37 @@ export default function App() {
   const [isAuthLoading, setIsAuthLoading] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
 
+    // Listen to browser forward/backward navigation for /privacy-policy route
+  useEffect(() => {
+    const handlePopState = () => {
+      setCurrentPath(window.location.pathname);
+      const params = new URLSearchParams(window.location.search);
+      const tab = params.get("tab");
+      if (tab && ["browse", "landlord", "whatsapp", "account", "help"].includes(tab)) {
+        setActiveTab(tab as any);
+      }
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+
+  const navigateTo = (path: string, tab?: "browse" | "landlord" | "whatsapp" | "account" | "help") => {
+    try {
+      if (path === "/privacy-policy") {
+        window.history.pushState(null, "", "/privacy-policy");
+        setCurrentPath("/privacy-policy");
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      } else {
+        const targetTab = tab || "browse";
+        setActiveTab(targetTab);
+        setCurrentPath("/");
+        const search = targetTab !== "browse" ? `?tab=${targetTab}` : "";
+        window.history.pushState(null, "", `/${search}`);
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }
+    } catch (_) {}
+  };
+
   // Initialize filters & tab from URL on first mount
   useEffect(() => {
     try {
@@ -260,7 +293,8 @@ export default function App() {
       if (selectedListingDetail) params.set("listing", String(selectedListingDetail.id));
 
       const newSearch = params.toString();
-      const newUrl = newSearch ? `${window.location.pathname}?${newSearch}` : window.location.pathname;
+      if (currentPath === "/privacy-policy") return;
+      const newUrl = newSearch ? `/?${newSearch}` : "/";
       window.history.replaceState(null, "", newUrl);
     } catch (_) {}
   }, [
@@ -1070,6 +1104,10 @@ export default function App() {
     return ["Avonlea", "Senga", "Hillside", "Murambi", "Mount Pleasant"];
   };
 
+  if (currentPath === "/privacy-policy") {
+    return <PrivacyPolicy onBackToHome={() => navigateTo("/", "browse")} />;
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 font-sans flex flex-col antialiased">
       
@@ -1095,7 +1133,7 @@ export default function App() {
           
           {/* Logo Brand with custom icon */}
           <div 
-            onClick={() => setActiveTab("browse")} 
+            onClick={() => navigateTo("/", "browse")} 
             className="flex items-center gap-3 cursor-pointer shrink-0"
             id="brand-logo"
           >
@@ -1111,21 +1149,21 @@ export default function App() {
           {/* Nav items with small compact selected highlights */}
           <nav className="hidden md:flex items-center gap-1 text-xs">
             <button 
-              onClick={() => setActiveTab("browse")}
+              onClick={() => navigateTo("/", "browse")}
               className={`px-2.5 py-1.5 rounded-lg transition-all ${activeTab === "browse" ? "bg-[#021024] text-white font-extrabold shadow-xs border border-white/10" : "hover:text-white text-slate-200 hover:bg-[#021024]/40 font-semibold"}`}
               id="nav-browse"
             >
               Browse Listings
             </button>
             <button 
-              onClick={() => setActiveTab("landlord")}
+              onClick={() => navigateTo("/", "landlord")}
               className={`px-2.5 py-1.5 rounded-lg transition-all ${activeTab === "landlord" ? "bg-[#021024] text-white font-extrabold shadow-xs border border-white/10" : "hover:text-white text-slate-200 hover:bg-[#021024]/40 font-semibold"}`}
               id="nav-landlord"
             >
               Landlords Portal
             </button>
             <button 
-              onClick={() => setActiveTab("whatsapp")}
+              onClick={() => navigateTo("/", "whatsapp")}
               className={`px-2.5 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${activeTab === "whatsapp" ? "bg-[#021024] text-white font-extrabold shadow-xs border border-white/10" : "hover:text-white text-slate-200 hover:bg-[#021024]/40 font-semibold"}`}
               id="nav-whatsapp"
             >
@@ -1133,14 +1171,14 @@ export default function App() {
               WhatsApp Chatbot
             </button>
             <button 
-              onClick={() => setActiveTab("account")}
+              onClick={() => navigateTo("/", "account")}
               className={`px-2.5 py-1.5 rounded-lg transition-all ${activeTab === "account" ? "bg-[#021024] text-white font-extrabold shadow-xs border border-white/10" : "hover:text-white text-slate-200 hover:bg-[#021024]/40 font-semibold"}`}
               id="nav-account"
             >
               Account
             </button>
             <button 
-              onClick={() => setActiveTab("help")}
+              onClick={() => navigateTo("/", "help")}
               className={`px-2.5 py-1.5 rounded-lg transition-all ${activeTab === "help" ? "bg-[#021024] text-white font-extrabold shadow-xs border border-white/10" : "hover:text-white text-slate-200 hover:bg-[#021024]/40 font-semibold"}`}
               id="nav-help"
             >
@@ -1195,28 +1233,28 @@ export default function App() {
       {/* Mobile nav bar bottom */}
       <div className="md:hidden bg-[#052659] border-b border-[#052659] flex items-center justify-around text-xs font-medium py-2.5 sticky top-18 z-35 shadow-sm">
         <button 
-          onClick={() => setActiveTab("browse")}
+          onClick={() => navigateTo("/", "browse")}
           className={`flex flex-col items-center gap-1 ${activeTab === "browse" ? "text-white font-bold" : "text-[#E2E8F0]"}`}
         >
           <Building className="w-4 h-4 shrink-0" />
           <span>Browse</span>
         </button>
         <button 
-          onClick={() => setActiveTab("landlord")}
+          onClick={() => navigateTo("/", "landlord")}
           className={`flex flex-col items-center gap-1 relative ${activeTab === "landlord" ? "text-white font-bold" : "text-[#E2E8F0]"}`}
         >
           <SlidersHorizontal className="w-4 h-4 shrink-0" />
           <span>My Portal</span>
         </button>
         <button 
-          onClick={() => setActiveTab("whatsapp")}
+          onClick={() => navigateTo("/", "whatsapp")}
           className={`flex flex-col items-center gap-1 ${activeTab === "whatsapp" ? "text-emerald-300 font-bold" : "text-[#E2E8F0]"}`}
         >
           <MessageSquare className="w-4 h-4 shrink-0 text-emerald-600" />
           <span>WhatsApp Bot</span>
         </button>
         <button 
-          onClick={() => setActiveTab("account")}
+          onClick={() => navigateTo("/", "account")}
           className={`flex flex-col items-center gap-1 ${activeTab === "account" ? "text-white font-bold" : "text-[#E2E8F0]"}`}
         >
           <Settings className="w-4 h-4 shrink-0" />
@@ -1282,7 +1320,7 @@ export default function App() {
                     <span>List Accommodation (100% Free)</span>
                   </button>
                   <button 
-                    onClick={() => setActiveTab("whatsapp")}
+                    onClick={() => navigateTo("/", "whatsapp")}
                     className="bg-white/15 hover:bg-white/25 text-white font-black px-4 sm:px-6 py-2.5 sm:py-3 rounded-xl sm:rounded-2xl transition-all text-xs sm:text-sm flex items-center gap-1.5 sm:gap-2 shadow-sm border border-white/20 cursor-pointer backdrop-blur-md"
                   >
                     <MessageSquare className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0 text-emerald-400 stroke-[2.5]" />
@@ -1410,7 +1448,7 @@ export default function App() {
 
             {/* Simulated Banner for WhatsApp Access */}
             <div 
-              onClick={() => setActiveTab("whatsapp")}
+              onClick={() => navigateTo("/", "whatsapp")}
               className="bg-white border border-emerald-100 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 cursor-pointer hover:border-emerald-300 transition-all shadow-sm group"
               id="whatsapp-promo-banner"
             >
@@ -1797,7 +1835,7 @@ export default function App() {
               </div>
               <div className="flex items-center justify-center md:justify-end">
                 <button 
-                  onClick={() => setActiveTab("whatsapp")}
+                  onClick={() => navigateTo("/", "whatsapp")}
                   className="bg-[#F5EBE1] hover:bg-[#EADDCF] text-[#4A3B32] border border-[#E0D2C3] text-xs sm:text-sm font-extrabold py-3.5 px-6 rounded-2xl transition-all shadow-md shadow-amber-900/5 flex items-center justify-center gap-2.5 cursor-pointer w-full md:w-auto"
                 >
                   <MessageSquare className="w-4 h-4 shrink-0 text-[#25D366] fill-[#25D366]" />
@@ -2950,6 +2988,12 @@ export default function App() {
               </div>
 
               <div className="bg-white rounded-2xl p-4 border border-slate-200 space-y-2">
+                <h4 className="font-bold text-sky-700 text-sm">🔒 How is my data and privacy protected on BunkBy?</h4>
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  BunkBy adheres to strict data minimization. Landlord accounts are protected with secure 4-digit PINs, and accommodation seekers contact landlords directly via WhatsApp without middleman fees. We do not sell user data. You can view our comprehensive <a href="/privacy-policy" onClick={(e) => { e.preventDefault(); navigateTo("/privacy-policy"); }} className="text-[#FF7A00] font-bold underline">Official Privacy Policy</a> at any time.
+                </p>
+              </div>
+              <div className="bg-white rounded-2xl p-4 border border-slate-200 space-y-2">
                 <h4 className="font-bold text-sky-700 text-sm">💸 If it is totally free, how does BunkBy sustain itself?</h4>
                 <p className="text-xs text-slate-500 leading-relaxed">
                   Our current goal is purely focused on building high local traffic! In the future, BunkBy intends to introduce paid 30-day premium advertisement programs for commercials listing large guest houses, commercial lounges, or massive boarding complexes while securing normal house owners and student cottage listings completely free forever.
@@ -2999,6 +3043,27 @@ export default function App() {
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="text-[11px] text-slate-300 font-normal">
               <p>© 2026 BunkBy. BunkBy is an accommodation marketplace operated by ATLAS MANICA GROUP LTD.</p>
+              <div className="flex items-center gap-4 pt-1.5 text-[11px] text-slate-300">
+                <a 
+                  href="/privacy-policy" 
+                  onClick={(e) => { e.preventDefault(); navigateTo("/privacy-policy"); }}
+                  className="hover:text-white underline underline-offset-2 transition-colors cursor-pointer"
+                  id="footer-privacy-policy-link"
+                >
+                  Privacy Policy
+                </a>
+                <span>•</span>
+                <span className="text-slate-400">Meta WhatsApp Cloud Verified</span>
+                <span>•</span>
+                <a 
+                  href="https://wa.me/263771122334" 
+                  target="_blank" 
+                  rel="noopener noreferrer" 
+                  className="hover:text-emerald-300 transition-colors"
+                >
+                  WhatsApp Support
+                </a>
+              </div>
             </div>
             <div className="text-[10px] text-[#FF7A00] font-bold tracking-wider font-mono">
               ZIMBABWE'S AGENT-FREE ACCOMMODATION MARKETPLACE
