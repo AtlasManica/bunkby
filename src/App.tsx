@@ -63,13 +63,16 @@ import {
 } from "./initialData";
 import { motion, AnimatePresence } from "motion/react";
 
-// BunkBy Orange Stacked Squares Logo Component (Exact uploaded brand logo on white background)
+// BunkBy Orange Stacked Squares Logo Component (Official branding asset public/bunkbylogo.png)
 const BunkByLogo = ({ className = "w-10 h-10" }: { className?: string }) => (
   <div className={`${className} bg-white rounded-xl overflow-hidden p-0.5 border border-white/20 shadow-xs flex items-center justify-center shrink-0 select-none`}>
     <img 
-      src="/bunkby-logo.svg" 
+      src="/bunkbylogo.png" 
       alt="BunkBy Logo" 
       className="w-full h-full object-contain"
+      onError={(e) => {
+        (e.currentTarget as HTMLImageElement).src = "/bunkby-logo.svg";
+      }}
     />
   </div>
 );

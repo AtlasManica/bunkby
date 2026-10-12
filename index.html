@@ -3,70 +3,121 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>BunkBy | Zimbabwe's Agent-Free Accommodation Marketplace</title>
-    <meta name="description" content="Zimbabwe's premier agent-free accommodation marketplace. Find verified rooms, cottages, apartments, guesthouses, and lodges across Harare, Bulawayo, and beyond with direct WhatsApp contact and zero middleman fees." />
-    <meta name="keywords" content="accommodation Zimbabwe, rooms for rent Harare, cottages Harare, agent-free rentals Zimbabwe, student accommodation Bulawayo, lodges Zimbabwe, BunkBy, direct landlord contact" />
-    <meta name="author" content="BunkBy" />
+    <title>BunkBy – Zimbabwe Accommodation Marketplace | Agent-Free Rooms, Cottages & Lodges</title>
+    <meta name="description" content="Find rooms, cottages, apartments, guesthouses and lodges across Zimbabwe on BunkBy, the free agent-free accommodation marketplace. Browse listings and contact hosts directly." />
+    <meta name="keywords" content="accommodation Zimbabwe, rooms for rent Harare, cottages Harare, agent-free rentals Zimbabwe, student accommodation Bulawayo, lodges Zimbabwe, BunkBy, direct landlord contact, boarding houses Zimbabwe" />
+    <meta name="author" content="Atlas Manica Group" />
+    <meta name="theme-color" content="#052659" />
     <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
 
-    <!-- Canonical URL -->
+    <!-- Canonical URL (consistent production root https://bunkby.com/) -->
     <link rel="canonical" href="https://bunkby.com/" />
 
-    <!-- Favicon & Icons -->
-    <link rel="icon" type="image/svg+xml" href="/bunkby-logo.svg" />
-    <link rel="apple-touch-icon" href="/bunkby-logo.svg" />
+    <!-- Standard Favicons & Touch Icons (Google 48x48+, Multi-res ICO, Apple Touch, WebManifest) -->
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" type="image/png" sizes="48x48" href="/favicon-48x48.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
 
     <!-- OpenGraph Metadata for Facebook, WhatsApp, LinkedIn, Meta Crawlers -->
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="BunkBy" />
     <meta property="og:url" content="https://bunkby.com/" />
-    <meta property="og:title" content="BunkBy | Zimbabwe's Agent-Free Accommodation Marketplace" />
-    <meta property="og:description" content="Browse verified rooms, cottages, apartments, and lodges across Zimbabwe. 100% free direct landlord and host contact with zero agency cuts." />
-    <meta property="og:image" content="https://bunkby.com/bunkby-logo.svg" />
-    <meta property="og:image:width" content="512" />
-    <meta property="og:image:height" content="512" />
+    <meta property="og:title" content="BunkBy – Zimbabwe Accommodation Marketplace | Agent-Free Rooms, Cottages & Lodges" />
+    <meta property="og:description" content="Find rooms, cottages, apartments, guesthouses and lodges across Zimbabwe on BunkBy, the free agent-free accommodation marketplace. Browse listings and contact hosts directly." />
+    <meta property="og:image" content="https://bunkby.com/og-image.png" />
+    <meta property="og:image:secure_url" content="https://bunkby.com/og-image.png" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="BunkBy - Zimbabwe Agent-Free Accommodation Marketplace" />
     <meta property="og:locale" content="en_ZW" />
 
-    <!-- Twitter / X Cards for Social Sharing & Microsoft Crawlers -->
+    <!-- Twitter / X Cards for Social Sharing & Search Engine Preview -->
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="BunkBy | Zimbabwe's Agent-Free Accommodation Marketplace" />
-    <meta name="twitter:description" content="Find verified rooms, cottages, and lodges across Zimbabwe with direct WhatsApp connection and zero agent fees." />
-    <meta name="twitter:image" content="https://bunkby.com/bunkby-logo.svg" />
+    <meta name="twitter:site" content="@BunkBy" />
+    <meta name="twitter:title" content="BunkBy – Zimbabwe Accommodation Marketplace | Agent-Free Rooms, Cottages & Lodges" />
+    <meta name="twitter:description" content="Find rooms, cottages, apartments, guesthouses and lodges across Zimbabwe on BunkBy, the free agent-free accommodation marketplace. Browse listings and contact hosts directly." />
+    <meta name="twitter:image" content="https://bunkby.com/og-image.png" />
+    <meta name="twitter:image:alt" content="BunkBy - Zimbabwe Agent-Free Accommodation Marketplace" />
 
-    <!-- Schema.org JSON-LD Structured Data for Google, Gemini, and Microsoft AI -->
+    <!-- Schema.org JSON-LD Structured Data for Google Search Engine & Crawlers -->
     <script type="application/ld+json">
     {
       "@context": "https://schema.org",
-      "@type": "WebSite",
-      "name": "BunkBy",
-      "url": "https://bunkby.com/",
-      "description": "Zimbabwe's agent-free accommodation marketplace connecting tenants directly with landlords and hosts.",
-      "potentialAction": {
-        "@type": "SearchAction",
-        "target": "https://bunkby.com/?q={search_term_string}",
-        "query-input": "required name=search_term_string"
-      }
-    }
-    </script>
-    <script type="application/ld+json">
-    {
-      "@context": "https://schema.org",
-      "@type": "RealEstateAgent",
-      "name": "BunkBy Zimbabwe",
-      "url": "https://bunkby.com/",
-      "logo": "https://bunkby.com/bunkby-logo.svg",
-      "description": "Agent-free rental accommodation platform across Harare, Bulawayo, Mutare, Gweru, and all Zimbabwe cities.",
-      "areaServed": {
-        "@type": "Country",
-        "name": "Zimbabwe"
-      },
-      "priceRange": "$"
+      "@graph": [
+        {
+          "@type": "WebSite",
+          "@id": "https://bunkby.com/#website",
+          "url": "https://bunkby.com/",
+          "name": "BunkBy",
+          "description": "Find rooms, cottages, apartments, guesthouses and lodges across Zimbabwe on BunkBy, the free agent-free accommodation marketplace. Browse listings and contact hosts directly.",
+          "publisher": {
+            "@type": "Organization",
+            "name": "Atlas Manica Group",
+            "url": "https://bunkby.com/",
+            "logo": {
+              "@type": "ImageObject",
+              "url": "https://bunkby.com/bunkbylogo.png",
+              "width": 1254,
+              "height": 1254
+            }
+          },
+          "potentialAction": {
+            "@type": "SearchAction",
+            "target": {
+              "@type": "EntryPoint",
+              "urlTemplate": "https://bunkby.com/?q={search_term_string}"
+            },
+            "query-input": "required name=search_term_string"
+          },
+          "inLanguage": "en-ZW"
+        },
+        {
+          "@type": "WebApplication",
+          "@id": "https://bunkby.com/#app",
+          "name": "BunkBy Accommodation Marketplace",
+          "url": "https://bunkby.com/",
+          "applicationCategory": "LifestyleApplication",
+          "operatingSystem": "All",
+          "description": "Agent-free accommodation marketplace across Zimbabwe connecting tenants directly with verified landlords and hosts via WhatsApp.",
+          "offers": {
+            "@type": "Offer",
+            "price": "0",
+            "priceCurrency": "USD"
+          }
+        }
+      ]
     }
     </script>
   </head>
-  <body>
-    <div id="root"></div>
+  <body class="bg-[#021024] text-slate-800 antialiased">
+    <!-- Fallback content for search crawlers (Googlebot, Bingbot) before JavaScript execution -->
+    <div id="root">
+      <noscript>
+        <div style="font-family: sans-serif; max-width: 800px; margin: 40px auto; padding: 20px; color: #1e293b; background: #ffffff; border-radius: 12px;">
+          <h1 style="color: #052659; font-size: 28px;">BunkBy – Zimbabwe Accommodation Marketplace</h1>
+          <p style="font-size: 16px; line-height: 1.6;">
+            Find rooms, cottages, apartments, guesthouses and lodges across Zimbabwe on BunkBy, the free agent-free accommodation marketplace. Browse listings and contact hosts directly with zero middleman fees.
+          </p>
+          <h2 style="color: #052659; font-size: 20px; margin-top: 24px;">Featured Localities in Zimbabwe</h2>
+          <p>Harare • Bulawayo • Mutare • Gweru • Victoria Falls • Chitungwiza • Masvingo</p>
+          <h2 style="color: #052659; font-size: 20px; margin-top: 24px;">Accommodation Types</h2>
+          <ul>
+            <li>Single Rooms & Bedsits</li>
+            <li>Cottages & Granny Flats</li>
+            <li>Apartments & Flats</li>
+            <li>Student Hostels & Boarding Houses</li>
+            <li>Guesthouses, Lodges & Bed & Breakfasts</li>
+          </ul>
+          <p style="margin-top: 24px;">
+            <a href="/privacy-policy" style="color: #FF7A00; text-decoration: underline;">BunkBy Privacy Policy</a>
+          </p>
+        </div>
+      </noscript>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
-

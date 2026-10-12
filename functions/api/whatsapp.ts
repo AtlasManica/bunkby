@@ -98,17 +98,24 @@ export async function onRequestGet({ request, env }: { request: Request; env: En
       }
     }
 
+    const activeToken = env.WHATSAPP_ACCESS_TOKEN?.trim();
+    const activePhoneId = env.WHATSAPP_PHONE_NUMBER_ID?.trim();
+    const tokenFingerprint = activeToken && activeToken.length > 10
+      ? `${activeToken.slice(0, 4)}...${activeToken.slice(-4)} (len:${activeToken.length})`
+      : (activeToken ? "present_short" : "missing");
+
     return jsonResponse({
       status: "online",
       service: "BunkBy WhatsApp Cloudflare Pages Function",
-      metaConfigured: Boolean(env.WHATSAPP_ACCESS_TOKEN && env.WHATSAPP_PHONE_NUMBER_ID),
-      hasAccessToken: Boolean(env.WHATSAPP_ACCESS_TOKEN),
-      hasPhoneNumberId: Boolean(env.WHATSAPP_PHONE_NUMBER_ID),
-      phoneNumberId: env.WHATSAPP_PHONE_NUMBER_ID ? `${env.WHATSAPP_PHONE_NUMBER_ID.slice(0, 4)}***` : null,
+      version: "2026-10-12_diagnostic_v2",
+      metaConfigured: Boolean(activeToken && activePhoneId),
+      hasAccessToken: Boolean(activeToken),
+      hasPhoneNumberId: Boolean(activePhoneId),
+      tokenFingerprint,
+      phoneNumberId: activePhoneId ? `${activePhoneId.slice(0, 4)}***${activePhoneId.slice(-4)}` : null,
       totalEventsTracked: recentEvents.length,
       events: recentEvents,
-      serverTimestamp: new Date().toISOString()
-    });
+      serverTimestamp: new Date().toISOString()    });
   }
 
   // Default GET status response
@@ -127,21 +134,46 @@ export async function onRequestGet({ request, env }: { request: Request; env: En
  * Outbound WhatsApp Dispatch Helper:
  * Dispatches message to Meta Graph API using environment credentials.
  */
+interface OutboundDispatchResult {
+  success: boolean;
+  messageId?: string;
+  simulated?: boolean;
+  httpStatus?: number;
+  metaCode?: number;
+  metaSubcode?: number;
+  metaErrorType?: string;
+  metaErrorMessage?: string;
+  fbtraceId?: string;
+  error?: string;
+  tokenFingerprint?: string;
+  phoneNumberIdUsed?: string;
+}
+
 async function sendMetaWhatsAppMessage(
   recipientPhone: string,
   replyText: string,
   env: Env,
   buttons?: Array<{ id: string; title: string }>
-): Promise<{ success: boolean; error?: string; messageId?: string; simulated?: boolean }> {
-  if (!env.WHATSAPP_ACCESS_TOKEN || !env.WHATSAPP_PHONE_NUMBER_ID) {
+): Promise<OutboundDispatchResult> {
+  const token = env.WHATSAPP_ACCESS_TOKEN?.trim();
+  const phoneId = env.WHATSAPP_PHONE_NUMBER_ID?.trim();
+
+  // Safe token fingerprint (e.g. EAAG...4aB1, length 198) so admin can verify if updated token is active
+  const tokenFingerprint = token && token.length > 10 
+    ? `${token.slice(0, 4)}...${token.slice(-4)} (len:${token.length})` 
+    : (token ? "present_short" : "missing");
+
+  if (!token || !phoneId) {
     return {
-      success: true,
+      success: false,
       simulated: true,
-      error: "Meta credentials not configured on Cloudflare runtime."
+      error: "Meta credentials not configured on Cloudflare runtime.",
+      tokenFingerprint,
+      phoneNumberIdUsed: phoneId ? `${phoneId.slice(0, 4)}***` : "missing"
     };
   }
 
-  const endpoint = `https://graph.facebook.com/v19.0/${env.WHATSAPP_PHONE_NUMBER_ID}/messages`;
+  const endpoint = `https://graph.facebook.com/v19.0/${phoneId}/messages`;
 
   let payload: any;
   if (buttons && buttons.length > 0 && buttons.length <= 3) {
@@ -175,27 +207,57 @@ async function sendMetaWhatsAppMessage(
     const res = await fetch(endpoint, {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${env.WHATSAPP_ACCESS_TOKEN}`,
+        "Authorization": `Bearer ${token}`,
         "Content-Type": "application/json"
       },
       body: JSON.stringify(payload)
     });
 
-    const data: any = await res.json();
+    let data: any = {};
+    try {
+      data = await res.json();
+    } catch {
+      data = {};
+    }
+
     if (!res.ok) {
-      const codePart = data.error?.code ? `(Meta Code ${data.error.code}) ` : "";
-      const errorMsg = `${codePart}${data.error?.message || `HTTP ${res.status} dispatch error`}`;
-      return { success: false, error: errorMsg };
+      const errObj = data.error || {};
+      const metaCode = errObj.code;
+      const metaSubcode = errObj.error_subcode;
+      const metaType = errObj.type;
+      const metaMessage = errObj.message || `HTTP ${res.status} dispatch error`;
+      const fbtraceId = errObj.fbtrace_id;
+
+      const codePart = metaCode ? `(Meta Code ${metaCode}${metaSubcode ? `, Subcode ${metaSubcode}` : ""}) ` : "";
+      const errorSummary = `${codePart}${metaMessage}${fbtraceId ? ` [fbtrace_id: ${fbtraceId}]` : ""}`;
+
+      return {
+        success: false,
+        httpStatus: res.status,
+        metaCode,
+        metaSubcode,
+        metaErrorType: metaType,
+        metaErrorMessage: metaMessage,
+        fbtraceId,
+        error: errorSummary,
+        tokenFingerprint,
+        phoneNumberIdUsed: `${phoneId.slice(0, 4)}***`
+      };
     }
 
     return {
       success: true,
-      messageId: data.messages?.[0]?.id
+      httpStatus: res.status,
+      messageId: data.messages?.[0]?.id,
+      tokenFingerprint,
+      phoneNumberIdUsed: `${phoneId.slice(0, 4)}***`
     };
   } catch (err: any) {
     return {
       success: false,
-      error: err.message || "Network failure dispatching Meta request"
+      error: err.message || "Network failure dispatching Meta request",
+      tokenFingerprint,
+      phoneNumberIdUsed: phoneId ? `${phoneId.slice(0, 4)}***` : "missing"
     };
   }
 }
