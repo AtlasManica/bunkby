@@ -1,7 +1,7 @@
 {
   "name": "BunkBy – Zimbabwe Accommodation Marketplace",
   "short_name": "BunkBy",
-  "description": "Find rooms, cottages, apartments, guesthouses, and lodges across Zimbabwe with zero middleman fees.",
+  "description": "Find rooms, cottages, apartments, guesthouses and lodges across Zimbabwe. Browse accommodation listings for free and contact hosts directly, without agents.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#021024",

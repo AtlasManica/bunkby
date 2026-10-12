@@ -12,9 +12,18 @@ interface PrivacyPolicyProps {
 export const PrivacyPolicy: React.FC<PrivacyPolicyProps> = ({ onBackToHome }) => {
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "smooth" });
-    document.title = "Privacy Policy | BunkBy";
+    document.title = "Privacy Policy | BunkBy – Zimbabwe Accommodation Marketplace";
+    // Set meta description for privacy policy page
+    const metaDesc = document.querySelector('meta[name="description"]');
+    const prevDesc = metaDesc ? metaDesc.getAttribute("content") : "";
+    if (metaDesc) {
+      metaDesc.setAttribute("content", "Read the official BunkBy Privacy Policy. Learn how we handle accommodation listings, host information, user enquiries, and WhatsApp communications across Zimbabwe.");
+    }
     return () => {
-      document.title = "BunkBy | Zimbabwe's Agent-Free Accommodation Marketplace";
+      document.title = "BunkBy – Zimbabwe Accommodation Marketplace | Agent-Free Rooms, Cottages & Lodges";
+      if (metaDesc && prevDesc) {
+        metaDesc.setAttribute("content", prevDesc);
+      }
     };
   }, []);
 
