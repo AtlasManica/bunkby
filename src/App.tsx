@@ -49,7 +49,7 @@ import {
   Flag,
   Filter
 } from "lucide-react";
-import { RoomListing, PropertyType, TenantType, ContactMethod, RentFrequency, ChatMessage, ListingCategory } from "./types";
+import { RoomListing, PropertyType, TenantType, ContactMethod, RentFrequency, ListingCategory } from "./types";
 import { 
   INITIAL_ROOMS, 
   ALL_ZIM_CITIES, 
@@ -62,6 +62,20 @@ import {
   HOSPITALITY_AMENITIES
 } from "./initialData";
 import { motion, AnimatePresence } from "motion/react";
+
+// Official WhatsApp Brand Icon Component
+const WhatsAppIcon = ({ className = "w-4 h-4" }: { className?: string }) => (
+  <svg 
+    viewBox="0 0 24 24" 
+    width="24" 
+    height="24" 
+    className={className} 
+    fill="currentColor"
+    aria-hidden="true"
+  >
+    <path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91C2.13 13.66 2.59 15.36 3.45 16.86L2.05 22L7.3 20.62C8.75 21.41 10.38 21.83 12.04 21.83C17.5 21.83 21.95 17.38 21.95 11.92C21.95 9.27 20.92 6.78 19.05 4.91C17.18 3.04 14.69 2 12.04 2M12.04 3.67C14.25 3.67 16.31 4.53 17.87 6.09C19.42 7.65 20.28 9.72 20.28 11.92C20.28 16.46 16.58 20.15 12.04 20.15C10.56 20.15 9.11 19.76 7.85 19L7.55 18.83L4.43 19.65L5.26 16.61L5.06 16.29C4.24 15 3.8 13.47 3.8 11.91C3.81 7.37 7.5 3.67 12.04 3.67M9.53 7.35C9.33 7.35 9 7.42 8.72 7.73C8.44 8.04 7.65 8.78 7.65 10.27C7.65 11.76 8.74 13.19 8.89 13.4C9.05 13.61 11.04 16.67 14.09 17.98C14.81 18.29 15.38 18.48 15.82 18.62C16.55 18.85 17.21 18.82 17.74 18.74C18.33 18.65 19.55 18 19.81 17.28C20.06 16.56 20.06 15.94 19.98 15.82C19.91 15.69 19.71 15.61 19.4 15.46C19.1 15.31 17.61 14.58 17.33 14.48C17.06 14.38 16.86 14.33 16.66 14.63C16.46 14.94 15.88 15.61 15.7 15.82C15.53 16.02 15.35 16.05 15.05 15.9C14.74 15.75 13.77 15.43 12.61 14.4C11.71 13.6 11.1 12.61 10.92 12.3C10.75 12 10.9 11.84 11.06 11.69C11.2 11.55 11.37 11.33 11.53 11.15C11.68 10.97 11.73 10.84 11.83 10.64C11.93 10.43 11.88 10.26 11.81 10.11C11.73 9.95 11.13 8.48 10.88 7.87C10.63 7.28 10.38 7.36 10.2 7.35H9.53Z" />
+  </svg>
+);
 
 // BunkBy Orange Stacked Squares Logo Component (Official branding asset public/bunkbylogo.png)
 const BunkByLogo = ({ className = "w-10 h-10" }: { className?: string }) => (
@@ -80,7 +94,7 @@ const BunkByLogo = ({ className = "w-10 h-10" }: { className?: string }) => (
 export default function App() {
   // Current active tab of the app
   const [currentPath, setCurrentPath] = useState<string>(() => typeof window !== "undefined" ? window.location.pathname : "/");
-  const [activeTab, setActiveTab] = useState<"browse" | "landlord" | "whatsapp" | "account" | "help">("browse");
+  const [activeTab, setActiveTab] = useState<"browse" | "landlord" | "account" | "help">("browse");
 
   // Room Listings State
   const [listings, setListings] = useState<any[]>([]);
@@ -153,11 +167,7 @@ export default function App() {
   const [reportReporterPhone, setReportReporterPhone] = useState("");
   const [isSubmittingReport, setIsSubmittingReport] = useState(false);
 
-  // WhatsApp Cloud API status check
-  const [whatsAppStatus, setWhatsAppStatus] = useState<{ metaConfigured: boolean; checked: boolean }>({
-    metaConfigured: false,
-    checked: false
-  });
+
 
   // Simulated Account State (Supports phone number accounts for landlords, starts null for flow)
   const [userProfile, setUserProfile] = useState<{
@@ -217,7 +227,7 @@ export default function App() {
     return () => window.removeEventListener("popstate", handlePopState);
   }, []);
 
-  const navigateTo = (path: string, tab?: "browse" | "landlord" | "whatsapp" | "account" | "help") => {
+  const navigateTo = (path: string, tab?: "browse" | "landlord" | "account" | "help") => {
     try {
       if (path === "/privacy-policy") {
         window.history.pushState(null, "", "/privacy-policy");
@@ -261,7 +271,7 @@ export default function App() {
       if (min) setMinPrice(Number(min));
       if (max) setMaxPrice(Number(max));
       if (sort && ["newest", "price_asc", "price_desc", "leads"].includes(sort)) setSortBy(sort as any);
-      if (tab && ["browse", "landlord", "whatsapp", "account", "help"].includes(tab)) setActiveTab(tab as any);
+      if (tab && ["browse", "landlord", "account", "help"].includes(tab)) setActiveTab(tab as any);
       if (listingId) setPendingDirectListingId(listingId);
     } catch (e) {
       console.warn("Could not parse URL params", e);
@@ -307,20 +317,7 @@ export default function App() {
     minPrice, maxPrice, sortBy, activeTab, selectedListingDetail
   ]);
 
-  // Query WhatsApp Cloud API config state from server
-  useEffect(() => {
-    fetch("/api/whatsapp")
-      .then(res => res.json())
-      .then(data => {
-        setWhatsAppStatus({
-          metaConfigured: Boolean(data.metaConfigured),
-          checked: true
-        });
-      })
-      .catch(() => {
-        setWhatsAppStatus({ metaConfigured: false, checked: true });
-      });
-  }, []);
+
 
   // Landlord verification States
   const [verificationStatus, setVerificationStatus] = useState<string>("unverified");
@@ -352,18 +349,7 @@ export default function App() {
   });
   const [uploadedImages, setUploadedImages] = useState<string[]>([]);
 
-  // WhatsApp Interactive Chatbot Simulator State
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
-    {
-      id: "msg-1",
-      sender: "bot",
-      text: "*Salibonani / Mhoro!* Welcome to *BunkBy Chatbot* 🏡🏨📲\n\nI am BunkBy's automated assistant for Zimbabwe's agent-free accommodation marketplace. Deal direct with landlords & hosts with zero middleman fees!\n\n*What would you like to do?*\n👉 _\"show rooms in Harare under $150\"_ (Residential cottages, rooms, flats)\n👉 _\"find guesthouses or lodges in Bulawayo\"_ (Hospitality stays)\n👉 _\"list my property\"_ (Landlords list 100% free, lodges deal direct)",
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    }
-  ]);
-  const [chatInput, setChatInput] = useState("");
-  const [isBotTyping, setIsBotTyping] = useState(false);
-  const chatEndRef = useRef<HTMLDivElement | null>(null);
+
 
   // Notifications State
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -393,10 +379,7 @@ export default function App() {
     }
   }, [userProfile?.phone, verifications]);
 
-  // Scroll WhatsApp chatbot to bottom on message updates
-  useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [chatMessages, isBotTyping]);
+
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -876,126 +859,6 @@ export default function App() {
     window.open(waLink, "_blank", "noopener,noreferrer");
   };
 
-  // Interactive WhatsApp Simulator chatbot handler
-  const handleSendChat = async (typedText?: string) => {
-    const textToSend = typedText || chatInput;
-    if (!textToSend.trim()) return;
-
-    const userMsg: ChatMessage = {
-      id: `user-${Date.now()}`,
-      sender: "user",
-      text: textToSend,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    };
-
-    setChatMessages(prev => [...prev, userMsg]);
-    if (!typedText) setChatInput("");
-    setIsBotTyping(true);
-
-    try {
-      const res = await fetch("/api/whatsapp/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: textToSend,
-          chatHistory: chatMessages
-        })
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        setIsBotTyping(false);
-        const botRawText = data.response || "No response received";
-
-        // Parse any special CREATION command tags appended by Gemini inside the message to live create rooms!
-        const creationMatch = botRawText.match(/::CREATE_LISTING:(.*?)::/);
-        if (creationMatch && creationMatch[1]) {
-          try {
-            const parsedRoom = JSON.parse(creationMatch[1]);
-            const payloadRoom = {
-              title: parsedRoom.title || "Room via WhatsApp Chat",
-              city: parsedRoom.city || "Harare",
-              suburb: parsedRoom.suburb || "Avonlea",
-              landmark: parsedRoom.landmark || "provided via chat conversation",
-              price: Number(parsedRoom.price || 35),
-              deposit: Number(parsedRoom.deposit || 35),
-              frequency: parsedRoom.frequency || "Month",
-              propertyType: parsedRoom.propertyType || "Single Room",
-              tenantType: parsedRoom.tenantType || "General",
-              amenities: parsedRoom.amenities || ["Borehole", "Reliable water"],
-              contactMethod: (parsedRoom.contactMethod as ContactMethod) || "Whatsapp",
-              phone: parsedRoom.phone || "0771122334",
-              landlordName: parsedRoom.landlordName || "WhatsApp User",
-              verification_status: "Active",
-              image_url: DEFAULT_ROOM_IMAGES[Math.floor(Math.random() * DEFAULT_ROOM_IMAGES.length)]
-            };
-
-            // Post to backend API
-            fetch("/api/listings", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(payloadRoom)
-            })
-            .then(res => res.json())
-            .then(data => {
-              const newRoom: RoomListing = {
-                id: String(data.id || Date.now()),
-                ...payloadRoom,
-                contactMethod: (payloadRoom.contactMethod as ContactMethod) || "Whatsapp",
-                propertyType: (payloadRoom.propertyType as PropertyType) || "Single Room",
-                tenantType: (payloadRoom.tenantType as TenantType) || "General",
-                frequency: (payloadRoom.frequency as RentFrequency) || "Month",
-                images: [payloadRoom.image_url],
-                isVerifiedLandlord: false,
-                status: "Active",
-                leadsCount: 1,
-                createdAt: new Date().toISOString()
-              };
-              setListings(prev => [newRoom, ...prev]);
-            })
-            .catch(err => console.error("Failed to post bot listing", err));
-            
-            // Clean command tag out of visible bot text for a clean visual experience!
-            const cleanText = botRawText.replace(/::CREATE_LISTING:.*?::/g, "").trim();
-            
-            setChatMessages(prev => [...prev, {
-              id: `bot-${Date.now()}`,
-              sender: "bot",
-              text: cleanText + "\n\n🚀 *CONGRATS! Your room listed live successfully!* Our system scraped details from your text and updated the browse directory instantly.",
-              timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-            }]);
-            
-            showToast("🏡 Room successfully parsed & listed live via WhatsApp!");
-            return;
-          } catch (jsonErr) {
-            console.error("Failed to parse dynamic room listing from chatbot payload", jsonErr);
-          }
-        }
-
-        // Standard Bot reply
-        const cleanText = botRawText.replace(/::CREATE_LISTING:.*?::/g, "").trim();
-        setChatMessages(prev => [...prev, {
-          id: `bot-${Date.now()}`,
-          sender: "bot",
-          text: cleanText,
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-        }]);
-
-      } else {
-        throw new Error("Chatbot failed response");
-      }
-    } catch (err) {
-      setIsBotTyping(false);
-      // Fallback response
-      setChatMessages(prev => [...prev, {
-        id: `bot-${Date.now()}`,
-        sender: "bot",
-        text: "I picked up your request! BunkBy connects tenants and landlords directly. Type *'list'* to list a new room, or *'show'* to search active listings in Zimbabwe's suburbs.",
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      }]);
-    }
-  };
-
   // Filter listings based on selected search components
   const filteredListings = listings.filter((room) => {
     // Only search renters see Active listings (Landlord sees all including delisted in their dashboard)
@@ -1115,18 +978,17 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 font-sans flex flex-col antialiased">
       
-      {/* Toast Alert Banner */}
+      {/* Toast Alert Banner - Clean white background, no colorful borders, zero AI star icons */}
       <AnimatePresence>
         {toastMessage && (
           <motion.div 
-            initial={{ opacity: 0, y: -40 }}
+            initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 16 }}
-            exit={{ opacity: 0, y: -20 }}
+            exit={{ opacity: 0, y: -10 }}
             id="app-toast"
-            className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-[#052659] text-[#E2E8F0] py-3 px-6 rounded-xl shadow-xl flex items-center gap-3 border border-[#FF7A00] max-w-md"
+            className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-white text-slate-800 py-3 px-5 rounded-xl shadow-lg border border-slate-200/80 max-w-md w-[92%] sm:w-auto flex items-center justify-center text-center"
           >
-            <Sparkles className="w-5 h-5 text-orange-400 shrink-0" />
-            <p className="text-sm font-semibold">{toastMessage}</p>
+            <p className="text-xs sm:text-sm font-medium leading-snug">{toastMessage}</p>
           </motion.div>
         )}
       </AnimatePresence>
@@ -1166,14 +1028,7 @@ export default function App() {
             >
               Landlords Portal
             </button>
-            <button 
-              onClick={() => navigateTo("/", "whatsapp")}
-              className={`px-2.5 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${activeTab === "whatsapp" ? "bg-[#021024] text-white font-extrabold shadow-xs border border-white/10" : "hover:text-white text-slate-200 hover:bg-[#021024]/40 font-semibold"}`}
-              id="nav-whatsapp"
-            >
-              <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></div>
-              WhatsApp Chatbot
-            </button>
+
             <button 
               onClick={() => navigateTo("/", "account")}
               className={`px-2.5 py-1.5 rounded-lg transition-all ${activeTab === "account" ? "bg-[#021024] text-white font-extrabold shadow-xs border border-white/10" : "hover:text-white text-slate-200 hover:bg-[#021024]/40 font-semibold"}`}
@@ -1252,13 +1107,7 @@ export default function App() {
           <SlidersHorizontal className="w-4 h-4 shrink-0" />
           <span className="leading-tight mt-0.5">Portal</span>
         </button>
-        <button 
-          onClick={() => navigateTo("/", "whatsapp")}
-          className={`flex flex-col items-center justify-center py-1 px-2 rounded-md min-h-[44px] min-w-[56px] transition-colors ${activeTab === "whatsapp" ? "text-emerald-300 font-extrabold bg-[#021024]/50" : "text-[#E2E8F0] hover:text-emerald-300"}`}
-        >
-          <MessageSquare className="w-4 h-4 shrink-0 text-emerald-400" />
-          <span className="leading-tight mt-0.5">Bot</span>
-        </button>
+
         <button 
           onClick={() => navigateTo("/", "account")}
           className={`flex flex-col items-center justify-center py-1 px-2 rounded-md min-h-[44px] min-w-[56px] transition-colors ${activeTab === "account" ? "text-white font-extrabold bg-[#021024]/50" : "text-[#E2E8F0] hover:text-white"}`}
@@ -1329,13 +1178,7 @@ export default function App() {
                     <Plus className="w-3.5 h-3.5 shrink-0 stroke-[3]" />
                     <span>List Accommodation (Free)</span>
                   </button>
-                  <button 
-                    onClick={() => navigateTo("/", "whatsapp")}
-                    className="bg-white/15 hover:bg-white/25 text-white font-bold px-3.5 sm:px-5 py-2 sm:py-2.5 rounded-xl transition-all text-xs sm:text-sm flex items-center gap-1.5 shadow-sm border border-white/20 cursor-pointer backdrop-blur-md min-h-[38px]"
-                  >
-                    <MessageSquare className="w-3.5 h-3.5 shrink-0 text-emerald-400 stroke-[2.5]" />
-                    <span>Try WhatsApp Bot</span>
-                  </button>
+
                 </div>
 
                 {/* Category Switcher Tabs: All, Residential, Hospitality */}
@@ -1468,29 +1311,7 @@ export default function App() {
               </div>
             </section>
 
-            {/* Simulated Banner for WhatsApp Access - Compact, responsive */}
-            <div 
-              onClick={() => navigateTo("/", "whatsapp")}
-              className="bg-white border border-emerald-100 rounded-xl sm:rounded-2xl p-3 sm:p-4 flex items-center justify-between gap-3 cursor-pointer hover:border-emerald-300 transition-all shadow-xs group"
-              id="whatsapp-promo-banner"
-            >
-              <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
-                <span className="w-9 h-9 sm:w-11 sm:h-11 bg-emerald-50 rounded-xl flex items-center justify-center group-hover:bg-emerald-100 transition-all border border-emerald-100 shrink-0">
-                  <MessageSquare className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-500 fill-emerald-500/10" />
-                </span>
-                <div className="min-w-0">
-                  <h3 className="text-xs sm:text-sm font-bold text-slate-800 flex items-center gap-1.5 flex-wrap">
-                    <span>Find Stays via WhatsApp</span>
-                    <span className="inline-block px-1.5 py-0.5 text-[8px] sm:text-[9px] bg-emerald-500 text-white rounded font-mono uppercase tracking-widest font-bold">Free InfoBot</span>
-                  </h3>
-                  <p className="text-[11px] sm:text-xs text-slate-500 truncate sm:whitespace-normal">Low data? Chat with BunkBy bot to get matched accommodations directly on WhatsApp.</p>
-                </div>
-              </div>
-              <span className="text-emerald-600 font-bold text-xs flex items-center gap-0.5 hover:underline shrink-0">
-                <span className="hidden xs:inline">Chat</span>
-                <ChevronRight className="w-4 h-4 shrink-0" />
-              </span>
-            </div>
+
 
             {/* Secondary Filters row (Expandable on mobile, always visible on tablet/desktop) */}
             <div className={`bg-white rounded-xl sm:rounded-2xl p-3 sm:p-4 border border-slate-200 shadow-xs ${showMobileFilters ? "block" : "hidden sm:block"}`}>
@@ -1840,8 +1661,8 @@ export default function App() {
             )}
 
             {/* Highlighted BunkBy Promo Section - Responsive & Compact */}
-            <section className="bg-orange-500/5 rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 border border-orange-500/10 grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6 items-center">
-              <div className="md:col-span-2 space-y-1.5">
+            <section className="bg-orange-500/5 rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 border border-orange-500/10">
+              <div className="max-w-2xl space-y-1.5">
                 <span className="text-[10px] sm:text-xs font-mono font-bold text-orange-600 tracking-wider uppercase block">Free Traffic Generation</span>
                 <h2 className="text-lg sm:text-2xl font-display font-bold text-slate-900">
                   Landlord: Why List With BunkBy?
@@ -1849,15 +1670,6 @@ export default function App() {
                 <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
                   Harness our exponentially growing massive tenant traffic! Specify the tenant type you seek, and easily delist with a single tap once your room gets occupied.
                 </p>
-              </div>
-              <div className="flex items-center justify-center md:justify-end">
-                <button 
-                  onClick={() => navigateTo("/", "whatsapp")}
-                  className="bg-[#F5EBE1] hover:bg-[#EADDCF] text-[#4A3B32] border border-[#E0D2C3] text-xs sm:text-sm font-extrabold py-2.5 sm:py-3.5 px-4 sm:px-6 rounded-xl sm:rounded-2xl transition-all shadow-sm flex items-center justify-center gap-2 cursor-pointer w-full md:w-auto min-h-[42px]"
-                >
-                  <MessageSquare className="w-4 h-4 shrink-0 text-[#25D366] fill-[#25D366]" />
-                  <span>List / browse on BunkBy WhatsApp bot</span>
-                </button>
               </div>
             </section>
           </div>
@@ -2277,204 +2089,7 @@ export default function App() {
           )
         )}
 
-        {/* TAB 3: WHATSAPP CHATBOT (PHASE 2 CLOUD API INTEGRATION & SIMULATOR) */}
-        {activeTab === "whatsapp" && (
-          <div className="max-w-3xl mx-auto space-y-4 font-sans animate-fade-in">
-            {/* Meta Cloud API Architecture Banner */}
-            <div className="bg-[#021024] text-white p-4 rounded-2xl border border-slate-700/50 shadow-md flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <div className={`w-10 h-10 rounded-xl ${whatsAppStatus.metaConfigured ? "bg-emerald-500/20 border-emerald-500/30" : "bg-amber-500/20 border-amber-500/30"} border flex items-center justify-center shrink-0`}>
-                  <MessageSquare className={`w-5 h-5 ${whatsAppStatus.metaConfigured ? "text-emerald-400" : "text-amber-400"}`} />
-                </div>
-                <div>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <h3 className="text-sm font-bold text-white">BunkBy WhatsApp Assistant</h3>
-                    {whatsAppStatus.metaConfigured ? (
-                      <span className="bg-emerald-500/20 text-emerald-300 text-[10px] font-mono px-2 py-0.5 rounded-full font-bold border border-emerald-500/30">
-                        Meta Cloud API · Live
-                      </span>
-                    ) : (
-                      <span className="bg-amber-500/20 text-amber-300 text-[10px] font-mono px-2 py-0.5 rounded-full font-bold border border-amber-500/30">
-                        Local Simulator · Awaiting Meta Approval / Credentials
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-xs text-slate-300 mt-0.5">
-                    Webhook: <code className="text-emerald-300 font-mono text-[11px]">/api/whatsapp</code> • Single source of truth database • Real listings
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 w-full md:w-auto">
-                <button
-                  type="button"
-                  onClick={() => {
-                    fetch("/api/whatsapp/test", {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ phone: "263771122334", text: "cancel" })
-                    }).then(() => {
-                      setChatMessages([
-                        {
-                          id: `msg-${Date.now()}`,
-                          sender: "bot",
-                          text: "🔄 *Session reset.* You can now search for properties or type *list* to post accommodation!",
-                          timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-                        }
-                      ]);
-                      showToast("WhatsApp session reset!");
-                    });
-                  }}
-                  className="px-3 py-1.5 rounded-xl text-xs font-bold bg-white/10 hover:bg-white/20 text-white transition-all flex items-center gap-1.5 cursor-pointer"
-                >
-                  <RefreshCw className="w-3.5 h-3.5" />
-                  Reset Session
-                </button>
-              </div>
-            </div>
-
-            {/* WhatsApp Phone Mockup Container */}
-            <div className="bg-[#EFEAE2] border border-slate-300 rounded-2xl sm:rounded-3xl overflow-hidden shadow-xl flex flex-col h-[75vh] min-h-[460px] max-h-[680px] relative">
-              {/* WhatsApp Brand Header */}
-              <div className="bg-[#075E54] text-white px-4 py-3 flex items-center justify-between shrink-0 shadow-md">
-                <div className="flex items-center gap-3">
-                  <div className="relative">
-                    <div className="w-10 h-10 rounded-full bg-white flex items-center justify-center font-bold text-[#075E54] text-lg select-none shadow-sm">
-                      B
-                    </div>
-                    <div className={`w-3 h-3 ${whatsAppStatus.metaConfigured ? "bg-emerald-400" : "bg-amber-400"} rounded-full absolute bottom-0 right-0 border-2 border-[#075E54]`}></div>
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-1.5">
-                      <h4 className="font-bold text-sm text-white leading-tight">BunkBy Zimbabwe</h4>
-                      {whatsAppStatus.metaConfigured && (
-                        <CheckCircle className="w-3.5 h-3.5 text-emerald-300 fill-emerald-300" />
-                      )}
-                    </div>
-                    <p className="text-[11px] text-emerald-100 font-medium">
-                      {whatsAppStatus.metaConfigured ? "Official Business Account • Online" : "Chatbot Preview / Simulator Mode"}
-                    </p>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <span className="text-[10px] bg-[#128C7E] text-emerald-100 font-mono px-2 py-0.5 rounded-full font-bold">
-                    {whatsAppStatus.metaConfigured ? "Direct WhatsApp Access" : "Interactive Simulator"}
-                  </span>
-                </div>
-              </div>
-
-              {/* Chat Message Stream */}
-              <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                {chatMessages.map((msg) => {
-                  const isUser = msg.sender === "user";
-                  return (
-                    <div
-                      key={msg.id}
-                      className={`flex ${isUser ? "justify-end" : "justify-start"} animate-fade-in`}
-                    >
-                      <div
-                        className={`max-w-[85%] md:max-w-[75%] rounded-2xl p-3.5 shadow-sm text-xs md:text-sm leading-relaxed ${
-                          isUser
-                            ? "bg-[#DCF8C6] text-slate-800 rounded-tr-none"
-                            : "bg-white text-slate-800 rounded-tl-none border border-slate-200/60"
-                        }`}
-                      >
-                        {/* Parse and render formatted text */}
-                        <div className="whitespace-pre-line space-y-2 font-sans">
-                          {msg.text.split("\n\n---\n\n").map((part, pIdx) => {
-                            // Detect photo card links
-                            const photoMatch = part.match(/🖼️ \[Photo:\s*(https?:\/\/[^\]]+)\]/);
-                            const cleanPart = part.replace(/🖼️ \[Photo:\s*https?:\/\/[^\]]+\]\s*/g, "");
-
-                            return (
-                              <div key={pIdx} className={pIdx > 0 ? "pt-2 border-t border-slate-100" : ""}>
-                                {photoMatch && photoMatch[1] && (
-                                  <div className="mb-2 rounded-xl overflow-hidden border border-slate-200 aspect-video bg-slate-100">
-                                    <img
-                                      src={photoMatch[1]}
-                                      alt="Listing"
-                                      className="w-full h-full object-cover"
-                                      referrerPolicy="no-referrer"
-                                    />
-                                  </div>
-                                )}
-                                <div className="text-slate-800 leading-relaxed font-sans">
-                                  {cleanPart}
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                        <div className={`text-[9px] mt-1 text-right font-mono ${isUser ? "text-emerald-800/70" : "text-slate-400"}`}>
-                          {msg.timestamp}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-
-                {isBotTyping && (
-                  <div className="flex justify-start">
-                    <div className="bg-white border border-slate-200 rounded-2xl rounded-tl-none px-4 py-2.5 shadow-sm flex items-center gap-1.5">
-                      <div className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce"></div>
-                      <div className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce [animation-delay:0.2s]"></div>
-                      <div className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce [animation-delay:0.4s]"></div>
-                    </div>
-                  </div>
-                )}
-                <div ref={chatEndRef} />
-              </div>
-
-              {/* Quick Suggestion Chips */}
-              <div className="px-3 py-2 bg-[#F0F2F5] border-t border-slate-200 flex items-center gap-1.5 overflow-x-auto shrink-0 scrollbar-none">
-                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider shrink-0 pl-1">Quick:</span>
-                {[
-                  "rooms in Avondale under $250",
-                  "cottages in Belvedere",
-                  "lodges in Victoria Falls",
-                  "list",
-                  "cancel"
-                ].map((chip) => (
-                  <button
-                    key={chip}
-                    type="button"
-                    onClick={() => handleSendChat(chip)}
-                    className="shrink-0 text-xs bg-white hover:bg-emerald-50 hover:text-[#075E54] border border-slate-300 text-slate-700 font-medium px-2.5 py-1 rounded-full transition-all shadow-2xs"
-                  >
-                    {chip}
-                  </button>
-                ))}
-              </div>
-
-              {/* Chat Input Bar */}
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  handleSendChat();
-                }}
-                className="p-3 bg-[#F0F2F5] border-t border-slate-300 flex items-center gap-2 shrink-0"
-              >
-                <input
-                  type="text"
-                  value={chatInput}
-                  onChange={(e) => setChatInput(e.target.value)}
-                  placeholder="Type a search or command (e.g. rooms in Avonlea, or 'list')..."
-                  className="flex-1 bg-white border border-slate-300 rounded-full px-4 py-2.5 text-xs md:text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#128C7E]"
-                  id="whatsapp-chat-input"
-                />
-                <button
-                  type="submit"
-                  disabled={!chatInput.trim()}
-                  className="w-10 h-10 rounded-full bg-[#128C7E] hover:bg-[#075E54] disabled:opacity-40 disabled:hover:bg-[#128C7E] text-white flex items-center justify-center transition-all shadow-md shrink-0 cursor-pointer"
-                  id="whatsapp-chat-send"
-                >
-                  <Send className="w-4 h-4 ml-0.5" />
-                </button>
-              </form>
-            </div>
-          </div>
-        )}
-
-        {/* TAB 4: ACCOUNT SETTINGS */}
+        {/* TAB 3: ACCOUNT SETTINGS */}
         {activeTab === "account" && (
           !userProfile ? (
             <div className="max-w-md mx-auto bg-white border border-slate-200 rounded-3xl p-6 md:p-8 shadow-xl space-y-6 animate-fade-in font-sans">

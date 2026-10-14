@@ -107,7 +107,7 @@ export async function onRequestGet({ request, env }: { request: Request; env: En
     return jsonResponse({
       status: "online",
       service: "BunkBy WhatsApp Cloudflare Pages Function",
-      version: "2026-10-12_diagnostic_v2",
+      version: "2026-10-14_diagnostic_v4",
       metaConfigured: Boolean(activeToken && activePhoneId),
       hasAccessToken: Boolean(activeToken),
       hasPhoneNumberId: Boolean(activePhoneId),
@@ -173,7 +173,7 @@ async function sendMetaWhatsAppMessage(
     };
   }
 
-  const endpoint = `https://graph.facebook.com/v19.0/${phoneId}/messages`;
+  const endpoint = `https://graph.facebook.com/v26.0/${phoneId}/messages`;
 
   let payload: any;
   if (buttons && buttons.length > 0 && buttons.length <= 3) {
@@ -372,6 +372,54 @@ function parseIncomingWebhook(body: any): ParsedMessage | null {
 }
 
 /**
+ * Summarizes the high-level schema of an incoming payload without storing PII or message content
+ */
+function summarizePayloadStructure(body: any): string {
+  if (!body || typeof body !== "object") return "non_object_body";
+  const keys = Object.keys(body);
+  const parts: string[] = [`root_keys:[${keys.join(",")}]`];
+
+  if (body.object) {
+    parts.push(`obj:${body.object}`);
+  }
+
+  if (Array.isArray(body.entry)) {
+    parts.push(`entry_count:${body.entry.length}`);
+    const entry0 = body.entry[0];
+    if (entry0 && Array.isArray(entry0.changes)) {
+      parts.push(`changes_count:${entry0.changes.length}`);
+      const change0 = entry0.changes[0];
+      if (change0?.field) parts.push(`field:${change0.field}`);
+      const val = change0?.value;
+      if (val && typeof val === "object") {
+        const valKeys = Object.keys(val);
+        parts.push(`val_keys:[${valKeys.join(",")}]`);
+        if (Array.isArray(val.messages)) {
+          parts.push(`msg_count:${val.messages.length}`);
+          const msg0 = val.messages[0];
+          if (msg0) {
+            parts.push(`msg_type:${msg0.type || "unknown"}`);
+            if (msg0.id) parts.push(`msg_id_prefix:${msg0.id.slice(0, 8)}`);
+          }
+        }
+        if (Array.isArray(val.statuses)) {
+          parts.push(`status_count:${val.statuses.length}`);
+          const st0 = val.statuses[0];
+          if (st0) parts.push(`status_val:${st0.status || "unknown"}`);
+        }
+        if (Array.isArray(val.errors)) {
+          parts.push(`err_count:${val.errors.length}`);
+        }
+      }
+    }
+  } else if (body.phone || body.from) {
+    parts.push("direct_test_format");
+  }
+
+  return parts.join(" | ").slice(0, 200);
+}
+
+/**
  * Main POST Webhook Handler
  */
 export async function onRequestPost({ request, env }: { request: Request; env: Env }) {
@@ -382,14 +430,45 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
     return jsonResponse({ success: false, error: "Invalid JSON body" }, 400);
   }
 
-  // Parse incoming payload
-  const incoming = parseIncomingWebhook(body);
-  if (!incoming) {
-    return jsonResponse({ status: "ignored_empty" }, 200);
+  // Initialize tables safely if DB is available
+  if (env.DB) {
+    try {
+      await ensureDiagnosticTable(env.DB);
+    } catch (_) {}
   }
 
-  // Ignore delivery receipts/status updates promptly
+  // Parse incoming payload
+  const incoming = parseIncomingWebhook(body);
+  
+  // If payload could not be parsed as a message, record structural diagnostic before returning
+  if (!incoming) {
+    const structureSummary = summarizePayloadStructure(body);
+    if (env.DB) {
+      try {
+        await env.DB.prepare(`
+          INSERT INTO whatsapp_diagnostic_events (
+            timestamp, message_id, sender, sender_name, incoming_preview, action_taken, outbound_count, status, error
+          ) VALUES (CURRENT_TIMESTAMP, NULL, 'system', 'Meta Webhook Receiver', ?, 'UNPARSED_PAYLOAD', 0, 'ignored_unparsed', ?)
+        `).bind(
+          structureSummary,
+          "Incoming webhook payload did not match known message structure"
+        ).run();
+      } catch (_) {}
+    }
+    return jsonResponse({ status: "ignored_unparsed", structure: structureSummary }, 200);
+  }
+
+  // Record status receipts (delivered/read/sent receipts from Meta)
   if (incoming.isStatusUpdate) {
+    if (env.DB) {
+      try {
+        await env.DB.prepare(`
+          INSERT INTO whatsapp_diagnostic_events (
+            timestamp, message_id, sender, sender_name, incoming_preview, action_taken, outbound_count, status, error
+          ) VALUES (CURRENT_TIMESTAMP, ?, 'status_receipt', 'Meta Status Update', 'status update receipt', 'STATUS_RECEIPT_ACK', 0, 'status_acknowledged', NULL)
+        `).bind(incoming.messageId || null).run();
+      } catch (_) {}
+    }
     return jsonResponse({ status: "status_acknowledged" }, 200);
   }
 
@@ -406,17 +485,15 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
     }, 500);
   }
 
-  // Initialize tables safely
-  await ensureDiagnosticTable(env.DB);
-
-  // Deduplication check: Prevent duplicate processing if Meta retries webhook
-  if (messageId && messageId !== "simulated_id") {
+  // Deduplication check: Prevent duplicate processing if Meta retries webhook (exclude Meta dashboard test button sample IDs)
+  const isMetaTestSample = messageId.includes("3QT1E7A866106ECA98897") || messageId.startsWith("wamid.HBgLMTYzMTU1NTExODEV");
+  if (messageId && messageId !== "simulated_id" && !isMetaTestSample) {
     try {
       const existing = await env.DB.prepare(
         "SELECT id FROM whatsapp_diagnostic_events WHERE message_id = ?"
       ).bind(messageId).first();
       if (existing) {
-        return jsonResponse({ status: "already_processed" }, 200);
+        return jsonResponse({ status: "already_processed", messageId }, 200);
       }
     } catch (_) {}
   }

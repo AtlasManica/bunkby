@@ -651,7 +651,7 @@ export async function sendWhatsAppMessage(
     };
   }
 
-  const endpoint = `https://graph.facebook.com/v19.0/${phoneId}/messages`;
+  const endpoint = `https://graph.facebook.com/v26.0/${phoneId}/messages`;
   const sanitizedRecipient = payload.to ? `${String(payload.to).slice(0, 4)}***${String(payload.to).slice(-3)}` : "unknown";
   console.log(`[WhatsApp Outbound] Attempting Meta dispatch to recipient: ${sanitizedRecipient}, payload type: ${payload.type}`);
 
