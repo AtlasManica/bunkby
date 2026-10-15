@@ -668,7 +668,7 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
     return jsonResponse({ status: "status_acknowledged" }, 200);
   }
 
-  const { phone, text, messageId, name } = incoming;
+  const { phone, text, messageId, name, buttonPayload } = incoming;
   const lowerText = text.toLowerCase().trim();
   const phoneId = Number(phone.replace(/\D/g, "")) || 0;
   const sanitizedSender = phone ? `${phone.slice(0, 4)}***${phone.slice(-3)}` : "unknown";
@@ -727,87 +727,22 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
     }
 
     // -------------------------------------------------------------
-    // COMMAND: SEARCH [SUBURB / QUERY]
-    // -------------------------------------------------------------
-    else if (
-      lowerText.startsWith("search") ||
-      lowerText.startsWith("find") ||
-      lowerText.includes("room") ||
-      lowerText.includes("cottage") ||
-      lowerText.includes("apartment") ||
-      lowerText.includes("bedsit")
-    ) {
-      if (session) {
-        await env.DB.prepare("DELETE FROM chatbot_sessions WHERE phone_number = ?").bind(phone).run();
-      }
-
-      // Extract suburb keywords
-      const cleanQuery = text.replace(/^(search|find|looking for|i want a|need a)\s*/i, "").trim();
-      const searchTerms = cleanQuery.split(/\s+/).filter(w => w.length > 2);
-      const suburbTerm = searchTerms[0] || "";
-
-      // Query live D1 listings
-      let querySql = `
-        SELECT listings.*, landlords.full_name as landlord_name
-        FROM listings
-        LEFT JOIN landlords ON listings.landlord_id = landlords.id
-        WHERE listings.verification_status != 'Delisted'
-      `;
-      const params: any[] = [];
-
-      if (suburbTerm) {
-        querySql += ` AND (listings.suburb LIKE ? OR listings.title LIKE ? OR listings.landmark LIKE ?)`;
-        params.push(`%${suburbTerm}%`, `%${suburbTerm}%`, `%${suburbTerm}%`);
-      }
-
-      querySql += ` ORDER BY listings.created_at DESC LIMIT 4`;
-
-      const stmt = env.DB.prepare(querySql);
-      const { results } = params.length > 0 ? await stmt.bind(...params).all() : await stmt.all();
-
-      if (!results || results.length === 0) {
-        replyText = `🏡 No active accommodations currently found matching *"${cleanQuery || "your search"}"*.\n\n💡 *Suggestions:*\n• Try searching nearby suburbs like *Avonlea*, *Belvedere*, *Avenues*, or *Mt Pleasant*.\n• Adjust your budget or search by city (e.g. *Harare*, *Bulawayo*).\n\nAre you a landlord or lodge host? Type *list* to post your property for free!`;
-        actionTaken = "SEARCH_NO_RESULTS";
-      } else {
-        actionTaken = "SEARCH_RESULTS";
-        // Phase 1: Retrieve actual image URLs and send individual photographic cards with real image messages
-        const baseUrl = new URL(request.url).origin || "https://bunkby.com";
-        const introMsg = `🏡 *Found ${results.length} active stay${results.length === 1 ? "" : "s"} on BunkBy:*`;
-        
-        // Queue messages to dispatch sequentially
-        outboundQueue.push({ text: introMsg });
-
-        for (const room of results) {
-          const card = buildListingCardMessage(room, baseUrl, phone);
-          outboundQueue.push({
-            text: card.text,
-            imageUrl: card.imageUrl
-          });
-        }
-
-        // Action footer with link to full gallery on website
-        outboundQueue.push({
-          text: `👉 Visit https://bunkby.com to browse with full interactive maps and gallery filters.\n\nType *list* to post accommodation or *search* to find more stays!`,
-          buttons: [
-            { id: "CMD_SEARCH", title: "🔍 Search Again" },
-            { id: "CMD_LIST", title: "🏡 Post a Room" }
-          ]
-        });
-      }
-    }
-
-    // -------------------------------------------------------------
     // COMMAND: LIST / REGISTER (Phase 2 Complete Listing Creation Flow)
+    // Evaluated BEFORE general keyword search so button clicks and "post a room" are never treated as searches!
     // -------------------------------------------------------------
     else if (
+      buttonPayload === "CMD_LIST" ||
+      buttonPayload === "CMD_START_LISTING" ||
       lowerText === "list" ||
       lowerText === "register" ||
       lowerText === "post" ||
+      lowerText === "post a room" ||
       lowerText === "add room" ||
       lowerText === "new listing" ||
       lowerText === "list property" ||
-      buttonPayload === "CMD_LIST" ||
-      buttonPayload === "CMD_START_LISTING"
+      lowerText.includes("post a room") ||
+      lowerText.includes("post room") ||
+      lowerText.includes("list room")
     ) {
       // Landlord Account & Identity check: reuse or auto-provision landlord profile
       let landlord = await env.DB.prepare("SELECT * FROM landlords WHERE id = ?").bind(phoneId).first();
@@ -842,6 +777,86 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
         { id: "CAT_HOSPITALITY", title: "🏨 Hospitality" }
       ];
       actionTaken = "LISTING_STEP_CATEGORY";
+    }
+
+    // -------------------------------------------------------------
+    // COMMAND: SEARCH [SUBURB / QUERY]
+    // -------------------------------------------------------------
+    else if (
+      buttonPayload === "CMD_SEARCH" ||
+      buttonPayload === "CMD_SEARCH_MENU" ||
+      lowerText.startsWith("search") ||
+      lowerText.startsWith("find") ||
+      lowerText.includes("room") ||
+      lowerText.includes("cottage") ||
+      lowerText.includes("apartment") ||
+      lowerText.includes("bedsit") ||
+      lowerText.includes("lodge") ||
+      lowerText.includes("guest house")
+    ) {
+      if (session) {
+        await env.DB.prepare("DELETE FROM chatbot_sessions WHERE phone_number = ?").bind(phone).run();
+      }
+
+      // If user tapped a blank search button without query
+      if (buttonPayload === "CMD_SEARCH" || buttonPayload === "CMD_SEARCH_MENU" || lowerText === "search") {
+        replyText = `🔍 *How to Search BunkBy Stays:*\n\nType whatever you're looking for, e.g.:\n• *search Avonlea*\n• *rooms in Belvedere*\n• *cottage in Mt Pleasant*\n• *lodge in Victoria Falls*\n\nOr visit https://bunkby.com to browse with interactive maps!`;
+        actionTaken = "SEARCH_HELP";
+      } else {
+        // Extract suburb keywords
+        const cleanQuery = text.replace(/^(search|find|looking for|i want a|need a)\s*/i, "").trim();
+        const searchTerms = cleanQuery.split(/\s+/).filter(w => w.length > 2);
+        const suburbTerm = searchTerms[0] || "";
+
+        // Query live D1 listings
+        let querySql = `
+          SELECT listings.*, landlords.full_name as landlord_name
+          FROM listings
+          LEFT JOIN landlords ON listings.landlord_id = landlords.id
+          WHERE listings.verification_status != 'Delisted'
+        `;
+        const params: any[] = [];
+
+        if (suburbTerm) {
+          querySql += ` AND (listings.suburb LIKE ? OR listings.title LIKE ? OR listings.landmark LIKE ?)`;
+          params.push(`%${suburbTerm}%`, `%${suburbTerm}%`, `%${suburbTerm}%`);
+        }
+
+        querySql += ` ORDER BY listings.created_at DESC LIMIT 4`;
+
+        const stmt = env.DB.prepare(querySql);
+        const { results } = params.length > 0 ? await stmt.bind(...params).all() : await stmt.all();
+
+        if (!results || results.length === 0) {
+          replyText = `🏡 No active accommodations currently found matching *"${cleanQuery || "your search"}"*.\n\n💡 *Suggestions:*\n• Try searching nearby suburbs like *Avonlea*, *Belvedere*, *Avenues*, or *Mt Pleasant*.\n• Adjust your budget or search by city (e.g. *Harare*, *Bulawayo*).\n\nAre you a landlord or lodge host? Type *list* to post your property for free!`;
+          actionTaken = "SEARCH_NO_RESULTS";
+        } else {
+          actionTaken = "SEARCH_RESULTS";
+          // Phase 1: Retrieve actual image URLs and send individual photographic cards with real image messages
+          const baseUrl = new URL(request.url).origin || "https://bunkby.com";
+          const introMsg = `🏡 *Found ${results.length} active stay${results.length === 1 ? "" : "s"} on BunkBy:*`;
+          
+          // Queue messages to dispatch sequentially
+          outboundQueue.push({ text: introMsg });
+
+          for (const room of results) {
+            const card = buildListingCardMessage(room, baseUrl, phone);
+            outboundQueue.push({
+              text: card.text,
+              imageUrl: card.imageUrl
+            });
+          }
+
+          // Action footer with link to full gallery on website
+          outboundQueue.push({
+            text: `👉 Visit https://bunkby.com to browse with full interactive maps and gallery filters.\n\nType *list* to post accommodation or *search* to find more stays!`,
+            buttons: [
+              { id: "CMD_SEARCH", title: "🔍 Search Again" },
+              { id: "CMD_LIST", title: "🏡 Post a Room" }
+            ]
+          });
+        }
+      }
     }
 
     // -------------------------------------------------------------
@@ -1362,8 +1377,14 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
         // If image fails to dispatch (e.g. URL inaccessible to Meta), fallback to clean text message gracefully
         let res = await sendMetaWhatsAppMessage(phone, item.text, env, item.buttons, item.imageUrl);
         if (!res.success && item.imageUrl) {
-          // Graceful fallback to formatted text with full gallery link
-          res = await sendMetaWhatsAppMessage(phone, `${item.text}\n\n🖼️ Photo: ${item.imageUrl}`, env, item.buttons);
+          // Log specific image failure reason for debugging
+          const imgFailureReason = res.error || `HTTP ${res.httpStatus} on image dispatch`;
+          console.warn(`[WhatsApp Image Dispatch Failed for ${item.imageUrl}]: ${imgFailureReason}. Falling back to text.`);
+          
+          // Fallback to text message with explicit diagnostic trail
+          const fallbackRes = await sendMetaWhatsAppMessage(phone, `${item.text}\n\n🖼️ Photo: ${item.imageUrl}`, env, item.buttons);
+          fallbackRes.error = `[Image fallback triggered: ${imgFailureReason}]` + (fallbackRes.error ? ` | ${fallbackRes.error}` : "");
+          res = fallbackRes;
         }
         dispatchResults.push(res);
       }
