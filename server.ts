@@ -420,7 +420,17 @@ app.get("/api/listings", (req, res) => {
         amenities: typeof row.amenities === "string" ? JSON.parse(row.amenities || "[]") : (row.amenities || []),
         contactMethod: row.contact_method,
         phone: row.contact_phone,
-        images: row.image_url ? [row.image_url] : [],
+        images: (() => {
+        if (!row.image_url) return [];
+        const str = String(row.image_url).trim();
+        if (str.startsWith("[")) {
+          try {
+            const arr = JSON.parse(str);
+            if (Array.isArray(arr)) return arr;
+          } catch (_) {}
+        }
+        return [str];
+      })(),
         status: row.verification_status,
         createdAt: row.created_at,
         leadsCount: row.leads_count,
@@ -677,14 +687,24 @@ app.post("/api/rooms/:id/lead", (req, res) => {
 });
 
 // Public endpoint to serve listing photographs to WhatsApp & external clients
-app.get("/api/listings/:id/photo", (req, res) => {
+app.get(["/api/listings/:id/photo", "/api/rooms/:id/photo"], (req, res) => {
   try {
     const listing = db.prepare("SELECT image_url, title FROM listings WHERE id = ?").get(req.params.id) as any;
     if (!listing || !listing.image_url) {
       return res.status(404).send("Photograph not found");
     }
 
-    const raw = listing.image_url;
+    let raw = String(listing.image_url).trim();
+
+    // If stored as JSON array of multiple photos, extract primary photo
+    if (raw.startsWith("[")) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          raw = String(parsed[0]).trim();
+        }
+      } catch (_) {}
+    }
 
     // If it's a data URI (base64 image from web camera / upload)
     if (raw.startsWith("data:")) {

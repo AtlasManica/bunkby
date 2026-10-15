@@ -19,7 +19,17 @@ export async function onRequestGet({ env }) {
         amenities: typeof row.amenities === "string" ? JSON.parse(row.amenities || "[]") : (row.amenities || []),
         contactMethod: row.contact_method,
         phone: row.contact_phone,
-        images: row.image_url ? [row.image_url] : [],
+        images: (() => {
+          if (!row.image_url) return [];
+          const str = String(row.image_url).trim();
+          if (str.startsWith("[")) {
+            try {
+              const arr = JSON.parse(str);
+              if (Array.isArray(arr)) return arr;
+            } catch (_) {}
+          }
+          return [str];
+        })(),
         status: row.verification_status,
         createdAt: row.created_at,
         leadsCount: row.leads_count,

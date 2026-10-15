@@ -396,7 +396,8 @@ export default function App() {
       return;
     }
 
-    const firstImg = uploadedImages.length > 0 ? uploadedImages[0] : (newRoomForm.imageUrl || DEFAULT_ROOM_IMAGES[0]);
+    const allImgs = uploadedImages.length > 0 ? uploadedImages : [newRoomForm.imageUrl || DEFAULT_ROOM_IMAGES[0]];
+    const resolvedImageUrl = allImgs.length > 1 ? JSON.stringify(allImgs) : allImgs[0];
     const isHospitality = newRoomForm.category === "hospitality" || 
       HOSPITALITY_PROPERTY_TYPES.includes(newRoomForm.propertyType) ||
       ["Lodge / Guesthouse", "Hotel", "Lodge", "Guesthouse", "Bed & Breakfast"].includes(newRoomForm.propertyType);
@@ -406,8 +407,8 @@ export default function App() {
       category: (isHospitality ? "hospitality" : "residential") as ListingCategory,
       business_name: newRoomForm.business_name || (isHospitality ? newRoomForm.title : ""),
       businessName: newRoomForm.business_name || (isHospitality ? newRoomForm.title : ""),
-      image_url: firstImg,
-      images: uploadedImages.length > 0 ? uploadedImages : [newRoomForm.imageUrl || DEFAULT_ROOM_IMAGES[0]],
+      image_url: resolvedImageUrl,
+      images: allImgs,
       isVerifiedLandlord: userProfile?.isVerified || false
     };
 
@@ -435,6 +436,9 @@ export default function App() {
     const isHospitality = payload.category === "hospitality" || 
       HOSPITALITY_PROPERTY_TYPES.includes(payload.propertyType);
 
+    const allImgs = uploadedImages.length > 0 ? uploadedImages : (payload.images && payload.images.length > 0 ? payload.images : [payload.image_url || DEFAULT_ROOM_IMAGES[0]]);
+    const resolvedImageUrl = allImgs.length > 1 ? JSON.stringify(allImgs) : (allImgs[0] || payload.image_url || null);
+
     const finalPayload = {
       ...payload,
       category: isHospitality ? "hospitality" : "residential",
@@ -445,7 +449,8 @@ export default function App() {
       verification_status: "Active",
       landlord_id: userProfile?.id || (userProfile?.phone ? Number(userProfile.phone.replace(/\D/g, "")) : null),
       token: userProfile?.token,
-      image_url: uploadedImages.length > 0 ? uploadedImages[0] : (payload.image_url || null),
+      image_url: resolvedImageUrl,
+      images: allImgs,
       contact_phone: payload.phone,
       property_type: payload.propertyType,
       tenant_type: payload.tenantType,
