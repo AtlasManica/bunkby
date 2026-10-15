@@ -109,7 +109,7 @@ export async function onRequestGet({ request, env }: { request: Request; env: En
     return jsonResponse({
       status: "online",
       service: "BunkBy WhatsApp Cloudflare Pages Function",
-      version: "2026-10-15_diagnostic_v6_phase2",
+      version: "2026-10-15_diagnostic_v7_state_priority",
       metaConfigured: Boolean(activeToken && activePhoneId),
       hasAccessToken: Boolean(activeToken),
       hasPhoneNumberId: Boolean(activePhoneId),
@@ -155,6 +155,42 @@ interface OutboundDispatchResult {
  * Resolves the public image URL for a listing photograph.
  * Handles HTTP/HTTPS URLs as well as base64 images served via /api/rooms/:id/photo
  */
+/**
+ * Checks whether an image URL or data URI represents a branding logo, company watermark,
+ * icon, or non-photographic graphic placeholder rather than an authentic room/property photo.
+ * Note: Never use generic standard JFIF/EXIF headers (like standard /9j/4AAQSkZJRg...) which
+ * are shared by millions of legitimate camera photographs.
+ */
+function isBrandingOrLogoImage(rawImage: string): boolean {
+  if (!rawImage) return false;
+  const trimmed = rawImage.trim();
+  const lower = trimmed.toLowerCase();
+
+  // 1. Explicit company/branding asset paths, filenames, and URL keywords
+  if (
+    lower.includes("logo") ||
+    lower.includes("bunkby-logo") ||
+    lower.includes("bunkbylogo") ||
+    lower.includes("watermark") ||
+    lower.includes("favicon") ||
+    lower.includes("brand-mark")
+  ) {
+    return true;
+  }
+
+  // 2. Exact match check for known static placeholder/branding assets in D1:
+  // Listing #4's specific branding placeholder graphic (exact byte length: 114,275 bytes, base64 length: 152,368 chars, sha256: fba8ec567cb5f69b...)
+  // We identify it specifically by its exact base64 payload characteristics (length 152,368 chars and its unique repetitive padding suffix)
+  if (
+    lower.includes("fba8ec567cb5f69b") ||
+    (trimmed.length === 152391 && trimmed.includes("AIiIAiIgCIiAIiIAiIgCIiAIiIAiIgCIiAIiIAiIgCIiAIiIAiIgCIiA/9k="))
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
 function getListingPhotoUrl(listing: any, baseUrl: string): string | null {
   if (!listing) return null;
   let raw = String(listing.image_url || "").trim();
@@ -168,6 +204,11 @@ function getListingPhotoUrl(listing: any, baseUrl: string): string | null {
         raw = String(parsed[0]).trim();
       }
     } catch (_) {}
+  }
+
+  // Filter out any corporate branding, company logos, or placeholder graphics
+  if (isBrandingOrLogoImage(raw)) {
+    return null;
   }
 
   // 1. If standard HTTP/HTTPS URL
@@ -710,7 +751,7 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
     ).bind(phone).first();
 
     // -------------------------------------------------------------
-    // COMMAND: CANCEL / RESET / EXIT
+    // PRIORITY 1: GLOBAL CANCEL / RESET / EXIT
     // -------------------------------------------------------------
     if (
       lowerText === "cancel" || 
@@ -727,140 +768,10 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
     }
 
     // -------------------------------------------------------------
-    // COMMAND: LIST / REGISTER (Phase 2 Complete Listing Creation Flow)
-    // Evaluated BEFORE general keyword search so button clicks and "post a room" are never treated as searches!
-    // -------------------------------------------------------------
-    else if (
-      buttonPayload === "CMD_LIST" ||
-      buttonPayload === "CMD_START_LISTING" ||
-      lowerText === "list" ||
-      lowerText === "register" ||
-      lowerText === "post" ||
-      lowerText === "post a room" ||
-      lowerText === "add room" ||
-      lowerText === "new listing" ||
-      lowerText === "list property" ||
-      lowerText.includes("post a room") ||
-      lowerText.includes("post room") ||
-      lowerText.includes("list room")
-    ) {
-      // Landlord Account & Identity check: reuse or auto-provision landlord profile
-      let landlord = await env.DB.prepare("SELECT * FROM landlords WHERE id = ?").bind(phoneId).first();
-      if (!landlord) {
-        await env.DB.prepare(`
-          INSERT INTO landlords (id, full_name, verification_status)
-          VALUES (?, ?, 'pending')
-        `).bind(phoneId, name || `WhatsApp Host (${phone})`).run();
-        landlord = await env.DB.prepare("SELECT * FROM landlords WHERE id = ?").bind(phoneId).first();
-      }
-
-      const initialData = JSON.stringify({
-        phone_number: phone,
-        landlord_id: phoneId,
-        landlord_name: landlord?.full_name || name || "WhatsApp Host",
-        contact_phone: phone,
-        photos: []
-      });
-
-      await env.DB.prepare(`
-        INSERT INTO chatbot_sessions (phone_number, current_step, collected_data, updated_at)
-        VALUES (?, 'AWAITING_CATEGORY', ?, CURRENT_TIMESTAMP)
-        ON CONFLICT(phone_number) DO UPDATE SET
-          current_step = 'AWAITING_CATEGORY',
-          collected_data = ?,
-          updated_at = CURRENT_TIMESTAMP
-      `).bind(phone, initialData, initialData).run();
-
-      replyText = `🏡 *Welcome to BunkBy Accommodation Listing!*\nLet's get your property posted on Zimbabwe's agent-free marketplace.\n\n*Step 1/9: Choose Listing Category*\n\n1️⃣ *Residential Rentals*\n_(Rooms, Cottages, Apartments, Flats, Student Hostels)_\n\n2️⃣ *Hospitality & Stays*\n_(Lodges, Guest Houses, Hotels, B&Bs, Short-Stay Stays)_\n\nReply *1* or *2*:`;
-      buttonsToSend = [
-        { id: "CAT_RESIDENTIAL", title: "🏠 Residential" },
-        { id: "CAT_HOSPITALITY", title: "🏨 Hospitality" }
-      ];
-      actionTaken = "LISTING_STEP_CATEGORY";
-    }
-
-    // -------------------------------------------------------------
-    // COMMAND: SEARCH [SUBURB / QUERY]
-    // -------------------------------------------------------------
-    else if (
-      buttonPayload === "CMD_SEARCH" ||
-      buttonPayload === "CMD_SEARCH_MENU" ||
-      lowerText.startsWith("search") ||
-      lowerText.startsWith("find") ||
-      lowerText.includes("room") ||
-      lowerText.includes("cottage") ||
-      lowerText.includes("apartment") ||
-      lowerText.includes("bedsit") ||
-      lowerText.includes("lodge") ||
-      lowerText.includes("guest house")
-    ) {
-      if (session) {
-        await env.DB.prepare("DELETE FROM chatbot_sessions WHERE phone_number = ?").bind(phone).run();
-      }
-
-      // If user tapped a blank search button without query
-      if (buttonPayload === "CMD_SEARCH" || buttonPayload === "CMD_SEARCH_MENU" || lowerText === "search") {
-        replyText = `🔍 *How to Search BunkBy Stays:*\n\nType whatever you're looking for, e.g.:\n• *search Avonlea*\n• *rooms in Belvedere*\n• *cottage in Mt Pleasant*\n• *lodge in Victoria Falls*\n\nOr visit https://bunkby.com to browse with interactive maps!`;
-        actionTaken = "SEARCH_HELP";
-      } else {
-        // Extract suburb keywords
-        const cleanQuery = text.replace(/^(search|find|looking for|i want a|need a)\s*/i, "").trim();
-        const searchTerms = cleanQuery.split(/\s+/).filter(w => w.length > 2);
-        const suburbTerm = searchTerms[0] || "";
-
-        // Query live D1 listings
-        let querySql = `
-          SELECT listings.*, landlords.full_name as landlord_name
-          FROM listings
-          LEFT JOIN landlords ON listings.landlord_id = landlords.id
-          WHERE listings.verification_status != 'Delisted'
-        `;
-        const params: any[] = [];
-
-        if (suburbTerm) {
-          querySql += ` AND (listings.suburb LIKE ? OR listings.title LIKE ? OR listings.landmark LIKE ?)`;
-          params.push(`%${suburbTerm}%`, `%${suburbTerm}%`, `%${suburbTerm}%`);
-        }
-
-        querySql += ` ORDER BY listings.created_at DESC LIMIT 4`;
-
-        const stmt = env.DB.prepare(querySql);
-        const { results } = params.length > 0 ? await stmt.bind(...params).all() : await stmt.all();
-
-        if (!results || results.length === 0) {
-          replyText = `🏡 No active accommodations currently found matching *"${cleanQuery || "your search"}"*.\n\n💡 *Suggestions:*\n• Try searching nearby suburbs like *Avonlea*, *Belvedere*, *Avenues*, or *Mt Pleasant*.\n• Adjust your budget or search by city (e.g. *Harare*, *Bulawayo*).\n\nAre you a landlord or lodge host? Type *list* to post your property for free!`;
-          actionTaken = "SEARCH_NO_RESULTS";
-        } else {
-          actionTaken = "SEARCH_RESULTS";
-          // Phase 1: Retrieve actual image URLs and send individual photographic cards with real image messages
-          const baseUrl = new URL(request.url).origin || "https://bunkby.com";
-          const introMsg = `🏡 *Found ${results.length} active stay${results.length === 1 ? "" : "s"} on BunkBy:*`;
-          
-          // Queue messages to dispatch sequentially
-          outboundQueue.push({ text: introMsg });
-
-          for (const room of results) {
-            const card = buildListingCardMessage(room, baseUrl, phone);
-            outboundQueue.push({
-              text: card.text,
-              imageUrl: card.imageUrl
-            });
-          }
-
-          // Action footer with link to full gallery on website
-          outboundQueue.push({
-            text: `👉 Visit https://bunkby.com to browse with full interactive maps and gallery filters.\n\nType *list* to post accommodation or *search* to find more stays!`,
-            buttons: [
-              { id: "CMD_SEARCH", title: "🔍 Search Again" },
-              { id: "CMD_LIST", title: "🏡 Post a Room" }
-            ]
-          });
-        }
-      }
-    }
-
-    // -------------------------------------------------------------
-    // STATE MACHINE: User is in an Active Multi-Step Flow (Phase 2)
+    // PRIORITY 2: ACTIVE LISTING SESSION STATE MACHINE
+    // If user is currently creating a listing, the session MUST handle their input!
+    // Words like "room", "cottage", "house", or titles like "Big Nice Single Room"
+    // must NEVER be hijacked by accommodation search while in an active session.
     // -------------------------------------------------------------
     else if (session) {
       const currentStep = session.current_step;
@@ -925,6 +836,9 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
       // ---------------------------------------------------------
       else if (currentStep === "AWAITING_PROPERTY_TYPE") {
         let chosenType = "";
+        const normPayload = (buttonPayload || "").toLowerCase().trim();
+        const normText = text.toLowerCase().trim();
+
         if (isHospitality) {
           const hospMap: Record<string, string> = {
             "1": "Guest House",
@@ -934,9 +848,23 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
             "5": "Short-Stay Apartment",
             "htype_guesthouse": "Guest House",
             "htype_lodge": "Lodge",
-            "htype_bnb": "Bed & Breakfast"
+            "htype_bnb": "Bed & Breakfast",
+            "guest house": "Guest House",
+            "lodge": "Lodge",
+            "hotel": "Hotel",
+            "bed & breakfast": "Bed & Breakfast",
+            "b&b": "Bed & Breakfast",
+            "short-stay apartment": "Short-Stay Apartment"
           };
-          chosenType = hospMap[buttonPayload?.toLowerCase() || ""] || hospMap[text.trim().toLowerCase()] || text.trim();
+          chosenType = hospMap[normPayload] || hospMap[normText] || "";
+          if (!chosenType) {
+            if (normText.includes("guest")) chosenType = "Guest House";
+            else if (normText.includes("lodge")) chosenType = "Lodge";
+            else if (normText.includes("hotel")) chosenType = "Hotel";
+            else if (normText.includes("b&b") || normText.includes("bed")) chosenType = "Bed & Breakfast";
+            else if (normText.includes("short") || normText.includes("apartment")) chosenType = "Short-Stay Apartment";
+            else if (text.trim().length >= 3) chosenType = text.trim();
+          }
         } else {
           const resMap: Record<string, string> = {
             "1": "Single Room",
@@ -947,9 +875,24 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
             "6": "Student Hostel",
             "rtype_room": "Single Room",
             "rtype_cottage": "Cottage",
-            "rtype_2room": "2 Rooms"
+            "rtype_2room": "2 Rooms",
+            "single room": "Single Room",
+            "cottage": "Cottage",
+            "2 rooms": "2 Rooms",
+            "boarding house": "Boarding House",
+            "full house": "Full House",
+            "student hostel": "Student Hostel"
           };
-          chosenType = resMap[buttonPayload?.toLowerCase() || ""] || resMap[text.trim().toLowerCase()] || text.trim();
+          chosenType = resMap[normPayload] || resMap[normText] || "";
+          if (!chosenType) {
+            if (normText.includes("single")) chosenType = "Single Room";
+            else if (normText.includes("cottage")) chosenType = "Cottage";
+            else if (normText.includes("2 room") || normText.includes("two room")) chosenType = "2 Rooms";
+            else if (normText.includes("boarding")) chosenType = "Boarding House";
+            else if (normText.includes("full")) chosenType = "Full House";
+            else if (normText.includes("hostel") || normText.includes("student")) chosenType = "Student Hostel";
+            else if (text.trim().length >= 3) chosenType = text.trim();
+          }
         }
 
         if (!chosenType || chosenType.length < 2) {
@@ -1016,7 +959,7 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
               WHERE phone_number = ?
             `).bind(JSON.stringify(collectedData), phone).run();
 
-            replyText = `✅ Rate set to: *$${priceNum}/night*\n\n*Step 5/9: Suburb & Location*\nIn which suburb or area is this property located?\n_(e.g. *Avonlea*, *Belvedere*, *Newlands*, *Victoria Falls*)_`;
+            replyText = `✅ Rate set to: *$${priceNum}/night*\n\n*Step 5/8: Suburb & Location*\nIn which suburb or area is this property located?\n_(e.g. *Avonlea*, *Belvedere*, *Newlands*, *Victoria Falls*)_`;
             actionTaken = "LISTING_STEP_SUBURB";
           } else {
             collectedData.rent_cycle = "Month";
@@ -1353,6 +1296,134 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
             { id: "BTN_CANCEL", title: "❌ Cancel" }
           ];
           actionTaken = "LISTING_PREVIEW";
+        }
+      }
+    }
+
+    // -------------------------------------------------------------
+    // PRIORITY 3: START NEW LISTING CREATION (No Active Session)
+    // -------------------------------------------------------------
+    else if (
+      buttonPayload === "CMD_LIST" ||
+      buttonPayload === "CMD_START_LISTING" ||
+      lowerText === "list" ||
+      lowerText === "register" ||
+      lowerText === "post" ||
+      lowerText === "post a room" ||
+      lowerText === "add room" ||
+      lowerText === "new listing" ||
+      lowerText === "list property" ||
+      lowerText.includes("post a room") ||
+      lowerText.includes("post room") ||
+      lowerText.includes("list room")
+    ) {
+      // Landlord Account & Identity check: reuse or auto-provision landlord profile
+      let landlord = await env.DB.prepare("SELECT * FROM landlords WHERE id = ?").bind(phoneId).first();
+      if (!landlord) {
+        await env.DB.prepare(`
+          INSERT INTO landlords (id, full_name, verification_status)
+          VALUES (?, ?, 'pending')
+        `).bind(phoneId, name || `WhatsApp Host (${phone})`).run();
+        landlord = await env.DB.prepare("SELECT * FROM landlords WHERE id = ?").bind(phoneId).first();
+      }
+
+      const initialData = JSON.stringify({
+        phone_number: phone,
+        landlord_id: phoneId,
+        landlord_name: landlord?.full_name || name || "WhatsApp Host",
+        contact_phone: phone,
+        photos: []
+      });
+
+      await env.DB.prepare(`
+        INSERT INTO chatbot_sessions (phone_number, current_step, collected_data, updated_at)
+        VALUES (?, 'AWAITING_CATEGORY', ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(phone_number) DO UPDATE SET
+          current_step = 'AWAITING_CATEGORY',
+          collected_data = ?,
+          updated_at = CURRENT_TIMESTAMP
+      `).bind(phone, initialData, initialData).run();
+
+      replyText = `🏡 *Welcome to BunkBy Accommodation Listing!*\nLet's get your property posted on Zimbabwe's agent-free marketplace.\n\n*Step 1/9: Choose Listing Category*\n\n1️⃣ *Residential Rentals*\n_(Rooms, Cottages, Apartments, Flats, Student Hostels)_\n\n2️⃣ *Hospitality & Stays*\n_(Lodges, Guest Houses, Hotels, B&Bs, Short-Stay Stays)_\n\nReply *1* or *2*:`;
+      buttonsToSend = [
+        { id: "CAT_RESIDENTIAL", title: "🏠 Residential" },
+        { id: "CAT_HOSPITALITY", title: "🏨 Hospitality" }
+      ];
+      actionTaken = "LISTING_STEP_CATEGORY";
+    }
+
+    // -------------------------------------------------------------
+    // PRIORITY 4: ACCOMMODATION SEARCH (No Active Session)
+    // -------------------------------------------------------------
+    else if (
+      buttonPayload === "CMD_SEARCH" ||
+      buttonPayload === "CMD_SEARCH_MENU" ||
+      lowerText.startsWith("search") ||
+      lowerText.startsWith("find") ||
+      lowerText.includes("room") ||
+      lowerText.includes("cottage") ||
+      lowerText.includes("apartment") ||
+      lowerText.includes("bedsit") ||
+      lowerText.includes("lodge") ||
+      lowerText.includes("guest house")
+    ) {
+      // If user tapped a blank search button without query
+      if (buttonPayload === "CMD_SEARCH" || buttonPayload === "CMD_SEARCH_MENU" || lowerText === "search") {
+        replyText = `🔍 *How to Search BunkBy Stays:*\n\nType whatever you're looking for, e.g.:\n• *search Avonlea*\n• *rooms in Belvedere*\n• *cottage in Mt Pleasant*\n• *lodge in Victoria Falls*\n\nOr visit https://bunkby.com to browse with interactive maps!`;
+        actionTaken = "SEARCH_HELP";
+      } else {
+        // Extract suburb keywords
+        const cleanQuery = text.replace(/^(search|find|looking for|i want a|need a)\s*/i, "").trim();
+        const searchTerms = cleanQuery.split(/\s+/).filter(w => w.length > 2);
+        const suburbTerm = searchTerms[0] || "";
+
+        // Query live D1 listings
+        let querySql = `
+          SELECT listings.*, landlords.full_name as landlord_name
+          FROM listings
+          LEFT JOIN landlords ON listings.landlord_id = landlords.id
+          WHERE listings.verification_status != 'Delisted'
+        `;
+        const params: any[] = [];
+
+        if (suburbTerm) {
+          querySql += ` AND (listings.suburb LIKE ? OR listings.title LIKE ? OR listings.landmark LIKE ?)`;
+          params.push(`%${suburbTerm}%`, `%${suburbTerm}%`, `%${suburbTerm}%`);
+        }
+
+        querySql += ` ORDER BY listings.created_at DESC LIMIT 4`;
+
+        const stmt = env.DB.prepare(querySql);
+        const { results } = params.length > 0 ? await stmt.bind(...params).all() : await stmt.all();
+
+        if (!results || results.length === 0) {
+          replyText = `🏡 No active accommodations currently found matching *"${cleanQuery || "your search"}"*.\n\n💡 *Suggestions:*\n• Try searching nearby suburbs like *Avonlea*, *Belvedere*, *Avenues*, or *Mt Pleasant*.\n• Adjust your budget or search by city (e.g. *Harare*, *Bulawayo*).\n\nAre you a landlord or lodge host? Type *list* to post your property for free!`;
+          actionTaken = "SEARCH_NO_RESULTS";
+        } else {
+          actionTaken = "SEARCH_RESULTS";
+          // Phase 1: Retrieve actual image URLs and send individual photographic cards with real image messages
+          const baseUrl = new URL(request.url).origin || "https://bunkby.com";
+          const introMsg = `🏡 *Found ${results.length} active stay${results.length === 1 ? "" : "s"} on BunkBy:*`;
+          
+          // Queue messages to dispatch sequentially
+          outboundQueue.push({ text: introMsg });
+
+          for (const room of results) {
+            const card = buildListingCardMessage(room, baseUrl, phone);
+            outboundQueue.push({
+              text: card.text,
+              imageUrl: card.imageUrl
+            });
+          }
+
+          // Action footer with link to full gallery on website
+          outboundQueue.push({
+            text: `👉 Visit https://bunkby.com to browse with full interactive maps and gallery filters.\n\nType *list* to post accommodation or *search* to find more stays!`,
+            buttons: [
+              { id: "CMD_SEARCH", title: "🔍 Search Again" },
+              { id: "CMD_LIST", title: "🏡 Post a Room" }
+            ]
+          });
         }
       }
     }

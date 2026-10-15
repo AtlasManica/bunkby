@@ -172,13 +172,18 @@ async function processWhatsAppMessageInternal(
   // COMMAND: START LISTING FLOW (LANDLORD / HOST)
   // =========================================================================
   if (
-    lowerText === "list" ||
-    lowerText === "post" ||
-    lowerText === "register" ||
-    lowerText === "add room" ||
-    lowerText === "new listing" ||
-    lowerText === "host" ||
-    buttonPayload === "CMD_START_LISTING"
+    (!session && (
+      lowerText === "list" ||
+      lowerText === "post" ||
+      lowerText === "register" ||
+      lowerText === "add room" ||
+      lowerText === "new listing" ||
+      lowerText === "host" ||
+      buttonPayload === "CMD_START_LISTING" ||
+      buttonPayload === "CMD_LIST"
+    )) ||
+    buttonPayload === "CMD_START_LISTING" ||
+    buttonPayload === "CMD_LIST"
   ) {
     // Ensure landlord record exists in database
     const existingLandlord = db.prepare("SELECT * FROM landlords WHERE id = ?").get(phoneId);
@@ -262,26 +267,66 @@ async function processWhatsAppMessageInternal(
 
     // --- STEP 2: AWAITING_PROPERTY_TYPE ---
     if (currentStep === "AWAITING_PROPERTY_TYPE") {
-      let chosenType = text;
+      let chosenType = "";
+      const normPayload = (buttonPayload || "").toLowerCase().trim();
+      const normText = text.toLowerCase().trim();
+
       if (data.category === "hospitality") {
         const hospMap: Record<string, string> = {
-          "1": "Guesthouse",
+          "1": "Guest House",
           "2": "Lodge",
-          "3": "Bed & Breakfast",
-          "4": "Hotel",
-          "5": "Executive Apartment"
+          "3": "Hotel",
+          "4": "Bed & Breakfast",
+          "5": "Short-Stay Apartment",
+          "htype_guesthouse": "Guest House",
+          "htype_lodge": "Lodge",
+          "htype_bnb": "Bed & Breakfast",
+          "guest house": "Guest House",
+          "lodge": "Lodge",
+          "hotel": "Hotel",
+          "bed & breakfast": "Bed & Breakfast",
+          "b&b": "Bed & Breakfast",
+          "short-stay apartment": "Short-Stay Apartment"
         };
-        chosenType = hospMap[text.trim()] || text.trim() || "Guesthouse";
+        chosenType = hospMap[normPayload] || hospMap[normText] || "";
+        if (!chosenType) {
+          if (normText.includes("guest")) chosenType = "Guest House";
+          else if (normText.includes("lodge")) chosenType = "Lodge";
+          else if (normText.includes("hotel")) chosenType = "Hotel";
+          else if (normText.includes("b&b") || normText.includes("bed")) chosenType = "Bed & Breakfast";
+          else if (normText.includes("short") || normText.includes("apartment")) chosenType = "Short-Stay Apartment";
+          else if (text.trim().length >= 3) chosenType = text.trim();
+          else chosenType = "Guest House";
+        }
       } else {
         const resMap: Record<string, string> = {
           "1": "Single Room",
           "2": "Cottage",
-          "3": "Bed-sitter",
-          "4": "Apartment",
-          "5": "Full house",
-          "6": "Student Hostel"
+          "3": "2 Rooms",
+          "4": "Boarding House",
+          "5": "Full House",
+          "6": "Student Hostel",
+          "rtype_room": "Single Room",
+          "rtype_cottage": "Cottage",
+          "rtype_2room": "2 Rooms",
+          "single room": "Single Room",
+          "cottage": "Cottage",
+          "2 rooms": "2 Rooms",
+          "boarding house": "Boarding House",
+          "full house": "Full House",
+          "student hostel": "Student Hostel"
         };
-        chosenType = resMap[text.trim()] || text.trim() || "Single Room";
+        chosenType = resMap[normPayload] || resMap[normText] || "";
+        if (!chosenType) {
+          if (normText.includes("single")) chosenType = "Single Room";
+          else if (normText.includes("cottage")) chosenType = "Cottage";
+          else if (normText.includes("2 room") || normText.includes("two room")) chosenType = "2 Rooms";
+          else if (normText.includes("boarding")) chosenType = "Boarding House";
+          else if (normText.includes("full")) chosenType = "Full House";
+          else if (normText.includes("hostel") || normText.includes("student")) chosenType = "Student Hostel";
+          else if (text.trim().length >= 3) chosenType = text.trim();
+          else chosenType = "Single Room";
+        }
       }
 
       data.property_type = chosenType;
@@ -545,21 +590,23 @@ async function processWhatsAppMessageInternal(
   }
 
   // =========================================================================
-  // SEARCH / RETRIEVAL FLOW
+  // SEARCH / RETRIEVAL FLOW (Only when NO active session is running!)
   // =========================================================================
   const isSearchIntent =
-    lowerText.startsWith("search") ||
-    lowerText.startsWith("find") ||
-    lowerText.startsWith("show") ||
-    lowerText.startsWith("looking for") ||
-    lowerText.includes("room") ||
-    lowerText.includes("cottage") ||
-    lowerText.includes("lodge") ||
-    lowerText.includes("apartment") ||
-    lowerText.includes("in ") ||
-    lowerText.includes("under ") ||
-    buttonPayload.startsWith("SEARCH_") ||
-    buttonPayload === "CMD_SEARCH_MENU";
+    !session && (
+      lowerText.startsWith("search") ||
+      lowerText.startsWith("find") ||
+      lowerText.startsWith("show") ||
+      lowerText.startsWith("looking for") ||
+      lowerText.includes("room") ||
+      lowerText.includes("cottage") ||
+      lowerText.includes("lodge") ||
+      lowerText.includes("apartment") ||
+      lowerText.includes("in ") ||
+      lowerText.includes("under ") ||
+      buttonPayload.startsWith("SEARCH_") ||
+      buttonPayload === "CMD_SEARCH_MENU"
+    );
 
   if (isSearchIntent) {
     // If user clicked search button with no query
