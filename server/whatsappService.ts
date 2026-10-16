@@ -445,9 +445,12 @@ export function isBrandingOrLogoImage(rawImage: string): boolean {
 
   // 2. Exact match check for known static placeholder/branding assets in D1:
   // Listing #4's specific branding placeholder graphic (exact byte length: 114,275 bytes, base64 length: 152,368 chars, sha256: fba8ec567cb5f69b...)
+  // Listing #4's specific graphic placeholder (SHA256: fba8ec567cb5f69b..., length: 152391 chars, ends with repetitive pattern)
   if (
     lower.includes("fba8ec567cb5f69b") ||
-    (trimmed.length === 152391 && trimmed.includes("AIiIAiIgCIiAIiIAiIgCIiAIiIAiIgCIiAIiIAiIgCIiAIiIAiIgCIiA/9k="))
+    (trimmed.length === 152391 && (trimmed.includes("AIiIAiIgCIiAIiIAiIg") || trimmed.includes("IiIAiIgCIiAIiIAiIg"))) ||
+    trimmed.endsWith("IiIAiIgCIiAIiIAiIgCIiAIiIAiIgCIiA/9k=") ||
+    trimmed.endsWith("AIiIAiIgCIiAIiIAiIgCIiAIiIAiIgCIiA/9k=")
   ) {
     return true;
   }

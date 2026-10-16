@@ -467,15 +467,51 @@ async function processWhatsAppMessageInternal(
 
     // --- STEP 8: AWAITING_PHOTOS ---
     if (currentStep === "AWAITING_PHOTOS") {
-      // Check if user sent an actual image
+      if (!Array.isArray(data.photos)) {
+        data.photos = [];
+        if (data.image_url) data.photos.push(data.image_url);
+      }
+
+      const isFinishing = 
+        buttonPayload === "BTN_FINISH_PHOTOS" || 
+        buttonPayload === "BTN_SKIP_PHOTOS" || 
+        lowerText === "done" || 
+        lowerText === "finish" || 
+        lowerText === "skip" || 
+        lowerText === "no";
+
       if (input.type === "image" && input.mediaId) {
-        data.whatsapp_media_id = input.mediaId;
-        // In full Meta setup, we fetch binary from Graph API. For now, store reference or placeholder
-        data.image_url = `https://images.unsplash.com/photo-1598928506311-c55ded91a20c?auto=format&fit=crop&w=800&q=80`;
-      } else if (text.startsWith("http://") || text.startsWith("https://")) {
-        data.image_url = text.trim();
+        const photoUrl = `https://images.unsplash.com/photo-1598928506311-c55ded91a20c?auto=format&fit=crop&w=800&q=80`;
+        data.photos.push(photoUrl);
+        data.image_url = data.photos.length > 1 ? JSON.stringify(data.photos) : data.photos[0];
+        db.prepare("UPDATE chatbot_sessions SET collected_data = ?, updated_at = CURRENT_TIMESTAMP WHERE phone_number = ?")
+          .run(JSON.stringify(data), phone);
+
+        queuePayload(createTextMessage(phone, `📸 *Photo ${data.photos.length} received!*
+
+You can send another photo, or reply *done* to preview your listing.`));
+        await dispatchAll();
+        return { phone, action: "PHOTO_RECEIVED", step: "AWAITING_PHOTOS", outboundPayloads };
+      } else if (text.startsWith("http://") || text.startsWith("https://") || text.startsWith("data:")) {
+        data.photos.push(text.trim());
+        data.image_url = data.photos.length > 1 ? JSON.stringify(data.photos) : data.photos[0];
+        db.prepare("UPDATE chatbot_sessions SET collected_data = ?, updated_at = CURRENT_TIMESTAMP WHERE phone_number = ?")
+          .run(JSON.stringify(data), phone);
+
+        queuePayload(createTextMessage(phone, `📸 *Photo ${data.photos.length} added!*
+
+Send another photo, or reply *done* to proceed.`));
+        await dispatchAll();
+        return { phone, action: "PHOTO_RECEIVED", step: "AWAITING_PHOTOS", outboundPayloads };
+      } else if (isFinishing || data.photos.length > 0) {
+        if (data.photos.length === 0) {
+          data.image_url = data.category === "hospitality"
+            ? "https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=800&q=80"
+            : "https://images.unsplash.com/photo-1522771739844-6a9f6d5f14af?auto=format&fit=crop&w=800&q=80";
+        } else {
+          data.image_url = data.photos.length > 1 ? JSON.stringify(data.photos) : data.photos[0];
+        }
       } else {
-        // Skip or no photo sent
         data.image_url = data.category === "hospitality"
           ? "https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=800&q=80"
           : "https://images.unsplash.com/photo-1522771739844-6a9f6d5f14af?auto=format&fit=crop&w=800&q=80";
@@ -499,7 +535,7 @@ async function processWhatsAppMessageInternal(
           phone,
           summary,
           [
-            { id: "CMD_CONFIRM_PUBLISH", title: "✅ Publish Now" },
+            { id: "BTN_CONFIRM_PUBLISH", title: "🚀 Publish Listing" },
             { id: "CMD_CANCEL_LISTING", title: "❌ Cancel" }
           ],
           "Listing Ready",
@@ -514,50 +550,67 @@ async function processWhatsAppMessageInternal(
     // --- STEP 9: AWAITING_CONFIRMATION -> PUBLISH ---
     if (currentStep === "AWAITING_CONFIRMATION") {
       if (
-        lowerText.includes("publish") ||
-        lowerText.includes("yes") ||
-        lowerText.includes("confirm") ||
+        buttonPayload === "BTN_CONFIRM_PUBLISH" ||
+        buttonPayload === "btn_confirm_publish" ||
         buttonPayload === "CMD_CONFIRM_PUBLISH" ||
+        buttonPayload === "PUBLISH_LISTING" ||
+        lowerText === "publish listing" ||
+        lowerText.includes("publish listing") ||
+        lowerText === "publish" ||
+        lowerText.includes("publish") ||
+        lowerText === "yes" ||
+        lowerText === "confirm" ||
         text === "1"
       ) {
-        // Insert directly into real listings table!
-        const stmt = db.prepare(`
-          INSERT INTO listings (
-            title, suburb, price, landlord_id, verification_status, image_url, landmark, city, deposit,
-            property_type, tenant_type, rent_cycle, contact_method, contact_phone, amenities,
-            category, business_name, is_premium, listing_tier, expiry_date
-          ) VALUES (?, ?, ?, ?, 'Active', ?, ?, ?, ?, ?, ?, ?, 'Call / Whatsapp', ?, ?, ?, ?, ?, ?, ?)
-        `);
+        // Idempotency check: prevent duplicate listing within 60s
+        const recentExisting = db.prepare(`
+          SELECT id FROM listings 
+          WHERE landlord_id = ? AND title = ? AND suburb = ? AND created_at >= datetime('now', '-60 seconds')
+          ORDER BY id DESC LIMIT 1
+        `).get(data.landlord_id || phoneId, data.title, data.suburb) as any;
 
-        const isPremium = data.category === "hospitality" ? 1 : 0;
-        const tier = isPremium ? "paid" : "free";
-        const expiry = isPremium ? new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString() : null;
+        let newId: number;
+        if (recentExisting) {
+          newId = Number(recentExisting.id);
+        } else {
+          // Insert directly into real listings table!
+          const stmt = db.prepare(`
+            INSERT INTO listings (
+              title, suburb, price, landlord_id, verification_status, image_url, landmark, city, deposit,
+              property_type, tenant_type, rent_cycle, contact_method, contact_phone, amenities,
+              category, business_name, is_premium, listing_tier, expiry_date
+            ) VALUES (?, ?, ?, ?, 'Active', ?, ?, ?, ?, ?, ?, ?, 'Call / Whatsapp', ?, ?, ?, ?, ?, ?, ?)
+          `);
 
-        const result = stmt.run(
-          data.title,
-          data.suburb,
-          Number(data.price),
-          data.landlord_id || phoneId,
-          data.image_url || null,
-          data.landmark || null,
-          data.city || "Harare",
-          Number(data.deposit || 0),
-          data.property_type || "Single Room",
-          data.tenant_type || (data.category === "hospitality" ? "Guest" : "General"),
-          data.rent_cycle || "Month",
-          data.contact_phone || phone,
-          JSON.stringify(data.amenities || []),
-          data.category || "residential",
-          data.business_name || null,
-          isPremium,
-          tier,
-          expiry
-        );
+          const isPremium = data.category === "hospitality" ? 1 : 0;
+          const tier = isPremium ? "paid" : "free";
+          const expiry = isPremium ? new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString() : null;
+
+          const result = stmt.run(
+            data.title,
+            data.suburb,
+            Number(data.price),
+            data.landlord_id || phoneId,
+            data.image_url || null,
+            data.landmark || null,
+            data.city || "Harare",
+            Number(data.deposit || 0),
+            data.property_type || "Single Room",
+            data.tenant_type || (data.category === "hospitality" ? "Guest" : "General"),
+            data.rent_cycle || "Month",
+            data.contact_phone || phone,
+            JSON.stringify(data.amenities || []),
+            data.category || "residential",
+            data.business_name || null,
+            isPremium,
+            tier,
+            expiry
+          );
+          newId = Number(result.lastInsertRowid);
+        }
 
         // Delete session
         db.prepare("DELETE FROM chatbot_sessions WHERE phone_number = ?").run(phone);
-
-        const newId = Number(result.lastInsertRowid);
         const liveUrl = `${baseUrl.replace(/\/+$/, "")}/#listing-${newId}`;
 
         const successMsg = `🎉 *CONGRATULATIONS! Your listing is now LIVE on BunkBy!* (Listing #${newId})\n\n` +
