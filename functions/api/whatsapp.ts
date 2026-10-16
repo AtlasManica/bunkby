@@ -109,7 +109,7 @@ export async function onRequestGet({ request, env }: { request: Request; env: En
     return jsonResponse({
       status: "online",
       service: "BunkBy WhatsApp Cloudflare Pages Function",
-      version: "2026-10-15_diagnostic_v7_state_priority",
+      version: "2026-10-16_diagnostic_v8_publish_search_parity",
       metaConfigured: Boolean(activeToken && activePhoneId),
       hasAccessToken: Boolean(activeToken),
       hasPhoneNumberId: Boolean(activePhoneId),
@@ -149,6 +149,10 @@ interface OutboundDispatchResult {
   error?: string;
   tokenFingerprint?: string;
   phoneNumberIdUsed?: string;
+  itemType?: string;
+  listingId?: number | string;
+  hasImage?: boolean;
+  imageUrl?: string | null;
 }
 
 /**
@@ -742,6 +746,8 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
     text: string;
     buttons?: Array<{ id: string; title: string }>;
     imageUrl?: string | null;
+    itemType?: "intro" | "listing_card" | "action_footer" | "preview" | "system";
+    listingId?: number | string;
   }> = [];
 
   try {
@@ -1197,7 +1203,20 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
 
           replyText = `📞 *Current Contact:* ${collectedData.contact_phone || phone}\n\nPlease enter the phone number tenants should call or WhatsApp:\n_(e.g. *0771234567* or *+263771234567*)_`;
           actionTaken = "LISTING_STEP_EDIT_PHONE";
-        } else if (buttonPayload === "BTN_CONFIRM_PUBLISH" || lowerText === "publish" || lowerText === "yes" || lowerText === "confirm" || lowerText === "1") {
+        } else if (
+          buttonPayload === "BTN_CONFIRM_PUBLISH" ||
+          buttonPayload === "btn_confirm_publish" ||
+          buttonPayload === "CMD_CONFIRM_PUBLISH" ||
+          buttonPayload === "PUBLISH_LISTING" ||
+          lowerText === "publish listing" ||
+          lowerText.includes("publish listing") ||
+          lowerText === "publish" ||
+          lowerText === "yes" ||
+          lowerText === "confirm" ||
+          lowerText === "1" ||
+          lowerText.startsWith("publish") ||
+          (lowerText.includes("publish") && !lowerText.includes("cancel"))
+        ) {
           // Resolve Primary and Multi-Photos
           const allPhotos = Array.isArray(collectedData.photos) && collectedData.photos.length > 0
             ? collectedData.photos
@@ -1219,15 +1238,26 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
           const tierVal = categoryVal === "hospitality" ? "paid" : "free";
           const cityVal = collectedData.city || "Harare";
 
-          // Insert into live Cloudflare D1 listings table
-          const insertRes = await env.DB.prepare(`
-            INSERT INTO listings (
-              title, suburb, price, landlord_id, verification_status,
-              image_url, landmark, city, deposit, property_type,
-              tenant_type, rent_cycle, contact_method, contact_phone, amenities,
-              category, business_name, is_premium, listing_tier
-            ) VALUES (?, ?, ?, ?, 'Active', ?, ?, ?, ?, ?, 'General', ?, 'Call / Whatsapp', ?, ?, ?, ?, ?, ?)
-          `).bind(
+          // Idempotency & Duplicate Publish Protection:
+          // Check if identical listing was created within the last 60 seconds by this host
+          const recentExisting = await env.DB.prepare(`
+            SELECT id FROM listings 
+            WHERE landlord_id = ? AND title = ? AND suburb = ? AND created_at >= datetime('now', '-60 seconds')
+            ORDER BY id DESC LIMIT 1
+          `).bind(collectedData.landlord_id || phoneId, collectedData.title, collectedData.suburb).first();
+
+          let listingId: any = recentExisting?.id;
+
+          if (!recentExisting) {
+            // Insert into live Cloudflare D1 listings table
+            const insertRes = await env.DB.prepare(`
+              INSERT INTO listings (
+                title, suburb, price, landlord_id, verification_status,
+                image_url, landmark, city, deposit, property_type,
+                tenant_type, rent_cycle, contact_method, contact_phone, amenities,
+                category, business_name, is_premium, listing_tier
+              ) VALUES (?, ?, ?, ?, 'Active', ?, ?, ?, ?, ?, 'General', ?, 'Call / Whatsapp', ?, ?, ?, ?, ?, ?)
+            `).bind(
             collectedData.title,
             collectedData.suburb,
             Number(collectedData.price),
@@ -1246,9 +1276,11 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
             tierVal
           ).run();
 
+            listingId = insertRes?.meta?.last_row_id || "New";
+          }
+
           // Clear session after successful publication
           await env.DB.prepare("DELETE FROM chatbot_sessions WHERE phone_number = ?").bind(phone).run();
-          const listingId = insertRes?.meta?.last_row_id || "New";
 
           replyText = `🎉 *Congratulations! Your accommodation is LIVE on BunkBy!* (Listing #${listingId})\n\n` +
             `📋 *Summary:*\n` +
@@ -1401,18 +1433,20 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
           actionTaken = "SEARCH_NO_RESULTS";
         } else {
           actionTaken = "SEARCH_RESULTS";
-          // Phase 1: Retrieve actual image URLs and send individual photographic cards with real image messages
           const baseUrl = new URL(request.url).origin || "https://bunkby.com";
           const introMsg = `🏡 *Found ${results.length} active stay${results.length === 1 ? "" : "s"} on BunkBy:*`;
           
-          // Queue messages to dispatch sequentially
-          outboundQueue.push({ text: introMsg });
+          // Queue intro message
+          outboundQueue.push({ text: introMsg, itemType: "intro" });
 
+          // Queue each listing card
           for (const room of results) {
             const card = buildListingCardMessage(room, baseUrl, phone);
             outboundQueue.push({
               text: card.text,
-              imageUrl: card.imageUrl
+              imageUrl: card.imageUrl,
+              itemType: "listing_card",
+              listingId: room.id
             });
           }
 
@@ -1422,7 +1456,8 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
             buttons: [
               { id: "CMD_SEARCH", title: "🔍 Search Again" },
               { id: "CMD_LIST", title: "🏡 Post a Room" }
-            ]
+            ],
+            itemType: "action_footer"
           });
         }
       }
@@ -1444,23 +1479,38 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
     const dispatchResults: OutboundDispatchResult[] = [];
 
     if (outboundQueue.length > 0) {
-      for (const item of outboundQueue) {
-        // If image fails to dispatch (e.g. URL inaccessible to Meta), fallback to clean text message gracefully
+      for (let i = 0; i < outboundQueue.length; i++) {
+        const item = outboundQueue[i];
+        
+        // Rate-limit buffer: WhatsApp Cloud API recommends sequential pacing between multi-message payloads
+        if (i > 0) {
+          await new Promise(r => setTimeout(r, 120));
+        }
+
         let res = await sendMetaWhatsAppMessage(phone, item.text, env, item.buttons, item.imageUrl);
+        
+        // Granular diagnostic metadata attached to result
+        res.itemType = item.itemType || "message";
+        if (item.listingId) res.listingId = item.listingId;
+        res.hasImage = Boolean(item.imageUrl);
+        res.imageUrl = item.imageUrl || null;
+
         if (!res.success && item.imageUrl) {
-          // Log specific image failure reason for debugging
           const imgFailureReason = res.error || `HTTP ${res.httpStatus} on image dispatch`;
           console.warn(`[WhatsApp Image Dispatch Failed for ${item.imageUrl}]: ${imgFailureReason}. Falling back to text.`);
           
           // Fallback to text message with explicit diagnostic trail
           const fallbackRes = await sendMetaWhatsAppMessage(phone, `${item.text}\n\n🖼️ Photo: ${item.imageUrl}`, env, item.buttons);
-          fallbackRes.error = `[Image fallback triggered: ${imgFailureReason}]` + (fallbackRes.error ? ` | ${fallbackRes.error}` : "");
+          fallbackRes.itemType = "image_fallback_text";
+          if (item.listingId) fallbackRes.listingId = item.listingId;
+          fallbackRes.error = `[Image dispatch failed: ${imgFailureReason}]` + (fallbackRes.error ? ` | ${fallbackRes.error}` : "");
           res = fallbackRes;
         }
         dispatchResults.push(res);
       }
     } else if (replyText) {
       const res = await sendMetaWhatsAppMessage(phone, replyText, env, buttonsToSend);
+      res.itemType = "single_reply";
       dispatchResults.push(res);
     }
 
