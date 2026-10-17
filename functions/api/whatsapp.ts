@@ -1347,8 +1347,7 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
             }
           }
           if (selectedAmenities.length === 0) {
-            selectedAmenities.push("Borehole",
-            "9": "Reliable water", "Solar Power Backup", "Walled & Gated");
+            selectedAmenities.push("Borehole", "Reliable water", "Solar Power Backup", "Walled & Gated");
           }
         }
 

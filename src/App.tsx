@@ -412,24 +412,8 @@ export default function App() {
       isVerifiedLandlord: userProfile?.isVerified || false
     };
 
-    const isPremiumType = 
-      newRoomForm.propertyType === "Lodge / Guesthouse" ||
-      newRoomForm.propertyType === "Hotel" ||
-      newRoomForm.propertyType === "Lodge" ||
-      newRoomForm.propertyType === "Boarding House" ||
-      newRoomForm.propertyType === "House Sale";
-
-    if (isPremiumType && !isEditing) {
-      // Open Premium billing authorization flow
-      setBillingListingForm(payload);
-      setBillingPhone(userProfile?.phone || "");
-      setIsBillingModalOpen(true);
-      setIsCreateModalOpen(false);
-      showToast("💰 Commercial / Premium Listing detected. Complete payment to secure listing!");
-    } else {
-      // Ordinary free listing or editing
-      await executeSaveListing(payload, false);
-    }
+    // Allow all listers (including hospitality, lodges, guesthouses) to list normally for free without charging window
+    await executeSaveListing(payload, false);
   };
 
   const executeSaveListing = async (payload: any, makePremium = false) => {
