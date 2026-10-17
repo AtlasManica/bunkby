@@ -109,7 +109,7 @@ export async function onRequestGet({ request, env }: { request: Request; env: En
     return jsonResponse({
       status: "online",
       service: "BunkBy WhatsApp Cloudflare Pages Function",
-      version: "2026-10-16_diagnostic_v8_publish_search_parity",
+      version: "2026-10-16_diagnostic_v9_adaptive_schema_migration",
       metaConfigured: Boolean(activeToken && activePhoneId),
       hasAccessToken: Boolean(activeToken),
       hasPhoneNumberId: Boolean(activePhoneId),
@@ -499,6 +499,7 @@ async function sendMetaWhatsAppMessage(
  * Ensures chatbot_sessions and whatsapp_diagnostic_events tables exist in D1
  */
 async function ensureDiagnosticTable(db: any) {
+  // 1. Ensure core session and diagnostic tables exist
   await db.prepare(`
     CREATE TABLE IF NOT EXISTS chatbot_sessions (
       phone_number TEXT PRIMARY KEY,
@@ -523,6 +524,38 @@ async function ensureDiagnosticTable(db: any) {
       error TEXT
     )
   `).run();
+
+  // 2. Self-healing D1 schema migrations: ensure new columns exist in listings table
+  try {
+    const tableInfo = await db.prepare("PRAGMA table_info(listings)").all();
+    const cols = (tableInfo?.results || []).map((c: any) => c.name);
+
+    if (cols.length > 0) {
+      if (!cols.includes("category")) {
+        await db.prepare("ALTER TABLE listings ADD COLUMN category TEXT DEFAULT 'residential'").run();
+      }
+      if (!cols.includes("business_name")) {
+        await db.prepare("ALTER TABLE listings ADD COLUMN business_name TEXT").run();
+      }
+      if (!cols.includes("is_premium")) {
+        await db.prepare("ALTER TABLE listings ADD COLUMN is_premium INTEGER DEFAULT 0").run();
+      }
+      if (!cols.includes("listing_tier")) {
+        await db.prepare("ALTER TABLE listings ADD COLUMN listing_tier TEXT DEFAULT 'free'").run();
+      }
+      if (!cols.includes("expiry_date")) {
+        await db.prepare("ALTER TABLE listings ADD COLUMN expiry_date TEXT").run();
+      }
+      if (!cols.includes("is_sample")) {
+        await db.prepare("ALTER TABLE listings ADD COLUMN is_sample INTEGER DEFAULT 0").run();
+      }
+      if (!cols.includes("reports_count")) {
+        await db.prepare("ALTER TABLE listings ADD COLUMN reports_count INTEGER DEFAULT 0").run();
+      }
+    }
+  } catch (err: any) {
+    console.warn("[D1 Schema Self-Healing]:", err?.message || err);
+  }
 }
 
 /**
@@ -1252,32 +1285,52 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
           let listingId: any = recentExisting?.id;
 
           if (!recentExisting) {
-            // Insert into live Cloudflare D1 listings table
+            // Dynamic column detection: inspect table columns to support both migrated and unmigrated D1 databases
+            let cols = ["title", "suburb", "price", "landlord_id", "verification_status", "image_url", "landmark", "city", "deposit", "property_type", "tenant_type", "rent_cycle", "contact_method", "contact_phone", "amenities"];
+            try {
+              const tableInfo = await env.DB.prepare("PRAGMA table_info(listings)").all();
+              const existingCols = (tableInfo?.results || []).map((c: any) => c.name);
+              if (existingCols.includes("category")) cols.push("category");
+              if (existingCols.includes("business_name")) cols.push("business_name");
+              if (existingCols.includes("is_premium")) cols.push("is_premium");
+              if (existingCols.includes("listing_tier")) cols.push("listing_tier");
+              if (existingCols.includes("expiry_date")) cols.push("expiry_date");
+            } catch (_) {
+              // Fallback default
+            }
+
+            // Build dynamic SQL
+            const valuesMap: Record<string, any> = {
+              title: collectedData.title,
+              suburb: collectedData.suburb,
+              price: Number(collectedData.price),
+              landlord_id: collectedData.landlord_id || phoneId,
+              verification_status: "Active",
+              image_url: storedImageField,
+              landmark: collectedData.landmark || null,
+              city: cityVal,
+              deposit: Number(collectedData.deposit || 0),
+              property_type: collectedData.property_type || "Single Room",
+              tenant_type: "General",
+              rent_cycle: collectedData.rent_cycle || (isHospitality ? "Night" : "Month"),
+              contact_method: "Call / Whatsapp",
+              contact_phone: collectedData.contact_phone || phone,
+              amenities: amenitiesJson,
+              category: categoryVal,
+              business_name: businessNameVal,
+              is_premium: isPremiumVal,
+              listing_tier: tierVal,
+              expiry_date: isPremiumVal ? new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString() : null
+            };
+
+            const targetCols = cols.filter(c => valuesMap[c] !== undefined);
+            const placeholders = targetCols.map(() => "?").join(", ");
+            const bindValues = targetCols.map(c => valuesMap[c]);
+
             const insertRes = await env.DB.prepare(`
-              INSERT INTO listings (
-                title, suburb, price, landlord_id, verification_status,
-                image_url, landmark, city, deposit, property_type,
-                tenant_type, rent_cycle, contact_method, contact_phone, amenities,
-                category, business_name, is_premium, listing_tier
-              ) VALUES (?, ?, ?, ?, 'Active', ?, ?, ?, ?, ?, 'General', ?, 'Call / Whatsapp', ?, ?, ?, ?, ?, ?)
-            `).bind(
-            collectedData.title,
-            collectedData.suburb,
-            Number(collectedData.price),
-            collectedData.landlord_id || phoneId,
-            storedImageField,
-            collectedData.landmark || null,
-            cityVal,
-            Number(collectedData.deposit || 0),
-            collectedData.property_type || "Single Room",
-            collectedData.rent_cycle || (isHospitality ? "Night" : "Month"),
-            collectedData.contact_phone || phone,
-            amenitiesJson,
-            categoryVal,
-            businessNameVal,
-            isPremiumVal,
-            tierVal
-          ).run();
+              INSERT INTO listings (${targetCols.join(", ")})
+              VALUES (${placeholders})
+            `).bind(...bindValues).run();
 
             listingId = insertRes?.meta?.last_row_id || "New";
           }
