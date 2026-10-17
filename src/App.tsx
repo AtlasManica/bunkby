@@ -1468,7 +1468,7 @@ export default function App() {
                 <div className="w-12 h-12 sm:w-16 sm:h-16 bg-slate-100 rounded-full flex items-center justify-center mx-auto text-slate-400">
                   <SlidersHorizontal className="w-6 h-6 sm:w-8 sm:h-8" />
                 </div>
-                <h3 className="text-base sm:text-lg font-bold text-slate-800 font-display">No Rooms Found</h3>
+                <h3 className="text-base sm:text-lg font-bold text-slate-800 font-display">No Listings Found</h3>
                 <p className="text-xs sm:text-sm text-slate-500">
                   No listings matched your criteria. Try widening your search or clearing filters. Landlords can list rooms instantly for free!
                 </p>
@@ -1872,7 +1872,7 @@ export default function App() {
                     </div>
                     <h4 className="text-lg font-bold text-slate-800">You haven't created any BunkBy listings yet</h4>
                     <p className="text-sm text-slate-500">
-                      Tap key 'New Listing' to list your rooms. High tenant traffic yields contacts directly via your phone or WhatsApp line!
+                      Tap 'Create a Listing' to publish your property. High tenant traffic yields direct contacts via WhatsApp and phone call!
                     </p>
                     <button 
                       onClick={() => {
@@ -2644,9 +2644,10 @@ export default function App() {
 
       {/* FOOTER */}
       <footer className="bg-[#021024] text-white pt-6 sm:pt-8 border-t border-[#052659] mt-auto select-none shrink-0 text-center sm:text-left">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-6 sm:pb-8 grid grid-cols-1 md:grid-cols-3 gap-5 sm:gap-8">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-6 sm:pb-8 flex flex-col sm:flex-row items-center sm:items-start justify-between gap-6 sm:gap-12">
           
-          <div className="space-y-3">
+          {/* Brand Info (Left / Start) */}
+          <div className="space-y-3 max-w-md text-center sm:text-left">
             <div className="flex items-center gap-2 justify-center sm:justify-start">
               <BunkByLogo className="w-8 h-8" />
               <span className="text-xl font-display font-black uppercase tracking-tight text-white">
@@ -2658,17 +2659,10 @@ export default function App() {
             </p>
           </div>
 
-          <div className="space-y-2.5 flex flex-col items-center sm:items-start text-[11px] text-[#E2E8F0] font-normal">
-            <h4 className="text-white font-extrabold text-xs uppercase tracking-wider">Active Directories</h4>
-            <div className="flex flex-wrap gap-2 justify-center sm:justify-start text-[#E2E8F0]">
-              <span>Harare</span> • <span>Bulawayo</span> • <span>Gweru</span> • <span>Mutare</span> • <span>Victoria Falls</span>
-            </div>
-          </div>
-
-          <div className="text-[11px] text-[#E2E8F0] font-normal space-y-2 flex flex-col items-center sm:items-start">
+          {/* Direct WhatsApp Connection (Opposite Side / Right) */}
+          <div className="text-[11px] text-[#E2E8F0] font-normal space-y-2 max-w-xs text-center sm:text-right flex flex-col items-center sm:items-end">
             <h4 className="text-white font-extrabold text-xs uppercase tracking-wider">Direct WhatsApp Connection</h4>
-            <p className="text-[#E2E8F0]">Connect directly with verified landlords and hosts with zero agency middlemen fees.</p>
-            
+            <p className="text-[#E2E8F0] leading-relaxed">Connect directly with verified landlords and hosts with zero agency middlemen fees.</p>
           </div>
 
         </div>
@@ -2868,7 +2862,7 @@ export default function App() {
                   {/* Deposit Price */}
                   <div className="space-y-1.5">
                     <label className="text-xs font-bold text-slate-500 uppercase tracking-wide">
-                      {newRoomForm.category === "hospitality" ? "Damage Deposit (USD - Optional)" : "Security Deposit (USD)"}
+                      {newRoomForm.category === "hospitality" ? "Damage Deposit (USD - Optional)" : "Deposit (USD)"}
                     </label>
                     <input 
                       type="number" 
@@ -3506,7 +3500,7 @@ export default function App() {
                       </span>
                     </div>
                     {selectedListingDetail.deposit > 0 ? (
-                      <span className="text-xs text-slate-500 font-mono">Security Deposit: ${selectedListingDetail.deposit}</span>
+                      <span className="text-xs text-slate-500 font-mono">Deposit: ${selectedListingDetail.deposit}</span>
                     ) : (
                       <span className="text-xs text-emerald-600 font-mono font-bold">No Deposit Required</span>
                     )}

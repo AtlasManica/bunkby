@@ -727,7 +727,7 @@ Send another photo, or reply *done* to proceed.`));
         `👉 Visit *bunkby.com* for all listings, filters, and maps.`,
         [
           { id: "CMD_SEARCH_MENU", title: "🔍 New Search" },
-          { id: "CMD_START_LISTING", title: "🏡 Post a Room" }
+          { id: "CMD_START_LISTING", title: "🏡 Create a Listing" }
         ],
         "BunkBy Accommodation"
       )

@@ -54,8 +54,8 @@ export async function onRequestPost({ request, env }) {
     
     const resolvedCategory = category || (["Lodge / Guesthouse", "Hotel", "Lodge", "Guesthouse", "Bed & Breakfast"].includes(property_type) ? "hospitality" : "residential");
     const resolvedBusinessName = business_name || businessName || null;
-    const resolvedIsPremium = (is_premium !== undefined ? is_premium : isPremium) ? 1 : (resolvedCategory === "hospitality" ? 1 : 0);
-    const resolvedTier = listing_tier || listingTier || (resolvedCategory === "hospitality" ? "paid" : "free");
+    const resolvedIsPremium = 0;
+    const resolvedTier = "free";
     const resolvedExpiry = expiry_date || expiryDate || (resolvedIsPremium ? new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString() : null);
 
     // Amenities stringified as checklist
