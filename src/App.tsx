@@ -960,6 +960,8 @@ export default function App() {
       return ["Rimuka", "Waverly", "Innsfree", "Westview", "Mornington"];
     } else if (selectedCity === "Kariba") {
       return ["Nyamhunga", "Mahombekombe", "Heights", "Baobab", "Breezes"];
+    } else if (selectedCity === "Nyanga") {
+      return ["Juliasdale", "Troutbeck", "Village", "Rochdale", "Clairvaux", "Nyamhuka"];
     } else if (selectedCity === "Bindura") {
       return ["Chipadze", "Chiwaridzo", "Atherstone", "Brockley"];
     } else if (selectedCity === "Chivhu") {

@@ -863,10 +863,24 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
         await env.DB.prepare("DELETE FROM chatbot_sessions WHERE phone_number = ?").bind(phone).run();
 
         const cleanQuery = text.replace(/^(search|find|looking for|i want a|need a)\s*/i, "").trim();
-        const searchTerms = cleanQuery.split(/[\s,]+/).filter(w => w.length >= 2);
-        const suburbTerm = searchTerms[0] || cleanQuery;
 
-        // Query live D1 listings
+        // Count total matching listings
+        let countSql = `
+          SELECT COUNT(*) as total
+          FROM listings
+          WHERE verification_status != 'Delisted'
+        `;
+        const countParams: any[] = [];
+        if (cleanQuery) {
+          countSql += ` AND (suburb LIKE ? OR city LIKE ? OR title LIKE ? OR landmark LIKE ?)`;
+          countParams.push(`%${cleanQuery}%`, `%${cleanQuery}%`, `%${cleanQuery}%`, `%${cleanQuery}%`);
+        }
+        const totalCountRes: any = countParams.length > 0 
+          ? await env.DB.prepare(countSql).bind(...countParams).first()
+          : await env.DB.prepare(countSql).first();
+        const totalMatching = Number(totalCountRes?.total) || 0;
+
+        // Query up to 3 listings for the first page
         let querySql = `
           SELECT listings.*, landlords.full_name as landlord_name
           FROM listings
@@ -874,13 +888,12 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
           WHERE listings.verification_status != 'Delisted'
         `;
         const params: any[] = [];
-
         if (cleanQuery) {
           querySql += ` AND (listings.suburb LIKE ? OR listings.city LIKE ? OR listings.title LIKE ? OR listings.landmark LIKE ?)`;
           params.push(`%${cleanQuery}%`, `%${cleanQuery}%`, `%${cleanQuery}%`, `%${cleanQuery}%`);
         }
 
-        querySql += ` ORDER BY listings.created_at DESC LIMIT 5`;
+        querySql += ` ORDER BY listings.created_at DESC LIMIT 3 OFFSET 0`;
 
         const stmt = env.DB.prepare(querySql);
         const { results } = params.length > 0 ? await stmt.bind(...params).all() : await stmt.all();
@@ -896,38 +909,48 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
           actionTaken = "SEARCH_RESULTS";
           const baseUrl = new URL(request.url).origin || "https://bunkby.com";
 
-          if (results.length === 1) {
-            // For a single match, combine the found header with complete listing card details immediately
-            const room = results[0];
+          const headerMsg = totalMatching > results.length
+            ? `🏡 *Showing stays 1–${results.length} of ${totalMatching} in "${cleanQuery}":*`
+            : `🏡 *Found ${totalMatching} active stay${totalMatching === 1 ? "" : "s"} in "${cleanQuery}":*`;
+          
+          outboundQueue.push({ text: headerMsg, itemType: "intro" });
+
+          // Send up to 3 property cards
+          for (const room of results) {
             const card = buildListingCardMessage(room, baseUrl, phone);
-            const combinedText = `🏡 *Found 1 active stay in "${cleanQuery}":*\n\n${card.text}`;
             outboundQueue.push({
-              text: combinedText,
+              text: card.text,
               imageUrl: card.imageUrl,
               itemType: "listing_card",
               listingId: room.id
             });
-          } else {
-            const introMsg = `🏡 *Found ${results.length} active stays in "${cleanQuery}":*`;
-            outboundQueue.push({ text: introMsg, itemType: "intro" });
-            for (const room of results) {
-              const card = buildListingCardMessage(room, baseUrl, phone);
-              outboundQueue.push({
-                text: card.text,
-                imageUrl: card.imageUrl,
-                itemType: "listing_card",
-                listingId: room.id
-              });
-            }
           }
 
+          // Build navigation buttons
+          const hasMore = results.length < totalMatching;
+          const safeQuery = cleanQuery.slice(0, 15).replace(/[^a-zA-Z0-9]/g, "");
+
+          const navButtons: Array<{ id: string; title: string }> = [];
+          if (hasMore) {
+            navButtons.push({
+              id: `PAGE_3_${safeQuery}`,
+              title: `⏩ Next 3 Stays (${totalMatching - results.length} left)`
+            });
+            navButtons.push({ id: "CMD_SEARCH", title: "🔍 New Search" });
+            navButtons.push({ id: "CMD_LIST", title: "🏡 Add Listing" });
+          } else {
+            navButtons.push({ id: "CMD_SEARCH", title: "🔍 Search Again" });
+            navButtons.push({ id: "CMD_MY_LISTINGS", title: "📋 My Listings" });
+            navButtons.push({ id: "CMD_LIST", title: "🏡 Add Listing" });
+          }
+
+          const footerText = hasMore
+            ? `📄 *Viewing ${results.length} of ${totalMatching} stays.* Tap *Next 3 Stays* below to see the next batch, or visit https://bunkby.com for full galleries:`
+            : `✅ *You have reached the end of listings in "${cleanQuery}".* Tap below to search another area or create a listing:`;
+
           outboundQueue.push({
-            text: `👉 Visit https://bunkby.com to browse full interactive galleries and maps.\n\nWhat would you like to do next?`,
-            buttons: [
-              { id: "CMD_SEARCH", title: "🔍 Search Again" },
-              { id: "CMD_MY_LISTINGS", title: "📋 My Listings" },
-              { id: "CMD_LIST", title: "🏡 Create a Listing" }
-            ],
+            text: footerText,
+            buttons: navButtons,
             itemType: "action_footer"
           });
         }
@@ -1111,20 +1134,21 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
             `3️⃣ Chitungwiza\n` +
             `4️⃣ Mutare\n` +
             `5️⃣ Gweru\n` +
-            `6️⃣ Victoria Falls 🌊\n` +
+            `6️⃣ Victoria Falls\n` +
             `7️⃣ Kadoma\n` +
             `8️⃣ Kwekwe\n` +
             `9️⃣ Chinhoyi\n` +
             `🔟 Masvingo\n` +
             `1️⃣1️⃣ Marondera\n` +
             `1️⃣2️⃣ Bindura\n` +
-            `1️⃣3️⃣ Kariba ⛵\n` +
-            `1️⃣4️⃣ Chivhu\n\n` +
-            `_(Tap a quick button below or type any town/resort name)_`;
+            `1️⃣3️⃣ Kariba\n` +
+            `1️⃣4️⃣ Nyanga\n` +
+            `1️⃣5️⃣ Chivhu\n\n` +
+            `_(Tap a quick button below or type any town or resort name)_`;
           buttonsToSend = [
             { id: "CITY_HARARE", title: "📍 Harare" },
             { id: "CITY_BULAWAYO", title: "📍 Bulawayo" },
-            { id: "CITY_VICFALLS", title: "🌊 Victoria Falls" }
+            { id: "CITY_VICFALLS", title: "📍 Victoria Falls" }
           ];
           actionTaken = "LISTING_STEP_CITY";
         }
@@ -1148,7 +1172,8 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
           "11": "Marondera",
           "12": "Bindura",
           "13": "Kariba",
-          "14": "Chivhu",
+          "14": "Nyanga",
+          "15": "Chivhu",
           "city_harare": "Harare",
           "city_bulawayo": "Bulawayo",
           "city_chitungwiza": "Chitungwiza",
@@ -1163,6 +1188,7 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
           "city_marondera": "Marondera",
           "city_bindura": "Bindura",
           "city_kariba": "Kariba",
+          "city_nyanga": "Nyanga",
           "city_chivhu": "Chivhu"
         };
         const normCity = (buttonPayload || "").toLowerCase().trim();
@@ -1176,6 +1202,7 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
           else if (normInput.includes("gweru")) chosenCity = "Gweru";
           else if (normInput.includes("kadoma")) chosenCity = "Kadoma";
           else if (normInput.includes("kariba")) chosenCity = "Kariba";
+          else if (normInput.includes("nyanga")) chosenCity = "Nyanga";
           else if (normInput.includes("bindura")) chosenCity = "Bindura";
           else if (normInput.includes("chivhu")) chosenCity = "Chivhu";
           else if (normInput.includes("victoria falls") || normInput.includes("vic falls")) chosenCity = "Victoria Falls";
@@ -1196,7 +1223,7 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
           buttonsToSend = [
             { id: "CITY_HARARE", title: "📍 Harare" },
             { id: "CITY_BULAWAYO", title: "📍 Bulawayo" },
-            { id: "CITY_VICFALLS", title: "🌊 Victoria Falls" }
+            { id: "CITY_VICFALLS", title: "📍 Victoria Falls" }
           ];
           actionTaken = "STEP_RETRY";
         } else {
@@ -1991,6 +2018,7 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
     // PRIORITY 5: ACCOMMODATION SEARCH (No Active Session)
     // -------------------------------------------------------------
     else if (
+      buttonPayload?.startsWith("PAGE_") ||
       buttonPayload === "CMD_SEARCH" ||
       buttonPayload === "CMD_SEARCH_MENU" ||
       lowerText === "search" ||
@@ -2009,6 +2037,7 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
       lowerText.includes("gweru") ||
       lowerText.includes("kadoma") ||
       lowerText.includes("kariba") ||
+      lowerText.includes("nyanga") ||
       lowerText.includes("bindura") ||
       lowerText.includes("chivhu") ||
       lowerText.includes("mt pleasant") ||
@@ -2032,17 +2061,44 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
         buttonsToSend = [
           { id: "SEARCH_HARARE", title: "📍 Harare" },
           { id: "SEARCH_BULAWAYO", title: "📍 Bulawayo" },
-          { id: "SEARCH_VICFALLS", title: "🌊 Victoria Falls" }
+          { id: "SEARCH_VICFALLS", title: "📍 Victoria Falls" }
         ];
         actionTaken = "SEARCH_PROMPT_LOCATION";
       } else {
-        // User typed a place name directly (e.g. "Mt Pleasant", "Harare", "Avonlea")
+        // User typed a place name directly or tapped a pagination button
         let cleanQuery = text.replace(/^(search|find|looking for|i want a|need a)\s*/i, "").trim();
-        if (buttonPayload === "SEARCH_HARARE") cleanQuery = "Harare";
-        else if (buttonPayload === "SEARCH_MT_PLEASANT") cleanQuery = "Mt Pleasant";
-        else if (buttonPayload === "SEARCH_AVONLEA") cleanQuery = "Avonlea";
+        let searchOffset = 0;
 
-        // Query live D1 listings
+        if (buttonPayload?.startsWith("PAGE_")) {
+          // Format: PAGE_{offset}_{encodedQuery}
+          const pageParts = buttonPayload.split("_");
+          searchOffset = parseInt(pageParts[1], 10) || 0;
+          cleanQuery = pageParts.slice(2).join("_") || cleanQuery;
+        } else if (buttonPayload === "SEARCH_HARARE") {
+          cleanQuery = "Harare";
+        } else if (buttonPayload === "SEARCH_BULAWAYO") {
+          cleanQuery = "Bulawayo";
+        } else if (buttonPayload === "SEARCH_VICFALLS") {
+          cleanQuery = "Victoria Falls";
+        }
+
+        // Count total matching listings
+        let countSql = `
+          SELECT COUNT(*) as total
+          FROM listings
+          WHERE verification_status != 'Delisted'
+        `;
+        const countParams: any[] = [];
+        if (cleanQuery) {
+          countSql += ` AND (suburb LIKE ? OR city LIKE ? OR title LIKE ? OR landmark LIKE ?)`;
+          countParams.push(`%${cleanQuery}%`, `%${cleanQuery}%`, `%${cleanQuery}%`, `%${cleanQuery}%`);
+        }
+        const totalCountRes: any = countParams.length > 0 
+          ? await env.DB.prepare(countSql).bind(...countParams).first()
+          : await env.DB.prepare(countSql).first();
+        const totalMatching = Number(totalCountRes?.total) || 0;
+
+        // Query up to 3 listings per page with OFFSET
         let querySql = `
           SELECT listings.*, landlords.full_name as landlord_name
           FROM listings
@@ -2050,19 +2106,19 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
           WHERE listings.verification_status != 'Delisted'
         `;
         const params: any[] = [];
-
         if (cleanQuery) {
           querySql += ` AND (listings.suburb LIKE ? OR listings.city LIKE ? OR listings.title LIKE ? OR listings.landmark LIKE ?)`;
           params.push(`%${cleanQuery}%`, `%${cleanQuery}%`, `%${cleanQuery}%`, `%${cleanQuery}%`);
         }
 
-        querySql += ` ORDER BY listings.created_at DESC LIMIT 5`;
+        querySql += ` ORDER BY listings.created_at DESC LIMIT 3 OFFSET ?`;
+        params.push(searchOffset);
 
         const stmt = env.DB.prepare(querySql);
-        const { results } = params.length > 0 ? await stmt.bind(...params).all() : await stmt.all();
+        const { results } = await stmt.bind(...params).all();
 
         if (!results || results.length === 0) {
-          replyText = `🏡 No active listings currently found in *"${cleanQuery || "your search"}"*.\n\n💡 *Suggestions:*\n• Try searching a wider area like *Harare*, *Bulawayo*, or nearby suburbs (*Avonlea*, *Belvedere*, *Avenues*, *Mt Pleasant*).\n• Tap *Create a Listing* below to post your property on BunkBy!`;
+          replyText = `🏡 No active listings found in *"${cleanQuery || "your search"}"*.\n\n💡 *Suggestions:*\n• Try searching a major city or town (e.g. *Harare*, *Bulawayo*, *Victoria Falls*, *Mutare*, *Kadoma*).\n• Tap *Create a Listing* below to post a property on BunkBy!`;
           actionTaken = "SEARCH_NO_RESULTS";
           buttonsToSend = [
             { id: "CMD_SEARCH", title: "🔍 Search Again" },
@@ -2072,38 +2128,52 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
           actionTaken = "SEARCH_RESULTS";
           const baseUrl = new URL(request.url).origin || "https://bunkby.com";
 
-          if (results.length === 1) {
-            // For a single match, combine the found header with complete listing card details immediately
-            const room = results[0];
+          // Header message indicating results count and range
+          const startNum = searchOffset + 1;
+          const endNum = searchOffset + results.length;
+          const headerMsg = totalMatching > results.length
+            ? `🏡 *Showing stays ${startNum}–${endNum} of ${totalMatching} in "${cleanQuery}":*`
+            : `🏡 *Found ${totalMatching} active stay${totalMatching === 1 ? "" : "s"} in "${cleanQuery}":*`;
+          
+          outboundQueue.push({ text: headerMsg, itemType: "intro" });
+
+          // Send up to 3 individual property cards, each with its image and complete specs
+          for (const room of results) {
             const card = buildListingCardMessage(room, baseUrl, phone);
-            const combinedText = `🏡 *Found 1 active stay in "${cleanQuery}":*\n\n${card.text}`;
             outboundQueue.push({
-              text: combinedText,
+              text: card.text,
               imageUrl: card.imageUrl,
               itemType: "listing_card",
               listingId: room.id
             });
-          } else {
-            const introMsg = `🏡 *Found ${results.length} active stays in "${cleanQuery}":*`;
-            outboundQueue.push({ text: introMsg, itemType: "intro" });
-            for (const room of results) {
-              const card = buildListingCardMessage(room, baseUrl, phone);
-              outboundQueue.push({
-                text: card.text,
-                imageUrl: card.imageUrl,
-                itemType: "listing_card",
-                listingId: room.id
-              });
-            }
           }
 
+          // Build navigation footer with Next Batch if more properties exist
+          const hasMore = searchOffset + results.length < totalMatching;
+          const nextOffset = searchOffset + 3;
+          const safeQuery = cleanQuery.slice(0, 15).replace(/[^a-zA-Z0-9]/g, "");
+
+          const navButtons: Array<{ id: string; title: string }> = [];
+          if (hasMore) {
+            navButtons.push({
+              id: `PAGE_${nextOffset}_${safeQuery}`,
+              title: `⏩ Next 3 Stays (${totalMatching - endNum} left)`
+            });
+            navButtons.push({ id: "CMD_SEARCH", title: "🔍 New Search" });
+            navButtons.push({ id: "CMD_LIST", title: "🏡 Add Listing" });
+          } else {
+            navButtons.push({ id: "CMD_SEARCH", title: "🔍 Search Again" });
+            navButtons.push({ id: "CMD_MY_LISTINGS", title: "📋 My Listings" });
+            navButtons.push({ id: "CMD_LIST", title: "🏡 Add Listing" });
+          }
+
+          const footerText = hasMore
+            ? `📄 *Viewing ${endNum} of ${totalMatching} stays.* Tap *Next 3 Stays* below to see the next batch, or visit https://bunkby.com for full galleries:`
+            : `✅ *You have reached the end of listings in "${cleanQuery}".* Tap below to search another area or create a listing:`;
+
           outboundQueue.push({
-            text: `👉 Visit https://bunkby.com to browse full interactive galleries and maps.\n\nWhat would you like to do next?`,
-            buttons: [
-              { id: "CMD_SEARCH", title: "🔍 Search Again" },
-              { id: "CMD_MY_LISTINGS", title: "📋 My Listings" },
-              { id: "CMD_LIST", title: "🏡 Create a Listing" }
-            ],
+            text: footerText,
+            buttons: navButtons,
             itemType: "action_footer"
           });
         }
@@ -2132,7 +2202,7 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
         
         // Rate-limit buffer: WhatsApp Cloud API recommends sequential pacing between multi-message payloads
         if (i > 0) {
-          await new Promise(r => setTimeout(r, 120));
+          await new Promise(r => setTimeout(r, 220));
         }
 
         let res = await sendMetaWhatsAppMessage(phone, item.text, env, item.buttons, item.imageUrl);
