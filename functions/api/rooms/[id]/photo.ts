@@ -6,7 +6,7 @@
 
 export async function onRequestGet({ env, params }: { env: any; params: any }) {
   try {
-    const id = params.id;
+    const id = String(params.id || "").replace(/\.[a-zA-Z0-9]+$/, "");
     if (!id || !env.DB) {
       return new Response("Listing not found", { status: 404 });
     }

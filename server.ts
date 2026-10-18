@@ -687,9 +687,10 @@ app.post("/api/rooms/:id/lead", (req, res) => {
 });
 
 // Public endpoint to serve listing photographs to WhatsApp & external clients
-app.get(["/api/listings/:id/photo", "/api/rooms/:id/photo"], (req, res) => {
+app.get(["/api/listings/:id/photo", "/api/rooms/:id/photo", "/api/listings/:id/photo.jpg", "/api/rooms/:id/photo.jpg"], (req, res) => {
   try {
-    const listing = db.prepare("SELECT image_url, title FROM listings WHERE id = ?").get(req.params.id) as any;
+    const cleanId = String(req.params.id || "").replace(/\.[a-zA-Z0-9]+$/, "");
+    const listing = db.prepare("SELECT image_url, title FROM listings WHERE id = ?").get(cleanId) as any;
     if (!listing || !listing.image_url) {
       return res.status(404).send("Photograph not found");
     }

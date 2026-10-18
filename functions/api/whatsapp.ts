@@ -109,7 +109,7 @@ export async function onRequestGet({ request, env }: { request: Request; env: En
     return jsonResponse({
       status: "online",
       service: "BunkBy WhatsApp Cloudflare Pages Function",
-      version: "2026-10-16_diagnostic_v10_full_website_parity",
+      version: "2026-10-18_diagnostic_v12_delete_listings_and_easy_search",
       metaConfigured: Boolean(activeToken && activePhoneId),
       hasAccessToken: Boolean(activeToken),
       hasPhoneNumberId: Boolean(activePhoneId),
@@ -213,7 +213,7 @@ function getListingPhotoUrl(listing: any, baseUrl: string): string | null {
     } catch (_) {}
   }
 
-  // Filter out any corporate branding, company logos, or placeholder graphics
+  // Filter out explicit corporate branding logos
   if (isBrandingOrLogoImage(raw)) {
     return null;
   }
@@ -223,10 +223,20 @@ function getListingPhotoUrl(listing: any, baseUrl: string): string | null {
     return raw;
   }
 
-  // 2. If base64 data URI or relative path, serve via public photo endpoint
+  // 2. If base64 data URI or relative path, serve via public photo endpoint with .jpg suffix for Meta Media Parser
   if (raw.startsWith("data:") || raw.startsWith("/")) {
-    const cleanBase = baseUrl.replace(/\/+$/, "");
-    return `${cleanBase}/api/rooms/${listing.id}/photo`;
+    // Ensure public production hostname https://bunkby.com is used so Meta servers can always download the image
+    let origin = "https://bunkby.com";
+    if (baseUrl && (baseUrl.startsWith("https://") || baseUrl.startsWith("http://"))) {
+      try {
+        const u = new URL(baseUrl);
+        if (u.hostname !== "localhost" && u.hostname !== "127.0.0.1") {
+          origin = u.origin;
+        }
+      } catch (_) {}
+    }
+    const cleanBase = origin.replace(/\/+$/, "");
+    return `${cleanBase}/api/rooms/${listing.id}/photo.jpg`;
   }
 
   return null;
@@ -829,7 +839,71 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
       // ---------------------------------------------------------
       // STEP 1: CATEGORY SELECTION
       // ---------------------------------------------------------
-      if (currentStep === "AWAITING_CATEGORY") {
+            // ---------------------------------------------------------
+      // SEARCH SESSION: USER SEARCHING BY LOCATION / PLACE NAME
+      // ---------------------------------------------------------
+      if (currentStep === "AWAITING_SEARCH_QUERY") {
+        // User entered their search term directly (e.g. "Mt Pleasant", "Harare", "Avonlea")
+        // Clear the search session immediately
+        await env.DB.prepare("DELETE FROM chatbot_sessions WHERE phone_number = ?").bind(phone).run();
+
+        const cleanQuery = text.replace(/^(search|find|looking for|i want a|need a)\s*/i, "").trim();
+        const searchTerms = cleanQuery.split(/[\s,]+/).filter(w => w.length >= 2);
+        const suburbTerm = searchTerms[0] || cleanQuery;
+
+        // Query live D1 listings
+        let querySql = `
+          SELECT listings.*, landlords.full_name as landlord_name
+          FROM listings
+          LEFT JOIN landlords ON listings.landlord_id = landlords.id
+          WHERE listings.verification_status != 'Delisted'
+        `;
+        const params: any[] = [];
+
+        if (cleanQuery) {
+          querySql += ` AND (listings.suburb LIKE ? OR listings.city LIKE ? OR listings.title LIKE ? OR listings.landmark LIKE ?)`;
+          params.push(`%${cleanQuery}%`, `%${cleanQuery}%`, `%${cleanQuery}%`, `%${cleanQuery}%`);
+        }
+
+        querySql += ` ORDER BY listings.created_at DESC LIMIT 5`;
+
+        const stmt = env.DB.prepare(querySql);
+        const { results } = params.length > 0 ? await stmt.bind(...params).all() : await stmt.all();
+
+        if (!results || results.length === 0) {
+          replyText = `🏡 No active listings currently found in *"${cleanQuery}"*.\n\n💡 *Suggestions:*\n• Try searching a wider area like *Harare*, *Bulawayo*, or nearby suburbs (*Avonlea*, *Belvedere*, *Avenues*, *Mt Pleasant*).\n• Tap *Create a Listing* below to post your property on BunkBy!`;
+          actionTaken = "SEARCH_NO_RESULTS";
+          buttonsToSend = [
+            { id: "CMD_SEARCH", title: "🔍 Search Again" },
+            { id: "CMD_LIST", title: "🏡 Create a Listing" }
+          ];
+        } else {
+          actionTaken = "SEARCH_RESULTS";
+          const baseUrl = new URL(request.url).origin || "https://bunkby.com";
+          const introMsg = `🏡 *Found ${results.length} active stay${results.length === 1 ? "" : "s"} in "${cleanQuery}":*`;
+          
+          outboundQueue.push({ text: introMsg, itemType: "intro" });
+
+          for (const room of results) {
+            const card = buildListingCardMessage(room, baseUrl, phone);
+            outboundQueue.push({
+              text: card.text,
+              imageUrl: card.imageUrl,
+              itemType: "listing_card",
+              listingId: room.id
+            });
+          }
+
+          outboundQueue.push({
+            text: `👉 Visit https://bunkby.com to browse full interactive galleries.\n\nTap below to search another area or create a listing:`,
+            buttons: [
+              { id: "CMD_SEARCH", title: "🔍 Search Again" },
+              { id: "CMD_LIST", title: "🏡 Create a Listing" }
+            ],
+            itemType: "action_footer"
+          });
+        }
+      } else if (currentStep === "AWAITING_CATEGORY") {
         if (buttonPayload === "CAT_HOSPITALITY" || lowerText === "2" || lowerText.includes("hospitality") || lowerText.includes("lodge") || lowerText.includes("hotel") || lowerText.includes("guest")) {
           collectedData.category = "hospitality";
           collectedData.rent_cycle = "Night";
@@ -840,13 +914,12 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
             WHERE phone_number = ?
           `).bind(JSON.stringify(collectedData), phone).run();
 
-          replyText = `🏨 *Hospitality & Stays Selected*\n\n*Step 2/11: Select Property Type*\nReply with the number:\n` +
+          replyText = `🏨 *Hospitality & Stays Selected*\n\n*Step 2/11: Select Property Type*\nTap an option or reply with number:\n` +
             `1️⃣ Guest House\n` +
             `2️⃣ Lodge / Guesthouse\n` +
             `3️⃣ Lodge\n` +
             `4️⃣ Hotel\n` +
-            `5️⃣ Bed & Breakfast\n\n` +
-            `_(Or type your property type if not listed above)_`;
+            `5️⃣ Bed & Breakfast`;
           buttonsToSend = [
             { id: "HTYPE_GUESTHOUSE", title: "🏡 Guest House" },
             { id: "HTYPE_LODGE", title: "🌿 Lodge" },
@@ -862,7 +935,7 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
             WHERE phone_number = ?
           `).bind(JSON.stringify(collectedData), phone).run();
 
-          replyText = `🏠 *Residential & Commercial Rentals Selected*\n\n*Step 2/11: Select Property Type*\nReply with the number:\n` +
+          replyText = `🏠 *Residential Rentals Selected*\n\n*Step 2/11: Select Property Type*\nTap an option or reply with number:\n` +
             `1️⃣ Single Room\n` +
             `2️⃣ Cottage\n` +
             `3️⃣ 2 rooms\n` +
@@ -876,8 +949,7 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
             `1️⃣1️⃣ Warehouse\n` +
             `1️⃣2️⃣ Shop\n` +
             `1️⃣3️⃣ Table\n` +
-            `1️⃣4️⃣ House Sale\n\n` +
-            `_(Or type the exact property type)_`;
+            `1️⃣4️⃣ House Sale`;
           buttonsToSend = [
             { id: "RTYPE_ROOM", title: "🚪 Single Room" },
             { id: "RTYPE_COTTAGE", title: "🏡 Cottage" },
@@ -885,7 +957,7 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
           ];
           actionTaken = "LISTING_STEP_TYPE_RESIDENTIAL";
         } else {
-          replyText = `⚠️ Please reply with *1* for Residential & Commercial Rentals or *2* for Hospitality & Stays.`;
+          replyText = `⚠️ Please select a listing category below:`;
           buttonsToSend = [
             { id: "CAT_RESIDENTIAL", title: "🏠 Residential" },
             { id: "CAT_HOSPITALITY", title: "🏨 Hospitality" }
@@ -905,61 +977,74 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
         if (isHospitality) {
           const hospMap: Record<string, string> = {
             "1": "Guest House",
-            "2": "Lodge",
-            "3": "Hotel",
-            "4": "Bed & Breakfast",
-            "5": "Short-Stay Apartment",
+            "2": "Lodge / Guesthouse",
+            "3": "Lodge",
+            "4": "Hotel",
+            "5": "Bed & Breakfast",
             "htype_guesthouse": "Guest House",
             "htype_lodge": "Lodge",
-            "htype_bnb": "Bed & Breakfast",
-            "guest house": "Guest House",
-            "lodge": "Lodge",
-            "hotel": "Hotel",
-            "bed & breakfast": "Bed & Breakfast",
-            "b&b": "Bed & Breakfast",
-            "short-stay apartment": "Short-Stay Apartment"
+            "htype_bnb": "Bed & Breakfast"
           };
           chosenType = hospMap[normPayload] || hospMap[normText] || "";
           if (!chosenType) {
-            if (normText.includes("guest")) chosenType = "Guest House";
-            else if (normText.includes("lodge")) chosenType = "Lodge";
+            if (normText === "guesthouse" || normText.includes("guest house")) chosenType = "Guest House";
+            else if (normText.includes("lodge / guesthouse")) chosenType = "Lodge / Guesthouse";
+            else if (normText === "lodge" || normText.includes("lodge")) chosenType = "Lodge";
             else if (normText.includes("hotel")) chosenType = "Hotel";
-            else if (normText.includes("b&b") || normText.includes("bed")) chosenType = "Bed & Breakfast";
-            else if (normText.includes("short") || normText.includes("apartment")) chosenType = "Short-Stay Apartment";
+            else if (normText.includes("bed") || normText.includes("b&b") || normText.includes("breakfast")) chosenType = "Bed & Breakfast";
             else if (text.trim().length >= 3) chosenType = text.trim();
           }
         } else {
           const resMap: Record<string, string> = {
             "1": "Single Room",
             "2": "Cottage",
-            "3": "2 Rooms",
-            "4": "Boarding House",
-            "5": "Full House",
-            "6": "Student Hostel",
+            "3": "2 rooms",
+            "4": "3 rooms",
+            "5": "Full house",
+            "6": "Apartment / Flat",
+            "7": "Townhouse / Cluster",
+            "8": "Boarding House",
+            "9": "Shared Space",
+            "10": "Student Hostel",
+            "11": "Warehouse",
+            "12": "Shop",
+            "13": "Table",
+            "14": "House Sale",
             "rtype_room": "Single Room",
             "rtype_cottage": "Cottage",
-            "rtype_2room": "2 Rooms",
-            "single room": "Single Room",
-            "cottage": "Cottage",
-            "2 rooms": "2 Rooms",
-            "boarding house": "Boarding House",
-            "full house": "Full House",
-            "student hostel": "Student Hostel"
+            "rtype_flat": "Apartment / Flat"
           };
           chosenType = resMap[normPayload] || resMap[normText] || "";
           if (!chosenType) {
-            if (normText.includes("single")) chosenType = "Single Room";
+            if (normText.includes("single") || normText === "room") chosenType = "Single Room";
             else if (normText.includes("cottage")) chosenType = "Cottage";
-            else if (normText.includes("2 room") || normText.includes("two room")) chosenType = "2 Rooms";
+            else if (normText.includes("2 room") || normText.includes("two room")) chosenType = "2 rooms";
+            else if (normText.includes("3 room") || normText.includes("three room")) chosenType = "3 rooms";
+            else if (normText.includes("townhouse") || normText.includes("cluster")) chosenType = "Townhouse / Cluster";
+            else if (normText.includes("apartment") || normText.includes("flat")) chosenType = "Apartment / Flat";
             else if (normText.includes("boarding")) chosenType = "Boarding House";
-            else if (normText.includes("full")) chosenType = "Full House";
-            else if (normText.includes("hostel") || normText.includes("student")) chosenType = "Student Hostel";
-            else if (text.trim().length >= 3) chosenType = text.trim();
+            else if (normText.includes("shared")) chosenType = "Shared Space";
+            else if (normText.includes("student") || normText.includes("hostel")) chosenType = "Student Hostel";
+            else if (normText.includes("warehouse")) chosenType = "Warehouse";
+            else if (normText.includes("shop")) chosenType = "Shop";
+            else if (normText.includes("table")) chosenType = "Table";
+            else if (normText.includes("sale")) chosenType = "House Sale";
+            else if (normText.includes("full") || normText.includes("house")) chosenType = "Full house";
+            else if (text.trim().length >= 2) chosenType = text.trim();
           }
         }
 
-        if (!chosenType || chosenType.length < 2) {
-          replyText = `⚠️ Please select a valid property type from the list above.`;
+        if (!chosenType) {
+          replyText = `⚠️ Please select a property type by replying with its number or tapping a button below:`;
+          buttonsToSend = isHospitality ? [
+            { id: "HTYPE_GUESTHOUSE", title: "🏡 Guest House" },
+            { id: "HTYPE_LODGE", title: "🌿 Lodge" },
+            { id: "HTYPE_BNB", title: "☕ B&B" }
+          ] : [
+            { id: "RTYPE_ROOM", title: "🚪 Single Room" },
+            { id: "RTYPE_COTTAGE", title: "🏡 Cottage" },
+            { id: "RTYPE_FLAT", title: "🏢 Apartment/Flat" }
+          ];
           actionTaken = "STEP_RETRY";
         } else {
           collectedData.property_type = chosenType;
@@ -969,11 +1054,7 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
             WHERE phone_number = ?
           `).bind(JSON.stringify(collectedData), phone).run();
 
-          const example = isHospitality 
-            ? `"Serene Executive Guest Wing" or "Avonlea Boutique Lodge"` 
-            : `"Neat Single Room with Solar & Borehole" or "Spacious 2-Room Cottage"`;
-
-          replyText = `✅ Property Type: *${chosenType}*\n\n*Step 3/9: Listing Title*\nWhat is the name or title of your listing?\n_(e.g. ${example})_`;
+          replyText = `✅ Property Type: *${chosenType}*\n\n*Step 3/11: Listing Headline / Title*\nEnter a brief catchy headline for your property:\n_(e.g. *Spacious Cottage in Avonlea* or *Modern Ensuite Lodge with Solar & Pool*)_`;
           actionTaken = "LISTING_STEP_TITLE";
         }
       }
@@ -996,7 +1077,7 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
             WHERE phone_number = ?
           `).bind(JSON.stringify(collectedData), phone).run();
 
-          replyText = `✅ Headline set to: *${collectedData.title}*\n\n*Step 4/11: Town or City*\nSelect or enter the town or city where the property is located:\n\n` +
+          replyText = `✅ Headline: *${collectedData.title}*\n\n*Step 4/11: Town or City*\nSelect or enter the town or city where the property is located:\n\n` +
             `1️⃣ Harare\n` +
             `2️⃣ Bulawayo\n` +
             `3️⃣ Gweru\n` +
@@ -1007,7 +1088,7 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
             `8️⃣ Chinhoyi\n` +
             `9️⃣ Kwekwe\n` +
             `🔟 Marondera\n\n` +
-            `_(Or reply with your town name if not listed)_`;
+            `_(Tap a button below or reply with your town name)_`;
           buttonsToSend = [
             { id: "CITY_HARARE", title: "📍 Harare" },
             { id: "CITY_BULAWAYO", title: "📍 Bulawayo" },
@@ -1057,7 +1138,12 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
         }
 
         if (!chosenCity) {
-          replyText = `⚠️ Please enter a valid town or city name (e.g. *Harare*, *Bulawayo*, *Mutare*).`;
+          replyText = `⚠️ Please select or enter a valid town or city name (e.g. *Harare*, *Bulawayo*, *Mutare*):`;
+          buttonsToSend = [
+            { id: "CITY_HARARE", title: "📍 Harare" },
+            { id: "CITY_BULAWAYO", title: "📍 Bulawayo" },
+            { id: "CITY_MUTARE", title: "📍 Mutare" }
+          ];
           actionTaken = "STEP_RETRY";
         } else {
           collectedData.city = chosenCity;
@@ -1067,159 +1153,13 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
             WHERE phone_number = ?
           `).bind(JSON.stringify(collectedData), phone).run();
 
-          replyText = `✅ City: *${chosenCity}*\n\n*Step 5/11: Suburb or Area*\nWhich suburb or neighbourhood in ${chosenCity} is the property in?\n_(e.g. *Avonlea*, *Belvedere*, *Avenues*, *Mt Pleasant*, *Khumalo*)_`;
+          replyText = `✅ City: *${chosenCity}*\n\n*Step 5/11: Suburb or Area*\nWhich suburb or neighbourhood in ${chosenCity} is the property in?\n_(e.g. *Avonlea*, *Belvedere*, *Avenues*, *Rhodene*, *Khumalo*)_`;
           actionTaken = "LISTING_STEP_SUBURB";
         }
       }
 
       // ---------------------------------------------------------
-      // STEP 4: PRICE & RENT PERIOD
-      // ---------------------------------------------------------
-      else if (currentStep === "AWAITING_PRICE") {
-        const priceNum = parseInt(text.replace(/[^0-9]/g, ""), 10);
-        if (isNaN(priceNum) || priceNum <= 0) {
-          replyText = `⚠️ Please enter a valid numerical price in USD (e.g. *40*, *120*).`;
-          actionTaken = "STEP_RETRY";
-        } else {
-          collectedData.price = priceNum;
-          if (isHospitality) {
-            // Hospitality stays typically do not have deposits, skip deposit question
-            collectedData.deposit = 0;
-            collectedData.rent_cycle = "Night";
-            await env.DB.prepare(`
-              UPDATE chatbot_sessions 
-              SET current_step = 'AWAITING_SUBURB', collected_data = ?, updated_at = CURRENT_TIMESTAMP 
-              WHERE phone_number = ?
-            `).bind(JSON.stringify(collectedData), phone).run();
-
-            replyText = `✅ Rate set to: *$${priceNum}/night*\n\n*Step 5/8: Suburb & Location*\nIn which suburb or area is this property located?\n_(e.g. *Avonlea*, *Belvedere*, *Newlands*, *Victoria Falls*)_`;
-            actionTaken = "LISTING_STEP_SUBURB";
-          } else {
-            collectedData.rent_cycle = "Month";
-            await env.DB.prepare(`
-              UPDATE chatbot_sessions 
-              SET current_step = 'AWAITING_DEPOSIT', collected_data = ?, updated_at = CURRENT_TIMESTAMP 
-              WHERE phone_number = ?
-            `).bind(JSON.stringify(collectedData), phone).run();
-
-            replyText = `✅ Rent set to: *$${priceNum}/month*\n\n*Step 5/9: Deposit*\nIs a deposit required?\n\nReply with the deposit amount in USD (e.g. *${priceNum}*, *50*), or reply *0* / *none* for no deposit.`;
-            buttonsToSend = [
-              { id: "DEP_SAME", title: `$${priceNum} (1 Month)` },
-              { id: "DEP_NONE", title: "No Deposit ($0)" }
-            ];
-            actionTaken = "LISTING_STEP_DEPOSIT";
-          }
-        }
-      }
-
-      // ---------------------------------------------------------
-      // STEP 5: DEPOSIT (Residential only)
-      // ---------------------------------------------------------
-      else if (currentStep === "AWAITING_DEPOSIT") {
-        let depositVal = 0;
-        if (buttonPayload === "DEP_NONE" || lowerText === "0" || lowerText === "none" || lowerText === "no") {
-          depositVal = 0;
-        } else if (buttonPayload === "DEP_SAME") {
-          depositVal = Number(collectedData.price || 0);
-        } else {
-          const parsed = parseInt(text.replace(/[^0-9]/g, ""), 10);
-          depositVal = isNaN(parsed) ? 0 : parsed;
-        }
-
-        collectedData.deposit = depositVal;
-        await env.DB.prepare(`
-          UPDATE chatbot_sessions 
-          SET current_step = 'AWAITING_TENANT_TYPE', collected_data = ?, updated_at = CURRENT_TIMESTAMP 
-          WHERE phone_number = ?
-        `).bind(JSON.stringify(collectedData), phone).run();
-
-        replyText = `✅ Deposit set to: *${depositVal > 0 ? "$" + depositVal : "No Deposit ($0)"}*\n\n*Step 10/11: Preferred Tenant Type / Audience*\nWho is this property best suited for?\n\n` +
-          `1️⃣ General sought *(Anyone / Open)*\n` +
-          `2️⃣ Student *(Students / College)*\n` +
-          `3️⃣ Single *(Single occupant)*\n` +
-          `4️⃣ Family *(Families)*\n` +
-          `5️⃣ Professional *(Working professionals)*\n` +
-          `6️⃣ Guest *(Travelers / Visitors)*\n\n` +
-          `Reply *1*, *2*, *3*, *4*, *5*, or *6*:`;
-        buttonsToSend = [
-          { id: "TTYPE_GENERAL", title: "👥 General" },
-          { id: "TTYPE_STUDENT", title: "🎓 Student" },
-          { id: "TTYPE_PROFESSIONAL", title: "💼 Professional" }
-        ];
-        actionTaken = "LISTING_STEP_TENANT_TYPE";
-      }
-
-      // ---------------------------------------------------------
-      // STEP 10: PREFERRED TENANT TYPE -> AMENITIES
-      // ---------------------------------------------------------
-      else if (currentStep === "AWAITING_TENANT_TYPE") {
-        const tenantMap: Record<string, string> = {
-          "1": "General",
-          "2": "Student",
-          "3": "Single",
-          "4": "Family",
-          "5": "Professional",
-          "6": "Guest",
-          "ttype_general": "General",
-          "ttype_student": "Student",
-          "ttype_single": "Single",
-          "ttype_family": "Family",
-          "ttype_professional": "Professional",
-          "ttype_guest": "Guest"
-        };
-        const normPayload = (buttonPayload || "").toLowerCase().trim();
-        const normInput = text.toLowerCase().trim();
-        let chosenTenant = tenantMap[normPayload] || tenantMap[normInput] || "";
-        if (!chosenTenant) {
-          if (normInput.includes("student")) chosenTenant = "Student";
-          else if (normInput.includes("single")) chosenTenant = "Single";
-          else if (normInput.includes("family")) chosenTenant = "Family";
-          else if (normInput.includes("professional") || normInput.includes("work")) chosenTenant = "Professional";
-          else if (normInput.includes("guest") || normInput.includes("travel")) chosenTenant = "Guest";
-          else chosenTenant = isHospitality ? "Guest" : "General";
-        }
-
-        collectedData.tenant_type = chosenTenant;
-        await env.DB.prepare(`
-          UPDATE chatbot_sessions 
-          SET current_step = 'AWAITING_AMENITIES', collected_data = ?, updated_at = CURRENT_TIMESTAMP 
-          WHERE phone_number = ?
-        `).bind(JSON.stringify(collectedData), phone).run();
-
-        if (isHospitality) {
-          replyText = `✅ Preferred Audience: *${chosenTenant}*\n\n*Step 11/11: Amenities Checklist*\nReply with numbers of included amenities (e.g. *1, 3, 5*):\n` +
-            `1️⃣ Breakfast Included\n` +
-            `2️⃣ Swimming Pool\n` +
-            `3️⃣ Solar Power Backup\n` +
-            `4️⃣ Generator Backup\n` +
-            `5️⃣ Ensuite Bathroom\n` +
-            `6️⃣ Air Conditioning\n` +
-            `7️⃣ Wifi / Internet\n` +
-            `8️⃣ DSTV / Satellite\n` +
-            `9️⃣ Secure Parking\n` +
-            `🔟 Restaurant / Bar\n` +
-            `1️⃣1️⃣ Airport Shuttle\n` +
-            `1️⃣2️⃣ Conference Facilities`;
-        } else {
-          replyText = `✅ Preferred Tenant: *${chosenTenant}*\n\n*Step 11/11: Amenities Checklist*\nReply with numbers of included amenities (e.g. *1, 2, 7*):\n` +
-            `1️⃣ Borehole\n` +
-            `2️⃣ Solar Power Backup\n` +
-            `3️⃣ Tiled Floors\n` +
-            `4️⃣ Ensuite Bathroom\n` +
-            `5️⃣ Ceiling\n` +
-            `6️⃣ Fitted Wardrobes\n` +
-            `7️⃣ Walled & Gated\n` +
-            `8️⃣ Gated Community\n` +
-            `9️⃣ Reliable Water\n` +
-            `🔟 Paved Yard\n` +
-            `1️⃣1️⃣ Wifi / Internet\n` +
-            `1️⃣2️⃣ Care taker / Security guard`;
-        }
-        actionTaken = "LISTING_STEP_AMENITIES";
-      }
-
-      // ---------------------------------------------------------
-      // STEP 6: SUBURB & LANDMARK / DIRECTIONS
+      // STEP 5: SUBURB -> LANDMARK
       // ---------------------------------------------------------
       else if (currentStep === "AWAITING_SUBURB") {
         if (!text || text.length < 2) {
@@ -1233,7 +1173,10 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
             WHERE phone_number = ?
           `).bind(JSON.stringify(collectedData), phone).run();
 
-          replyText = `✅ Suburb set to: *${collectedData.suburb}* (${collectedData.city || "Harare"})\n\n*Step 6/11: Landmark or Directions*\nAny nearest landmark or directions? *(or reply "None")*\n_(e.g. *Near Total Garage on Lomagundi Rd* or *Close to shops*)_`;
+          replyText = `✅ Suburb: *${collectedData.suburb}* (${collectedData.city || "Harare"})\n\n*Step 6/11: Landmark or Directions*\nAny nearest landmark or directions?\n_(e.g. *Near Total Garage on Lomagundi Rd* or *Along Century Ave*)_\n\nTap a button or type directions:`;
+          buttonsToSend = [
+            { id: "LM_NONE", title: "⏭️ None / Skip" }
+          ];
           actionTaken = "LISTING_STEP_LANDMARK";
         }
       }
@@ -1242,7 +1185,7 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
       // STEP 6: LANDMARK -> RENT/RATE CYCLE
       // ---------------------------------------------------------
       else if (currentStep === "AWAITING_LANDMARK") {
-        const landmark = (lowerText === "none" || lowerText === "no") ? "" : text.trim();
+        const landmark = (buttonPayload === "LM_NONE" || lowerText === "none" || lowerText === "no" || lowerText === "skip") ? "" : text.trim();
         collectedData.landmark = landmark;
 
         await env.DB.prepare(`
@@ -1251,22 +1194,21 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
           WHERE phone_number = ?
         `).bind(JSON.stringify(collectedData), phone).run();
 
-        replyText = `✅ Directions recorded.\n\n*Step 7/11: Rent or Rate Cycle*\nHow often is the rent or rate charged?\n\n` +
-          `1️⃣ Month *(Monthly)*\n` +
-          `2️⃣ Night *(Per night / Daily)*\n` +
-          `3️⃣ Semester *(College/Uni semester)*\n` +
-          `4️⃣ Hour *(Per hour)*\n\n` +
-          `Reply *1*, *2*, *3*, or *4*:`;
-        buttonsToSend = [
-          { id: "CYCLE_MONTH", title: "📅 Per Month" },
+        replyText = `✅ Directions recorded.\n\n*Step 7/11: Rent or Rate Cycle*\nHow often is the rent or rate charged?\n\nTap an option below:`;
+        buttonsToSend = isHospitality ? [
           { id: "CYCLE_NIGHT", title: "🌙 Per Night" },
-          { id: "CYCLE_SEMESTER", title: "🎓 Per Semester" }
+          { id: "CYCLE_MONTH", title: "📅 Per Month" },
+          { id: "CYCLE_HOUR", title: "⏱️ Per Hour" }
+        ] : [
+          { id: "CYCLE_MONTH", title: "📅 Per Month" },
+          { id: "CYCLE_SEMESTER", title: "🎓 Per Semester" },
+          { id: "CYCLE_NIGHT", title: "🌙 Per Night" }
         ];
         actionTaken = "LISTING_STEP_RENT_CYCLE";
       }
 
       // ---------------------------------------------------------
-      // STEP 7: RENT / RATE CYCLE
+      // STEP 7: RENT / RATE CYCLE -> PRICE
       // ---------------------------------------------------------
       else if (currentStep === "AWAITING_RENT_CYCLE") {
         const cycleMap: Record<string, string> = {
@@ -1277,6 +1219,7 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
           "cycle_month": "Month",
           "cycle_night": "Night",
           "cycle_semester": "Semester",
+          "cycle_hour": "Hour",
           "month": "Month",
           "monthly": "Month",
           "night": "Night",
@@ -1303,28 +1246,186 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
           WHERE phone_number = ?
         `).bind(JSON.stringify(collectedData), phone).run();
 
-        replyText = `✅ Rate Cycle: *Per ${chosenCycle}*\n\n*Step 8/11: Price in USD*\nWhat is the price in USD per ${chosenCycle.toLowerCase()}?\n_(e.g. *150* or *300*)_`;
+        replyText = `✅ Rate Cycle: *Per ${chosenCycle}*\n\n*Step 8/11: Price in USD*\nWhat is the price in USD ($) per ${chosenCycle.toLowerCase()}?\n_(Reply with just the number, e.g. *35*, *80*, *150*)_`;
         actionTaken = "LISTING_STEP_PRICE";
       }
 
       // ---------------------------------------------------------
-      // STEP 8: AMENITIES SELECTION
+      // STEP 8: PRICE -> (Hosp: TENANT_TYPE, Res: DEPOSIT)
+      // ---------------------------------------------------------
+      else if (currentStep === "AWAITING_PRICE") {
+        const priceNum = parseInt(text.replace(/[^0-9]/g, ""), 10);
+        if (isNaN(priceNum) || priceNum <= 0) {
+          replyText = `⚠️ Please enter a valid number for the price in USD (e.g. *35*, *80*, *150*).`;
+          actionTaken = "STEP_RETRY";
+        } else {
+          collectedData.price = priceNum;
+          const cycleLabel = collectedData.rent_cycle || (isHospitality ? "Night" : "Month");
+
+          if (isHospitality) {
+            // Hospitality stays typically do not have security deposits, proceed directly to audience
+            collectedData.deposit = 0;
+            await env.DB.prepare(`
+              UPDATE chatbot_sessions 
+              SET current_step = 'AWAITING_TENANT_TYPE', collected_data = ?, updated_at = CURRENT_TIMESTAMP 
+              WHERE phone_number = ?
+            `).bind(JSON.stringify(collectedData), phone).run();
+
+            replyText = `✅ Rate: *$${priceNum} / ${cycleLabel.toLowerCase()}*\n\n*Step 9/11: Preferred Audience / Guests*\nWho is this accommodation best suited for?\n\nTap an option below:`;
+            buttonsToSend = [
+              { id: "TTYPE_GUEST", title: "🧳 Travelers / Guests" },
+              { id: "TTYPE_GENERAL", title: "👥 General Public" },
+              { id: "TTYPE_PROFESSIONAL", title: "💼 Business / Work" }
+            ];
+            actionTaken = "LISTING_STEP_TENANT_TYPE";
+          } else {
+            // Residential rentals ask for deposit with buttons
+            await env.DB.prepare(`
+              UPDATE chatbot_sessions 
+              SET current_step = 'AWAITING_DEPOSIT', collected_data = ?, updated_at = CURRENT_TIMESTAMP 
+              WHERE phone_number = ?
+            `).bind(JSON.stringify(collectedData), phone).run();
+
+            replyText = `✅ Rent: *$${priceNum} / ${cycleLabel.toLowerCase()}*\n\n*Step 9/11: Deposit*\nIs a deposit required?\n\nTap a button or reply with the deposit amount in USD:`;
+            buttonsToSend = [
+              { id: "DEP_SAME", title: `$${priceNum} (1 ${cycleLabel})` },
+              { id: "DEP_NONE", title: "No Deposit ($0)" }
+            ];
+            actionTaken = "LISTING_STEP_DEPOSIT";
+          }
+        }
+      }
+
+      // ---------------------------------------------------------
+      // STEP 9: DEPOSIT (Residential only) -> TENANT_TYPE
+      // ---------------------------------------------------------
+      else if (currentStep === "AWAITING_DEPOSIT") {
+        let depositVal = 0;
+        if (buttonPayload === "DEP_NONE" || lowerText === "0" || lowerText === "none" || lowerText === "no") {
+          depositVal = 0;
+        } else if (buttonPayload === "DEP_SAME") {
+          depositVal = Number(collectedData.price || 0);
+        } else {
+          const parsed = parseInt(text.replace(/[^0-9]/g, ""), 10);
+          depositVal = isNaN(parsed) ? 0 : parsed;
+        }
+
+        collectedData.deposit = depositVal;
+        await env.DB.prepare(`
+          UPDATE chatbot_sessions 
+          SET current_step = 'AWAITING_TENANT_TYPE', collected_data = ?, updated_at = CURRENT_TIMESTAMP 
+          WHERE phone_number = ?
+        `).bind(JSON.stringify(collectedData), phone).run();
+
+        replyText = `✅ Deposit: *${depositVal > 0 ? "$" + depositVal : "No Deposit ($0)"}*\n\n*Step 10/11: Preferred Tenant Type*\nWho is this property best suited for?\n\nTap an option below:`;
+        buttonsToSend = [
+          { id: "TTYPE_GENERAL", title: "👥 General sought" },
+          { id: "TTYPE_STUDENT", title: "🎓 Student sought" },
+          { id: "TTYPE_PROFESSIONAL", title: "💼 Professional" }
+        ];
+        actionTaken = "LISTING_STEP_TENANT_TYPE";
+      }
+
+      // ---------------------------------------------------------
+      // STEP 10: PREFERRED TENANT / AUDIENCE -> AMENITIES
+      // ---------------------------------------------------------
+      else if (currentStep === "AWAITING_TENANT_TYPE") {
+        const tenantMap: Record<string, string> = {
+          "1": "General",
+          "2": "Student",
+          "3": "Single",
+          "4": "Family",
+          "5": "Professional",
+          "6": "Guest",
+          "ttype_general": "General",
+          "ttype_student": "Student",
+          "ttype_single": "Single",
+          "ttype_family": "Family",
+          "ttype_professional": "Professional",
+          "ttype_guest": "Guest"
+        };
+        const normPayload = (buttonPayload || "").toLowerCase().trim();
+        const normInput = text.toLowerCase().trim();
+        let chosenTenant = tenantMap[normPayload] || tenantMap[normInput] || "";
+        if (!chosenTenant) {
+          if (normInput.includes("student")) chosenTenant = "Student";
+          else if (normInput.includes("single")) chosenTenant = "Single";
+          else if (normInput.includes("family")) chosenTenant = "Family";
+          else if (normInput.includes("professional") || normInput.includes("work") || normInput.includes("business")) chosenTenant = "Professional";
+          else if (normInput.includes("guest") || normInput.includes("travel")) chosenTenant = "Guest";
+          else chosenTenant = isHospitality ? "Guest" : "General";
+        }
+
+        collectedData.tenant_type = chosenTenant;
+        await env.DB.prepare(`
+          UPDATE chatbot_sessions 
+          SET current_step = 'AWAITING_AMENITIES', collected_data = ?, updated_at = CURRENT_TIMESTAMP 
+          WHERE phone_number = ?
+        `).bind(JSON.stringify(collectedData), phone).run();
+
+        if (isHospitality) {
+          replyText = `✅ Preferred Audience: *${chosenTenant}*\n\n*Step 11/11: Amenities Checklist*\nReply with numbers of included amenities (e.g. *1, 2, 7*):\n` +
+            `1️⃣ Wifi / Internet\n` +
+            `2️⃣ Swimming Pool\n` +
+            `3️⃣ Breakfast Included\n` +
+            `4️⃣ Solar Power Backup\n` +
+            `5️⃣ Air Conditioning / Ensuite\n` +
+            `6️⃣ Secure Parking\n` +
+            `7️⃣ Generator Backup\n` +
+            `8️⃣ DSTV / Satellite\n` +
+            `9️⃣ Restaurant / Bar\n` +
+            `🔟 Airport Shuttle\n\n` +
+            `Or tap *Standard Amenities* to select all popular features:`;
+          buttonsToSend = [
+            { id: "AMEN_ALL_HOSP", title: "✨ Standard Amenities" }
+          ];
+        } else {
+          replyText = `✅ Preferred Tenant: *${chosenTenant}*\n\n*Step 11/11: Amenities Checklist*\nReply with numbers of included amenities (e.g. *1, 2, 5*):\n` +
+            `1️⃣ Borehole\n` +
+            `2️⃣ Solar Power Backup\n` +
+            `3️⃣ Tiled Floors & Ceiling\n` +
+            `4️⃣ Ensuite\n` +
+            `5️⃣ Walled & Gated\n` +
+            `6️⃣ Fitted wardrobe\n` +
+            `7️⃣ Gated Community\n` +
+            `8️⃣ Reliable water\n` +
+            `9️⃣ Wifi / Internet\n` +
+            `🔟 Care taker / Security guard\n\n` +
+            `Or tap *Standard Amenities* to select all popular features:`;
+          buttonsToSend = [
+            { id: "AMEN_ALL_RES", title: "✨ Standard Amenities" }
+          ];
+        }
+        actionTaken = "LISTING_STEP_AMENITIES";
+      }
+
+      // ---------------------------------------------------------
+      // STEP 11: AMENITIES SELECTION -> PHOTOS
       // ---------------------------------------------------------
       else if (currentStep === "AWAITING_AMENITIES") {
         const selectedAmenities: string[] = [];
-        if (isHospitality) {
+
+        if (buttonPayload === "AMEN_ALL_HOSP" || lowerText.includes("standard")) {
+          selectedAmenities.push("Wifi / Internet", "Solar Power Backup", "Secure Parking", "Ensuite", "Air Conditioning");
+        } else if (buttonPayload === "AMEN_ALL_RES" || lowerText.includes("standard")) {
+          selectedAmenities.push("Borehole", "Solar Power Backup", "Walled & Gated", "Tiled Floors");
+        } else if (isHospitality) {
           const hospAmenityMap: Record<string, string> = {
             "1": "Wifi / Internet",
             "2": "Swimming Pool",
             "3": "Breakfast Included",
             "4": "Solar Power Backup",
             "5": "Air Conditioning / Ensuite",
-            "6": "Secure Parking"
+            "6": "Secure Parking",
+            "7": "Generator Backup",
+            "8": "DSTV / Satellite",
+            "9": "Restaurant / Bar",
+            "10": "Airport Shuttle"
           };
-          const digits = text.match(/[1-6]/g) || [];
-          for (const d of digits) {
-            if (hospAmenityMap[d] && !selectedAmenities.includes(hospAmenityMap[d])) {
-              selectedAmenities.push(hospAmenityMap[d]);
+          const tokens = text.split(/[,\s+]+/).map(t => t.trim());
+          for (const [key, val] of Object.entries(hospAmenityMap)) {
+            if (tokens.includes(key) || lowerText.includes(val.toLowerCase())) {
+              selectedAmenities.push(val);
             }
           }
           if (selectedAmenities.length === 0) {
@@ -1333,17 +1434,20 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
         } else {
           const resAmenityMap: Record<string, string> = {
             "1": "Borehole",
-            "9": "Reliable water",
             "2": "Solar Power Backup",
             "3": "Tiled Floors & Ceiling",
             "4": "Ensuite",
             "5": "Walled & Gated",
-            "6": "Fitted wardrobe"
+            "6": "Fitted wardrobe",
+            "7": "Gated Community",
+            "8": "Reliable water",
+            "9": "Wifi / Internet",
+            "10": "Care taker / Security guard"
           };
-          const digits = text.match(/[1-6]/g) || [];
-          for (const d of digits) {
-            if (resAmenityMap[d] && !selectedAmenities.includes(resAmenityMap[d])) {
-              selectedAmenities.push(resAmenityMap[d]);
+          const tokens = text.split(/[,\s+]+/).map(t => t.trim());
+          for (const [key, val] of Object.entries(resAmenityMap)) {
+            if (tokens.includes(key) || lowerText.includes(val.toLowerCase())) {
+              selectedAmenities.push(val);
             }
           }
           if (selectedAmenities.length === 0) {
@@ -1358,7 +1462,14 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
           WHERE phone_number = ?
         `).bind(JSON.stringify(collectedData), phone).run();
 
-        replyText = `✨ *Amenities recorded:*\n${selectedAmenities.map(a => "• " + a).join("\n")}\n\n📸 *Step 9/9: Property Photos*\nPlease send *1 to 3 photos* of the accommodation directly here in WhatsApp!\n\n_(Attach photo from gallery or snap a photo. When finished, reply *done* or *skip*)_`;
+        replyText = `✨ *Amenities recorded:*
+${selectedAmenities.map(a => "• " + a).join("
+")}
+
+📸 *Property Photos*
+Please send *1 to 3 photos* of the accommodation directly here in WhatsApp!
+
+_(Attach photo from gallery or snap a photo. When finished, tap Done or Skip below)_`;
         buttonsToSend = [
           { id: "BTN_FINISH_PHOTOS", title: "✅ Done Uploading" },
           { id: "BTN_SKIP_PHOTOS", title: "⏭️ Skip Photos" }
@@ -1367,67 +1478,80 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
       }
 
       // ---------------------------------------------------------
-      // STEP 9: PHOTO UPLOADS (Supports incoming WhatsApp media & multi-photos)
+      // STEP 12: PHOTOS UPLOAD -> CONFIRMATION PREVIEW
       // ---------------------------------------------------------
       else if (currentStep === "AWAITING_PHOTOS") {
         if (!Array.isArray(collectedData.photos)) {
           collectedData.photos = [];
         }
 
-        const isFinishing = 
+        let photoReceived = false;
+
+        // Check if an image attachment was received in this webhook payload
+        if (incomingMediaId) {
+          const downloadedDataUri = await downloadWhatsAppMediaAsDataUri(incomingMediaId, env);
+          if (downloadedDataUri) {
+            collectedData.photos.push(downloadedDataUri);
+            photoReceived = true;
+          }
+        } else if (text.startsWith("http://") || text.startsWith("https://") || text.startsWith("data:image")) {
+          collectedData.photos.push(text.trim());
+          photoReceived = true;
+        }
+
+        const isFinished = 
           buttonPayload === "BTN_FINISH_PHOTOS" || 
           buttonPayload === "BTN_SKIP_PHOTOS" || 
           lowerText === "done" || 
-          lowerText === "finish" || 
           lowerText === "skip" || 
+          lowerText === "finish" || 
           lowerText === "no";
 
-        // Check if an actual image message was received
-        if (incoming.type === "image" && incoming.mediaId) {
-          const downloadedDataUri = await downloadWhatsAppMediaAsDataUri(incoming.mediaId, env);
-          if (downloadedDataUri) {
-            collectedData.photos.push(downloadedDataUri);
-          } else {
-            // High-quality fallback photo
-            const fallbackImg = isHospitality
-              ? "https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=800&q=80"
-              : "https://images.unsplash.com/photo-1522771739844-6a9f6d5f14af?auto=format&fit=crop&w=800&q=80";
-            collectedData.photos.push(fallbackImg);
-          }
-
+        if (photoReceived && !isFinished) {
           await env.DB.prepare(`
             UPDATE chatbot_sessions 
             SET collected_data = ?, updated_at = CURRENT_TIMESTAMP 
             WHERE phone_number = ?
           `).bind(JSON.stringify(collectedData), phone).run();
 
-          replyText = `📸 *Photo ${collectedData.photos.length} received!*\n\nYou can send another photo, or tap *Done Uploading* below to preview your listing.`;
+          const count = collectedData.photos.length;
+          replyText = `📸 *Photo ${count} received!*\n\nYou can send another photo, or tap *Done Uploading* to preview your listing.`;
           buttonsToSend = [
             { id: "BTN_FINISH_PHOTOS", title: "✅ Done Uploading" },
-            { id: "BTN_CANCEL", title: "❌ Cancel" }
+            { id: "BTN_SKIP_PHOTOS", title: "⏭️ Skip / Continue" }
           ];
-          actionTaken = "LISTING_PHOTO_RECEIVED";
-        } else if (isFinishing) {
-          // Transition to Confirmation & Preview
+          actionTaken = "LISTING_PHOTO_UPLOADED";
+        } else if (isFinished || collectedData.photos.length >= 3) {
           await env.DB.prepare(`
             UPDATE chatbot_sessions 
             SET current_step = 'AWAITING_CONFIRMATION', collected_data = ?, updated_at = CURRENT_TIMESTAMP 
             WHERE phone_number = ?
           `).bind(JSON.stringify(collectedData), phone).run();
 
-          const photoCount = collectedData.photos?.length || 0;
+          const photoCount = collectedData.photos.length;
+          const period = collectedData.rent_cycle || (isHospitality ? "night" : "month");
           const depositStr = collectedData.deposit > 0 ? `$${collectedData.deposit}` : "None";
-          const period = isHospitality ? "night" : "month";
 
-          replyText = `📋 *Listing Preview & Confirmation*\n\n` +
-            `• *Title:* ${collectedData.title}\n` +
-            `• *Category:* ${isHospitality ? "Hospitality & Stays" : "Residential Rental"}\n` +
-            `• *Type:* ${collectedData.property_type}\n` +
-            `• *Location:* ${collectedData.suburb}${collectedData.landmark ? ` (${collectedData.landmark})` : ""}\n` +
-            `• *Rate:* $${collectedData.price} / ${period}\n` +
-            `• *Deposit:* ${depositStr}\n` +
-            `• *Photos Attached:* ${photoCount} photo${photoCount === 1 ? "" : "s"}\n` +
-            `• *Contact Number:* ${collectedData.contact_phone || phone}\n\n` +
+          replyText = `📋 *Listing Preview & Confirmation:*
+
+` +
+            `• *Headline:* ${collectedData.title}
+` +
+            `• *Type:* ${collectedData.property_type}
+` +
+            `• *Category:* ${isHospitality ? "Hospitality & Stays" : "Residential Rental"}
+` +
+            `• *Location:* ${collectedData.suburb}, ${collectedData.city || "Harare"}${collectedData.landmark ? ` (${collectedData.landmark})` : ""}
+` +
+            `• *Rate:* $${collectedData.price} / ${period}
+` +
+            `• *Deposit:* ${depositStr}
+` +
+            `• *Photos Attached:* ${photoCount} photo${photoCount === 1 ? "" : "s"}
+` +
+            `• *Contact Number:* ${collectedData.contact_phone || phone}
+
+` +
             `Tap *Publish Listing* to make it live immediately on https://bunkby.com!`;
 
           buttonsToSend = [
@@ -1437,7 +1561,7 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
           ];
           actionTaken = "LISTING_PREVIEW";
         } else {
-          replyText = `📸 Please attach a photo from your gallery, or reply *done* to finish without additional photos.`;
+          replyText = `📸 Please attach a photo from your gallery, or tap *Done Uploading* to finish without additional photos:`;
           buttonsToSend = [
             { id: "BTN_FINISH_PHOTOS", title: "✅ Done Uploading" },
             { id: "BTN_SKIP_PHOTOS", title: "⏭️ Skip Photos" }
@@ -1447,7 +1571,7 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
       }
 
       // ---------------------------------------------------------
-      // STEP 10: PREVIEW, EDIT CONTACT & PUBLISH CONFIRMATION
+      // STEP 13: PREVIEW, EDIT CONTACT & PUBLISH CONFIRMATION
       // ---------------------------------------------------------
       else if (currentStep === "AWAITING_CONFIRMATION") {
         if (buttonPayload === "BTN_EDIT_PHONE" || lowerText.includes("change contact") || lowerText.includes("edit phone")) {
@@ -1477,11 +1601,11 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
           const allPhotos = Array.isArray(collectedData.photos) && collectedData.photos.length > 0
             ? collectedData.photos
             : [
-                isHospitality
-                  ? "https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=800&q=80"
-                  : "https://images.unsplash.com/photo-1522771739844-6a9f6d5f14af?auto=format&fit=crop&w=800&q=80"
-              ];
-          
+              isHospitality
+                ? "https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=800&q=80"
+                : "https://images.unsplash.com/photo-1522771739844-6a9f6d5f14af?auto=format&fit=crop&w=800&q=80"
+            ];
+
           // Primary photo stored in image_url for maximum backward and forward compatibility
           const primaryImage = allPhotos[0];
           // If multiple photos exist, store as JSON array string or primary string
@@ -1540,7 +1664,7 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
               business_name: businessNameVal,
               is_premium: isPremiumVal,
               listing_tier: tierVal,
-              expiry_date: isPremiumVal ? new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString() : null
+              expiry_date: null
             };
 
             const targetCols = cols.filter(c => valuesMap[c] !== undefined);
@@ -1565,7 +1689,7 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
             `• *Suburb:* ${collectedData.suburb}\n` +
             `• *Rate:* $${collectedData.price}/${collectedData.rent_cycle || "month"}\n` +
             `• *Contact:* ${collectedData.contact_phone || phone}\n\n` +
-            `Tenants on WhatsApp and https://bunkby.com/#listing-${listingId} can now view your listing and contact you directly!\n\nType *list* to create another listing or *search* to find stays.`;
+            `Tenants on WhatsApp and https://bunkby.com/#listing-${listingId} can now view your listing and contact you directly!`;
 
           buttonsToSend = [
             { id: "CMD_SEARCH", title: "🔍 Search Stays" },
@@ -1583,7 +1707,7 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
       }
 
       // ---------------------------------------------------------
-      // STEP 11: EDIT CONTACT PHONE
+      // STEP 14: EDIT CONTACT PHONE
       // ---------------------------------------------------------
       else if (currentStep === "AWAITING_CONTACT_PHONE") {
         const cleanedContact = text.replace(/[^0-9+]/g, "").trim();
@@ -1606,7 +1730,6 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
           actionTaken = "LISTING_PREVIEW";
         }
       }
-    }
 
     // -------------------------------------------------------------
     // PRIORITY 3: START NEW LISTING CREATION (No Active Session)
@@ -1665,29 +1788,160 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
     }
 
     // -------------------------------------------------------------
-    // PRIORITY 4: ACCOMMODATION SEARCH (No Active Session)
+    // PRIORITY 4: LANDLORD DELETE & MANAGE LISTINGS
+    // -------------------------------------------------------------
+    else if (
+      buttonPayload === "CMD_MY_LISTINGS" ||
+      buttonPayload === "CMD_DELETE_LISTINGS" ||
+      buttonPayload?.startsWith("DEL_CONFIRM_") ||
+      buttonPayload?.startsWith("DEL_PROMPT_") ||
+      lowerText === "my listings" ||
+      lowerText === "delete" ||
+      lowerText === "delete listing" ||
+      lowerText === "remove listing" ||
+      lowerText === "manage listings" ||
+      lowerText.startsWith("delete ") ||
+      lowerText.startsWith("del ")
+    ) {
+      // 1. If confirming a specific deletion via button payload or "delete [id]"
+      const confirmMatch = buttonPayload?.match(/^DEL_CONFIRM_(\d+)$/);
+      const promptMatch = buttonPayload?.match(/^DEL_PROMPT_(\d+)$/);
+      const textIdMatch = lowerText.match(/^(?:delete|del|remove)\s+(\d+)$/);
+
+      if (confirmMatch) {
+        const delId = confirmMatch[1];
+        // Mark listing as Delisted
+        await env.DB.prepare(`
+          UPDATE listings 
+          SET verification_status = 'Delisted' 
+          WHERE id = ? AND (landlord_id = ? OR contact_phone = ? OR contact_phone LIKE ?)
+        `).bind(delId, phoneId, phone, `%${phone.slice(-9)}%`).run();
+
+        replyText = `🗑️ *Listing #${delId} has been successfully deleted!*\n\nIt has been removed from BunkBy searches and the website.`;
+        buttonsToSend = [
+          { id: "CMD_MY_LISTINGS", title: "📋 My Listings" },
+          { id: "CMD_LIST", title: "🏡 Create a Listing" },
+          { id: "CMD_SEARCH", title: "🔍 Search Stays" }
+        ];
+        actionTaken = "LISTING_DELETED";
+      } else if (promptMatch || textIdMatch) {
+        const targetId = promptMatch ? promptMatch[1] : textIdMatch![1];
+        // Find listing to confirm ownership
+        const targetListing = await env.DB.prepare(`
+          SELECT id, title, suburb FROM listings 
+          WHERE id = ? AND verification_status != 'Delisted' AND (landlord_id = ? OR contact_phone = ? OR contact_phone LIKE ?)
+        `).bind(targetId, phoneId, phone, `%${phone.slice(-9)}%`).first();
+
+        if (!targetListing) {
+          replyText = `⚠️ Listing #${targetId} was not found under your phone number (${phone}).\n\nReply *my listings* to view your active properties.`;
+          actionTaken = "DELETE_NOT_FOUND";
+        } else {
+          replyText = `⚠️ *Confirm Deletion of Listing #${targetListing.id}*\n\n"${targetListing.title}" in ${targetListing.suburb}\n\nAre you sure you want to delete this listing? It will be removed immediately.`;
+          buttonsToSend = [
+            { id: `DEL_CONFIRM_${targetListing.id}`, title: "🗑️ Yes, Delete" },
+            { id: "CMD_MY_LISTINGS", title: "❌ Cancel / Keep" }
+          ];
+          actionTaken = "DELETE_CONFIRMATION_PROMPT";
+        }
+      } else {
+        // List all active listings owned by this phone number
+        const myProperties = await env.DB.prepare(`
+          SELECT id, title, suburb, price, rent_cycle, property_type 
+          FROM listings 
+          WHERE verification_status != 'Delisted' AND (landlord_id = ? OR contact_phone = ? OR contact_phone LIKE ?)
+          ORDER BY id DESC LIMIT 10
+        `).bind(phoneId, phone, `%${phone.slice(-9)}%`).all();
+
+        const items = myProperties?.results || [];
+
+        if (items.length === 0) {
+          replyText = `📋 *You currently have no active listings on BunkBy.*\n\nWould you like to list a property?`;
+          buttonsToSend = [
+            { id: "CMD_LIST", title: "🏡 Create a Listing" },
+            { id: "CMD_SEARCH", title: "🔍 Search Stays" }
+          ];
+          actionTaken = "NO_MY_LISTINGS";
+        } else if (items.length === 1) {
+          const single = items[0] as any;
+          replyText = `📋 *Your Active BunkBy Listing:*\n\n` +
+            `• *#${single.id}:* ${single.title}\n` +
+            `• *Location:* ${single.suburb}\n` +
+            `• *Rate:* $${single.price}/${single.rent_cycle || "month"}\n\n` +
+            `To delete this listing, tap *Delete Listing* below:`;
+          buttonsToSend = [
+            { id: `DEL_PROMPT_${single.id}`, title: `🗑️ Delete #${single.id}` },
+            { id: "CMD_LIST", title: "🏡 Add Another" }
+          ];
+          actionTaken = "MY_LISTINGS_SINGLE";
+        } else {
+          let listSummary = `📋 *Your Active BunkBy Listings (${items.length}):*\n\n`;
+          for (const item of items as any[]) {
+            listSummary += `• *#${item.id}*: ${item.title} (${item.suburb}) - $${item.price}\n  _Reply *delete ${item.id}* to remove_\n\n`;
+          }
+          listSummary += `Tap a quick delete button below, or reply *delete [id]*:`;
+          replyText = listSummary;
+
+          // Provide quick delete button for the most recent listing
+          const firstItem = items[0] as any;
+          buttonsToSend = [
+            { id: `DEL_PROMPT_${firstItem.id}`, title: `🗑️ Delete #${firstItem.id}` },
+            { id: "CMD_LIST", title: "🏡 Add Listing" }
+          ];
+          actionTaken = "MY_LISTINGS_MULTIPLE";
+        }
+      }
+    }
+
+    // -------------------------------------------------------------
+    // PRIORITY 5: ACCOMMODATION SEARCH (No Active Session)
     // -------------------------------------------------------------
     else if (
       buttonPayload === "CMD_SEARCH" ||
       buttonPayload === "CMD_SEARCH_MENU" ||
-      lowerText.startsWith("search") ||
-      lowerText.startsWith("find") ||
+      lowerText === "search" ||
+      lowerText.startsWith("search ") ||
+      lowerText.startsWith("find ") ||
+      lowerText.startsWith("looking for ") ||
       lowerText.includes("room") ||
       lowerText.includes("cottage") ||
       lowerText.includes("apartment") ||
-      lowerText.includes("bedsit") ||
+      lowerText.includes("flat") ||
       lowerText.includes("lodge") ||
-      lowerText.includes("guest house")
+      lowerText.includes("guest house") ||
+      lowerText.includes("harare") ||
+      lowerText.includes("bulawayo") ||
+      lowerText.includes("gweru") ||
+      lowerText.includes("mutare") ||
+      lowerText.includes("mt pleasant") ||
+      lowerText.includes("avonlea") ||
+      lowerText.includes("belvedere") ||
+      lowerText.includes("avenues")
     ) {
-      // If user tapped a blank search button without query
+      // If user tapped the Search button or typed "search" without a query:
+      // Initiate a conversational SEARCH SESSION!
       if (buttonPayload === "CMD_SEARCH" || buttonPayload === "CMD_SEARCH_MENU" || lowerText === "search") {
-        replyText = `🔍 *How to Search BunkBy Stays:*\n\nType whatever you're looking for, e.g.:\n• *search Avonlea*\n• *rooms in Belvedere*\n• *cottage in Mt Pleasant*\n• *lodge in Victoria Falls*\n\nOr visit https://bunkby.com to browse with interactive maps!`;
-        actionTaken = "SEARCH_HELP";
+        await env.DB.prepare(`
+          INSERT INTO chatbot_sessions (phone_number, current_step, collected_data, updated_at)
+          VALUES (?, 'AWAITING_SEARCH_QUERY', '{}', CURRENT_TIMESTAMP)
+          ON CONFLICT(phone_number) DO UPDATE SET
+            current_step = 'AWAITING_SEARCH_QUERY',
+            collected_data = '{}',
+            updated_at = CURRENT_TIMESTAMP
+        `).bind(phone).run();
+
+        replyText = `🔍 *Search BunkBy Listings*\n\nPlease reply with the *town, city, or suburb* you are looking for:\n\n_(e.g. *Mt Pleasant*, *Harare*, *Avonlea*, *Bulawayo*, *Belvedere*, *Victoria Falls*)_`;
+        buttonsToSend = [
+          { id: "SEARCH_HARARE", title: "📍 Harare" },
+          { id: "SEARCH_MT_PLEASANT", title: "🏡 Mt Pleasant" },
+          { id: "SEARCH_AVONLEA", title: "🌿 Avonlea" }
+        ];
+        actionTaken = "SEARCH_PROMPT_LOCATION";
       } else {
-        // Extract suburb keywords
-        const cleanQuery = text.replace(/^(search|find|looking for|i want a|need a)\s*/i, "").trim();
-        const searchTerms = cleanQuery.split(/\s+/).filter(w => w.length > 2);
-        const suburbTerm = searchTerms[0] || "";
+        // User typed a place name directly (e.g. "Mt Pleasant", "Harare", "Avonlea")
+        let cleanQuery = text.replace(/^(search|find|looking for|i want a|need a)\s*/i, "").trim();
+        if (buttonPayload === "SEARCH_HARARE") cleanQuery = "Harare";
+        else if (buttonPayload === "SEARCH_MT_PLEASANT") cleanQuery = "Mt Pleasant";
+        else if (buttonPayload === "SEARCH_AVONLEA") cleanQuery = "Avonlea";
 
         // Query live D1 listings
         let querySql = `
@@ -1698,28 +1952,30 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
         `;
         const params: any[] = [];
 
-        if (suburbTerm) {
-          querySql += ` AND (listings.suburb LIKE ? OR listings.title LIKE ? OR listings.landmark LIKE ?)`;
-          params.push(`%${suburbTerm}%`, `%${suburbTerm}%`, `%${suburbTerm}%`);
+        if (cleanQuery) {
+          querySql += ` AND (listings.suburb LIKE ? OR listings.city LIKE ? OR listings.title LIKE ? OR listings.landmark LIKE ?)`;
+          params.push(`%${cleanQuery}%`, `%${cleanQuery}%`, `%${cleanQuery}%`, `%${cleanQuery}%`);
         }
 
-        querySql += ` ORDER BY listings.created_at DESC LIMIT 4`;
+        querySql += ` ORDER BY listings.created_at DESC LIMIT 5`;
 
         const stmt = env.DB.prepare(querySql);
         const { results } = params.length > 0 ? await stmt.bind(...params).all() : await stmt.all();
 
         if (!results || results.length === 0) {
-          replyText = `🏡 No active accommodations currently found matching *"${cleanQuery || "your search"}"*.\n\n💡 *Suggestions:*\n• Try searching nearby suburbs like *Avonlea*, *Belvedere*, *Avenues*, or *Mt Pleasant*.\n• Adjust your budget or search by city (e.g. *Harare*, *Bulawayo*).\n\nAre you a landlord or lodge host? Type *list* to create a listing for free!`;
+          replyText = `🏡 No active listings currently found in *"${cleanQuery || "your search"}"*.\n\n💡 *Suggestions:*\n• Try searching a wider area like *Harare*, *Bulawayo*, or nearby suburbs (*Avonlea*, *Belvedere*, *Avenues*, *Mt Pleasant*).\n• Tap *Create a Listing* below to post your property on BunkBy!`;
           actionTaken = "SEARCH_NO_RESULTS";
+          buttonsToSend = [
+            { id: "CMD_SEARCH", title: "🔍 Search Again" },
+            { id: "CMD_LIST", title: "🏡 Create a Listing" }
+          ];
         } else {
           actionTaken = "SEARCH_RESULTS";
           const baseUrl = new URL(request.url).origin || "https://bunkby.com";
-          const introMsg = `🏡 *Found ${results.length} active stay${results.length === 1 ? "" : "s"} on BunkBy:*`;
+          const introMsg = `🏡 *Found ${results.length} active stay${results.length === 1 ? "" : "s"} in "${cleanQuery}":*`;
           
-          // Queue intro message
           outboundQueue.push({ text: introMsg, itemType: "intro" });
 
-          // Queue each listing card
           for (const room of results) {
             const card = buildListingCardMessage(room, baseUrl, phone);
             outboundQueue.push({
@@ -1730,11 +1986,11 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
             });
           }
 
-          // Action footer with link to full gallery on website
           outboundQueue.push({
-            text: `👉 Visit https://bunkby.com to browse with full interactive maps and gallery filters.\n\nType *list* to create a listing or *search* to find more stays!`,
+            text: `👉 Visit https://bunkby.com to browse full interactive galleries.\n\nTap below to search another area, manage listings, or create a listing:`,
             buttons: [
               { id: "CMD_SEARCH", title: "🔍 Search Again" },
+              { id: "CMD_MY_LISTINGS", title: "📋 My Listings" },
               { id: "CMD_LIST", title: "🏡 Create a Listing" }
             ],
             itemType: "action_footer"
@@ -1747,11 +2003,12 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
     // DEFAULT GREETING / WELCOME MENU
     // -------------------------------------------------------------
     else {
-      replyText = `👋 *Welcome to BunkBy Zimbabwe!*\nYour agent-free accommodation marketplace.\n\n*What would you like to do?*\n🔍 Type *search [suburb]* (e.g. *search Avonlea*)\n🏡 Type *list* to post your room for free\n❌ Type *cancel* to exit anytime\n\nVisit https://bunkby.com to browse with full photos!`;
+      replyText = `👋 *Welcome to BunkBy Zimbabwe!*\nYour direct accommodation marketplace with zero agent fees.\n\n*What would you like to do?*\n🔍 Tap *Search Stays* or type any place (e.g. *Mt Pleasant*, *Harare*)\n🏡 Tap *Create a Listing* to post your property\n📋 Tap *My Listings* to view or delete your listings\n❌ Type *cancel* anytime to reset`;
       actionTaken = "WELCOME_MENU";
       buttonsToSend = [
         { id: "CMD_SEARCH", title: "🔍 Search Stays" },
-        { id: "CMD_LIST", title: "🏡 Create a Listing" }
+        { id: "CMD_LIST", title: "🏡 Create a Listing" },
+        { id: "CMD_MY_LISTINGS", title: "📋 My Listings" }
       ];
     }
 
