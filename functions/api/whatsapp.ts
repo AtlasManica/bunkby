@@ -486,8 +486,10 @@ async function sendMetaWhatsAppMessage(
       const metaMessage = errObj.message || `HTTP ${res.status} dispatch error`;
       const fbtraceId = errObj.fbtrace_id;
 
+      // Safe sanitized error summary without exposing secrets
       const codePart = metaCode ? `(Meta Code ${metaCode}${metaSubcode ? `, Subcode ${metaSubcode}` : ""}) ` : "";
       const errorSummary = `${codePart}${metaMessage}${fbtraceId ? ` [fbtrace_id: ${fbtraceId}]` : ""}`;
+      console.warn(`[Meta Cloud API Error] HTTP ${res.status}: ${errorSummary}`);
 
       return {
         success: false,
@@ -918,9 +920,18 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
           // Send up to 3 property cards
           for (const room of results) {
             const card = buildListingCardMessage(room, baseUrl, phone);
+            // 1. If photo is available, queue as separate optional photo message
+            if (card.imageUrl) {
+              outboundQueue.push({
+                text: `📸 Photo for: *${room.title || "Accommodation"}*`,
+                imageUrl: card.imageUrl,
+                itemType: "listing_photo",
+                listingId: room.id
+              });
+            }
+            // 2. GUARANTEED complete standalone text card with full details, specs & direct contact
             outboundQueue.push({
               text: card.text,
-              imageUrl: card.imageUrl,
               itemType: "listing_card",
               listingId: room.id
             });
@@ -2137,12 +2148,21 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
           
           outboundQueue.push({ text: headerMsg, itemType: "intro" });
 
-          // Send up to 3 individual property cards, each with its image and complete specs
+          // Send up to 3 individual property cards
           for (const room of results) {
             const card = buildListingCardMessage(room, baseUrl, phone);
+            // 1. If photo is available, queue as separate optional photo message
+            if (card.imageUrl) {
+              outboundQueue.push({
+                text: `📸 Photo for: *${room.title || "Accommodation"}*`,
+                imageUrl: card.imageUrl,
+                itemType: "listing_photo",
+                listingId: room.id
+              });
+            }
+            // 2. GUARANTEED complete standalone text card with full details, specs & direct contact
             outboundQueue.push({
               text: card.text,
-              imageUrl: card.imageUrl,
               itemType: "listing_card",
               listingId: room.id
             });
@@ -2202,7 +2222,8 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
         
         // Rate-limit buffer: WhatsApp Cloud API recommends sequential pacing between multi-message payloads
         if (i > 0) {
-          await new Promise(r => setTimeout(r, 220));
+          // Conservative sequential pacing between multi-message payloads
+          await new Promise(r => setTimeout(r, 600));
         }
 
         let res = await sendMetaWhatsAppMessage(phone, item.text, env, item.buttons, item.imageUrl);
@@ -2215,7 +2236,7 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
 
         if (!res.success && item.imageUrl) {
           const imgFailureReason = res.error || `HTTP ${res.httpStatus} on image dispatch`;
-          console.warn(`[WhatsApp Image Dispatch Failed for ${item.imageUrl}]: ${imgFailureReason}. Delivering full property text.`);
+          console.warn(`[Meta Image Notice #${item.listingId || "N/A"}]: HTTP ${res.httpStatus || "error"} - ${res.error || "failed"}`);
           
           // Fallback immediately to full text card so landlord/tenant NEVER misses details
           const fallbackRes = await sendMetaWhatsAppMessage(phone, item.text, env, item.buttons);
