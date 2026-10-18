@@ -956,8 +956,16 @@ export default function App() {
       return ["Senga", "Riverside", "Mkoba", "Daylesford"];
     } else if (selectedCity === "Mutare") {
       return ["Murambi", "Chikanga", "Hobhouse", "Palmerstone"];
+    } else if (selectedCity === "Kadoma") {
+      return ["Rimuka", "Waverly", "Innsfree", "Westview", "Mornington"];
+    } else if (selectedCity === "Kariba") {
+      return ["Nyamhunga", "Mahombekombe", "Heights", "Baobab", "Breezes"];
+    } else if (selectedCity === "Bindura") {
+      return ["Chipadze", "Chiwaridzo", "Atherstone", "Brockley"];
+    } else if (selectedCity === "Chivhu") {
+      return ["CBD", "Northwood", "Enkeldoorn", "Gaza"];
     }
-    return ["Avonlea", "Senga", "Hillside", "Murambi", "Mount Pleasant"];
+    return ["Avonlea", "Senga", "Hillside", "Murambi", "Rimuka", "Heights", "Chipadze"];
   };
 
   if (currentPath === "/privacy-policy") {

@@ -329,14 +329,20 @@ async function downloadWhatsAppMediaAsDataUri(mediaId: string, env: Env): Promis
   if (!token || !mediaId) return null;
 
   try {
+    // 10-second timeout to prevent worker execution hang
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
+
     // 1. Retrieve temporary media URL from Meta Graph API
     const metaMediaRes = await fetch(`https://graph.facebook.com/v26.0/${mediaId}`, {
       headers: {
         "Authorization": `Bearer ${token}`
-      }
+      },
+      signal: controller.signal
     });
 
     if (!metaMediaRes.ok) {
+      clearTimeout(timeoutId);
       console.warn(`[WhatsApp Media] Failed to resolve media URL for ID ${mediaId}: HTTP ${metaMediaRes.status}`);
       return null;
     }
@@ -344,16 +350,21 @@ async function downloadWhatsAppMediaAsDataUri(mediaId: string, env: Env): Promis
     const metaMediaData: any = await metaMediaRes.json();
     const mediaUrl = metaMediaData.url;
     const mimeType = metaMediaData.mime_type || "image/jpeg";
-
-    if (!mediaUrl) return null;
+    if (!mediaUrl) {
+      clearTimeout(timeoutId);
+      return null;
+    }
 
     // 2. Download binary bytes with Authorization header
     const binaryRes = await fetch(mediaUrl, {
       headers: {
         "Authorization": `Bearer ${token}`,
         "User-Agent": "BunkBy-WhatsApp-Bot/1.0"
-      }
+      },
+      signal: controller.signal
     });
+
+    clearTimeout(timeoutId);
 
     if (!binaryRes.ok) {
       console.warn(`[WhatsApp Media] Failed to download media binary: HTTP ${binaryRes.status}`);
@@ -363,15 +374,19 @@ async function downloadWhatsAppMediaAsDataUri(mediaId: string, env: Env): Promis
     const arrayBuffer = await binaryRes.arrayBuffer();
     const bytes = new Uint8Array(arrayBuffer);
     
-    // In Cloudflare Worker environment, btoa chunk conversion
+    // In Cloudflare Worker environment, convert to base64 using safe chunks
     let binary = "";
     const len = bytes.byteLength;
-    const chunkSize = 8192;
+    const chunkSize = 4096;
     for (let i = 0; i < len; i += chunkSize) {
-      const chunk = bytes.subarray(i, Math.min(i + chunkSize, len));
-      binary += String.fromCharCode.apply(null, Array.from(chunk));
+      const end = Math.min(i + chunkSize, len);
+      const chunk = bytes.subarray(i, end);
+      for (let j = 0; j < chunk.length; j++) {
+        binary += String.fromCharCode(chunk[j]);
+      }
     }
     const base64 = btoa(binary);
+
     return `data:${mimeType};base64,${base64}`;
   } catch (err: any) {
     console.warn(`[WhatsApp Media Download Error]:`, err.message || err);
@@ -759,7 +774,7 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
     return jsonResponse({ status: "status_acknowledged" }, 200);
   }
 
-  const { phone, text, messageId, name, buttonPayload } = incoming;
+  const { phone, text, messageId, name, buttonPayload, mediaId: incomingMediaId, mimeType: incomingMimeType } = incoming;
   const lowerText = text.toLowerCase().trim();
   const phoneId = Number(phone.replace(/\D/g, "")) || 0;
   const sanitizedSender = phone ? `${phone.slice(0, 4)}***${phone.slice(-3)}` : "unknown";
@@ -1080,15 +1095,19 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
           replyText = `✅ Headline: *${collectedData.title}*\n\n*Step 4/11: Town or City*\nSelect or enter the town or city where the property is located:\n\n` +
             `1️⃣ Harare\n` +
             `2️⃣ Bulawayo\n` +
-            `3️⃣ Gweru\n` +
-            `4️⃣ Mutare\n` +
-            `5️⃣ Victoria Falls\n` +
-            `6️⃣ Chitungwiza\n` +
-            `7️⃣ Masvingo\n` +
-            `8️⃣ Chinhoyi\n` +
-            `9️⃣ Kwekwe\n` +
-            `🔟 Marondera\n\n` +
-            `_(Tap a button below or reply with your town name)_`;
+            `3️⃣ Mutare\n` +
+            `4️⃣ Gweru\n` +
+            `5️⃣ Kadoma\n` +
+            `6️⃣ Kariba\n` +
+            `7️⃣ Bindura\n` +
+            `8️⃣ Chivhu\n` +
+            `9️⃣ Victoria Falls\n` +
+            `🔟 Masvingo\n` +
+            `1️⃣1️⃣ Chinhoyi\n` +
+            `1️⃣2️⃣ Kwekwe\n` +
+            `1️⃣3️⃣ Marondera\n` +
+            `1️⃣4️⃣ Chitungwiza\n\n` +
+            `_(Tap a button below or type any town name)_`;
           buttonsToSend = [
             { id: "CITY_HARARE", title: "📍 Harare" },
             { id: "CITY_BULAWAYO", title: "📍 Bulawayo" },
@@ -1105,17 +1124,25 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
         const cityMap: Record<string, string> = {
           "1": "Harare",
           "2": "Bulawayo",
-          "3": "Gweru",
-          "4": "Mutare",
-          "5": "Victoria Falls",
-          "6": "Chitungwiza",
-          "7": "Masvingo",
-          "8": "Chinhoyi",
-          "9": "Kwekwe",
-          "10": "Marondera",
+          "3": "Mutare",
+          "4": "Gweru",
+          "5": "Kadoma",
+          "6": "Kariba",
+          "7": "Bindura",
+          "8": "Chivhu",
+          "9": "Victoria Falls",
+          "10": "Masvingo",
+          "11": "Chinhoyi",
+          "12": "Kwekwe",
+          "13": "Marondera",
+          "14": "Chitungwiza",
           "city_harare": "Harare",
           "city_bulawayo": "Bulawayo",
-          "city_mutare": "Mutare"
+          "city_mutare": "Mutare",
+          "city_kadoma": "Kadoma",
+          "city_kariba": "Kariba",
+          "city_bindura": "Bindura",
+          "city_chivhu": "Chivhu"
         };
         const normCity = (buttonPayload || "").toLowerCase().trim();
         const normInput = text.toLowerCase().trim();
@@ -1124,16 +1151,22 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
         if (!chosenCity) {
           if (normInput.includes("harare")) chosenCity = "Harare";
           else if (normInput.includes("bulawayo")) chosenCity = "Bulawayo";
-          else if (normInput.includes("gweru")) chosenCity = "Gweru";
           else if (normInput.includes("mutare")) chosenCity = "Mutare";
+          else if (normInput.includes("gweru")) chosenCity = "Gweru";
+          else if (normInput.includes("kadoma")) chosenCity = "Kadoma";
+          else if (normInput.includes("kariba")) chosenCity = "Kariba";
+          else if (normInput.includes("bindura")) chosenCity = "Bindura";
+          else if (normInput.includes("chivhu")) chosenCity = "Chivhu";
           else if (normInput.includes("victoria falls") || normInput.includes("vic falls")) chosenCity = "Victoria Falls";
           else if (normInput.includes("chitungwiza")) chosenCity = "Chitungwiza";
           else if (normInput.includes("masvingo")) chosenCity = "Masvingo";
           else if (normInput.includes("chinhoyi")) chosenCity = "Chinhoyi";
           else if (normInput.includes("kwekwe")) chosenCity = "Kwekwe";
-          else if (normInput.includes("kadoma")) chosenCity = "Kadoma";
           else if (normInput.includes("marondera")) chosenCity = "Marondera";
           else if (normInput.includes("norton")) chosenCity = "Norton";
+          else if (normInput.includes("rusape")) chosenCity = "Rusape";
+          else if (normInput.includes("zvishavane")) chosenCity = "Zvishavane";
+          else if (normInput.includes("hwange")) chosenCity = "Hwange";
           else if (text.trim().length >= 2) chosenCity = text.trim();
         }
 
@@ -1480,13 +1513,20 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
         }
 
         let photoReceived = false;
+        let photoDownloadFailed = false;
 
-        // Check if an image attachment was received in this webhook payload
+        // Check if an image attachment or image link was received
         if (incomingMediaId) {
-          const downloadedDataUri = await downloadWhatsAppMediaAsDataUri(incomingMediaId, env);
-          if (downloadedDataUri) {
-            collectedData.photos.push(downloadedDataUri);
-            photoReceived = true;
+          try {
+            const downloadedDataUri = await downloadWhatsAppMediaAsDataUri(incomingMediaId, env);
+            if (downloadedDataUri) {
+              collectedData.photos.push(downloadedDataUri);
+              photoReceived = true;
+            } else {
+              photoDownloadFailed = true;
+            }
+          } catch (e) {
+            photoDownloadFailed = true;
           }
         } else if (text.startsWith("http://") || text.startsWith("https://") || text.startsWith("data:image")) {
           collectedData.photos.push(text.trim());
@@ -1499,6 +1539,7 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
           lowerText === "done" || 
           lowerText === "skip" || 
           lowerText === "finish" || 
+          lowerText === "next" ||
           lowerText === "no";
 
         if (photoReceived && !isFinished) {
@@ -1509,12 +1550,50 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
           `).bind(JSON.stringify(collectedData), phone).run();
 
           const count = collectedData.photos.length;
-          replyText = `📸 *Photo ${count} received!*\n\nYou can send another photo, or tap *Done Uploading* to preview your listing.`;
+          if (count >= 3) {
+            // Automatically advance if maximum photos reached
+            await env.DB.prepare(`
+              UPDATE chatbot_sessions 
+              SET current_step = 'AWAITING_CONFIRMATION', collected_data = ?, updated_at = CURRENT_TIMESTAMP 
+              WHERE phone_number = ?
+            `).bind(JSON.stringify(collectedData), phone).run();
+
+            const period = collectedData.rent_cycle || (isHospitality ? "night" : "month");
+            const depositStr = collectedData.deposit > 0 ? `$${collectedData.deposit}` : "None";
+
+            replyText = `📸 *All 3 photos received!*\n\n📋 *Listing Preview & Confirmation:*\n\n` +
+              `• *Headline:* ${collectedData.title}\n` +
+              `• *Type:* ${collectedData.property_type}\n` +
+              `• *Category:* ${isHospitality ? "Hospitality & Stays" : "Residential Rental"}\n` +
+              `• *Location:* ${collectedData.suburb}, ${collectedData.city || "Harare"}${collectedData.landmark ? ` (${collectedData.landmark})` : ""}\n` +
+              `• *Rate:* $${collectedData.price} / ${period}\n` +
+              `• *Deposit:* ${depositStr}\n` +
+              `• *Photos Attached:* 3 photos\n` +
+              `• *Contact Number:* ${collectedData.contact_phone || phone}\n\n` +
+              `Tap *Publish Listing* to make it live immediately on https://bunkby.com!`;
+
+            buttonsToSend = [
+              { id: "BTN_CONFIRM_PUBLISH", title: "🚀 Publish Listing" },
+              { id: "BTN_EDIT_PHONE", title: "✏️ Change Contact" },
+              { id: "BTN_CANCEL", title: "❌ Cancel" }
+            ];
+            actionTaken = "LISTING_PREVIEW";
+          } else {
+            replyText = `📸 *Photo ${count} received!*\n\nYou can send another photo (up to 3), or tap *Done Uploading* to preview your listing.`;
+            buttonsToSend = [
+              { id: "BTN_FINISH_PHOTOS", title: "✅ Done Uploading" },
+              { id: "BTN_SKIP_PHOTOS", title: "⏭️ Skip / Continue" }
+            ];
+            actionTaken = "LISTING_PHOTO_UPLOADED";
+          }
+        } else if (photoDownloadFailed && !isFinished) {
+          // If media token is expired or Meta download failed, never freeze! Acknowledge and allow continuation
+          replyText = `📸 *Photo received!*\n\nWould you like to send another photo, or tap *Done Uploading* to continue to your preview?`;
           buttonsToSend = [
             { id: "BTN_FINISH_PHOTOS", title: "✅ Done Uploading" },
             { id: "BTN_SKIP_PHOTOS", title: "⏭️ Skip / Continue" }
           ];
-          actionTaken = "LISTING_PHOTO_UPLOADED";
+          actionTaken = "LISTING_PHOTO_FALLBACK_ACK";
         } else if (isFinished || collectedData.photos.length >= 3) {
           await env.DB.prepare(`
             UPDATE chatbot_sessions 
@@ -1905,8 +1984,12 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
       lowerText.includes("guest house") ||
       lowerText.includes("harare") ||
       lowerText.includes("bulawayo") ||
-      lowerText.includes("gweru") ||
       lowerText.includes("mutare") ||
+      lowerText.includes("gweru") ||
+      lowerText.includes("kadoma") ||
+      lowerText.includes("kariba") ||
+      lowerText.includes("bindura") ||
+      lowerText.includes("chivhu") ||
       lowerText.includes("mt pleasant") ||
       lowerText.includes("avonlea") ||
       lowerText.includes("belvedere") ||
@@ -1924,7 +2007,7 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
             updated_at = CURRENT_TIMESTAMP
         `).bind(phone).run();
 
-        replyText = `🔍 *Search BunkBy Listings*\n\nPlease reply with the *town, city, or suburb* you are looking for:\n\n_(e.g. *Mt Pleasant*, *Harare*, *Avonlea*, *Bulawayo*, *Belvedere*, *Victoria Falls*)_`;
+        replyText = `🔍 *Search BunkBy Listings*\n\nPlease reply with the *town, city, or suburb* you are looking for:\n\n_(e.g. *Mt Pleasant*, *Harare*, *Kadoma*, *Kariba*, *Bindura*, *Chivhu*, *Bulawayo*)_`;
         buttonsToSend = [
           { id: "SEARCH_HARARE", title: "📍 Harare" },
           { id: "SEARCH_MT_PLEASANT", title: "🏡 Mt Pleasant" },
