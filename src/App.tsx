@@ -2631,22 +2631,28 @@ export default function App() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-6 sm:pb-8 flex flex-col sm:flex-row items-center sm:items-start justify-between gap-6 sm:gap-12">
           
           {/* Brand Info (Left / Start) */}
-          <div className="space-y-3 max-w-md text-center sm:text-left">
-            <div className="flex items-center gap-2 justify-center sm:justify-start">
-              <BunkByLogo className="w-8 h-8" />
-              <span className="text-xl font-display font-black uppercase tracking-tight text-white">
+          <div className="max-w-md text-center sm:text-left flex flex-col justify-between">
+            <div className="flex items-center gap-2 justify-center sm:justify-start h-8">
+              <BunkByLogo className="w-7 h-7 shrink-0" />
+              <span className="text-xl font-display font-black uppercase tracking-tight text-white leading-none">
                 Bunk<span className="text-[#FF7A00]">By</span>
               </span>
             </div>
-            <p className="text-[11px] text-[#E2E8F0] font-normal leading-relaxed">
+            <p className="text-[11px] text-[#E2E8F0] font-normal leading-relaxed mt-3">
               Zimbabwe's agent-free accommodation marketplace for rooms, cottages, flats, guesthouses, and lodges with direct WhatsApp connection.
             </p>
           </div>
 
           {/* Direct WhatsApp Connection (Opposite Side / Right) */}
-          <div className="text-[11px] text-[#E2E8F0] font-normal space-y-2 max-w-xs text-center sm:text-right flex flex-col items-center sm:items-end">
-            <h4 className="text-white font-extrabold text-xs uppercase tracking-wider">Direct WhatsApp Connection</h4>
-            <p className="text-[#E2E8F0] leading-relaxed">Connect directly with verified landlords and hosts with zero agency middlemen fees.</p>
+          <div className="text-[11px] text-[#E2E8F0] font-normal max-w-xs text-center sm:text-right flex flex-col items-center sm:items-end justify-between">
+            <div className="flex items-center justify-center sm:justify-end h-8">
+              <h4 className="text-white font-extrabold text-xs uppercase tracking-wider leading-none">
+                Direct WhatsApp Connection
+              </h4>
+            </div>
+            <p className="text-[#E2E8F0] leading-relaxed mt-3">
+              Connect directly with verified landlords and hosts with zero agency middlemen fees.
+            </p>
           </div>
 
         </div>

@@ -1462,14 +1462,8 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
           WHERE phone_number = ?
         `).bind(JSON.stringify(collectedData), phone).run();
 
-        replyText = `✨ *Amenities recorded:*
-${selectedAmenities.map(a => "• " + a).join("
-")}
-
-📸 *Property Photos*
-Please send *1 to 3 photos* of the accommodation directly here in WhatsApp!
-
-_(Attach photo from gallery or snap a photo. When finished, tap Done or Skip below)_`;
+        const formattedAmenitiesList = selectedAmenities.map(a => "• " + a).join("\n");
+        replyText = `✨ *Amenities recorded:*\n${formattedAmenitiesList}\n\n📸 *Property Photos*\nPlease send *1 to 3 photos* of the accommodation directly here in WhatsApp!\n\n_(Attach photo from gallery or snap a photo. When finished, tap Done or Skip below)_`;
         buttonsToSend = [
           { id: "BTN_FINISH_PHOTOS", title: "✅ Done Uploading" },
           { id: "BTN_SKIP_PHOTOS", title: "⏭️ Skip Photos" }
