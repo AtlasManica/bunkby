@@ -1724,6 +1724,7 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
           actionTaken = "LISTING_PREVIEW";
         }
       }
+    }
 
     // -------------------------------------------------------------
     // PRIORITY 3: START NEW LISTING CREATION (No Active Session)
