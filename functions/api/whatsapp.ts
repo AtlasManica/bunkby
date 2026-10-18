@@ -895,24 +895,37 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
         } else {
           actionTaken = "SEARCH_RESULTS";
           const baseUrl = new URL(request.url).origin || "https://bunkby.com";
-          const introMsg = `🏡 *Found ${results.length} active stay${results.length === 1 ? "" : "s"} in "${cleanQuery}":*`;
-          
-          outboundQueue.push({ text: introMsg, itemType: "intro" });
 
-          for (const room of results) {
+          if (results.length === 1) {
+            // For a single match, combine the found header with complete listing card details immediately
+            const room = results[0];
             const card = buildListingCardMessage(room, baseUrl, phone);
+            const combinedText = `🏡 *Found 1 active stay in "${cleanQuery}":*\n\n${card.text}`;
             outboundQueue.push({
-              text: card.text,
+              text: combinedText,
               imageUrl: card.imageUrl,
               itemType: "listing_card",
               listingId: room.id
             });
+          } else {
+            const introMsg = `🏡 *Found ${results.length} active stays in "${cleanQuery}":*`;
+            outboundQueue.push({ text: introMsg, itemType: "intro" });
+            for (const room of results) {
+              const card = buildListingCardMessage(room, baseUrl, phone);
+              outboundQueue.push({
+                text: card.text,
+                imageUrl: card.imageUrl,
+                itemType: "listing_card",
+                listingId: room.id
+              });
+            }
           }
 
           outboundQueue.push({
-            text: `👉 Visit https://bunkby.com to browse full interactive galleries.\n\nTap below to search another area or create a listing:`,
+            text: `👉 Visit https://bunkby.com to browse full interactive galleries and maps.\n\nWhat would you like to do next?`,
             buttons: [
               { id: "CMD_SEARCH", title: "🔍 Search Again" },
+              { id: "CMD_MY_LISTINGS", title: "📋 My Listings" },
               { id: "CMD_LIST", title: "🏡 Create a Listing" }
             ],
             itemType: "action_footer"
@@ -1092,26 +1105,26 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
             WHERE phone_number = ?
           `).bind(JSON.stringify(collectedData), phone).run();
 
-          replyText = `✅ Headline: *${collectedData.title}*\n\n*Step 4/11: Town or City*\nSelect or enter the town or city where the property is located:\n\n` +
+          replyText = `✅ Headline: *${collectedData.title}*\n\n*Step 4/11: Town or City*\nSelect or enter the town or city where the property is located (ranked by population & relevance):\n\n` +
             `1️⃣ Harare\n` +
             `2️⃣ Bulawayo\n` +
-            `3️⃣ Mutare\n` +
-            `4️⃣ Gweru\n` +
-            `5️⃣ Kadoma\n` +
-            `6️⃣ Kariba\n` +
-            `7️⃣ Bindura\n` +
-            `8️⃣ Chivhu\n` +
-            `9️⃣ Victoria Falls\n` +
+            `3️⃣ Chitungwiza\n` +
+            `4️⃣ Mutare\n` +
+            `5️⃣ Gweru\n` +
+            `6️⃣ Victoria Falls 🌊\n` +
+            `7️⃣ Kadoma\n` +
+            `8️⃣ Kwekwe\n` +
+            `9️⃣ Chinhoyi\n` +
             `🔟 Masvingo\n` +
-            `1️⃣1️⃣ Chinhoyi\n` +
-            `1️⃣2️⃣ Kwekwe\n` +
-            `1️⃣3️⃣ Marondera\n` +
-            `1️⃣4️⃣ Chitungwiza\n\n` +
-            `_(Tap a button below or type any town name)_`;
+            `1️⃣1️⃣ Marondera\n` +
+            `1️⃣2️⃣ Bindura\n` +
+            `1️⃣3️⃣ Kariba ⛵\n` +
+            `1️⃣4️⃣ Chivhu\n\n` +
+            `_(Tap a quick button below or type any town/resort name)_`;
           buttonsToSend = [
             { id: "CITY_HARARE", title: "📍 Harare" },
             { id: "CITY_BULAWAYO", title: "📍 Bulawayo" },
-            { id: "CITY_MUTARE", title: "📍 Mutare" }
+            { id: "CITY_VICFALLS", title: "🌊 Victoria Falls" }
           ];
           actionTaken = "LISTING_STEP_CITY";
         }
@@ -1124,24 +1137,32 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
         const cityMap: Record<string, string> = {
           "1": "Harare",
           "2": "Bulawayo",
-          "3": "Mutare",
-          "4": "Gweru",
-          "5": "Kadoma",
-          "6": "Kariba",
-          "7": "Bindura",
-          "8": "Chivhu",
-          "9": "Victoria Falls",
+          "3": "Chitungwiza",
+          "4": "Mutare",
+          "5": "Gweru",
+          "6": "Victoria Falls",
+          "7": "Kadoma",
+          "8": "Kwekwe",
+          "9": "Chinhoyi",
           "10": "Masvingo",
-          "11": "Chinhoyi",
-          "12": "Kwekwe",
-          "13": "Marondera",
-          "14": "Chitungwiza",
+          "11": "Marondera",
+          "12": "Bindura",
+          "13": "Kariba",
+          "14": "Chivhu",
           "city_harare": "Harare",
           "city_bulawayo": "Bulawayo",
+          "city_chitungwiza": "Chitungwiza",
           "city_mutare": "Mutare",
+          "city_gweru": "Gweru",
+          "city_vicfalls": "Victoria Falls",
+          "city_victoria_falls": "Victoria Falls",
           "city_kadoma": "Kadoma",
-          "city_kariba": "Kariba",
+          "city_kwekwe": "Kwekwe",
+          "city_chinhoyi": "Chinhoyi",
+          "city_masvingo": "Masvingo",
+          "city_marondera": "Marondera",
           "city_bindura": "Bindura",
+          "city_kariba": "Kariba",
           "city_chivhu": "Chivhu"
         };
         const normCity = (buttonPayload || "").toLowerCase().trim();
@@ -1171,11 +1192,11 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
         }
 
         if (!chosenCity) {
-          replyText = `⚠️ Please select or enter a valid town or city name (e.g. *Harare*, *Bulawayo*, *Mutare*):`;
+          replyText = `⚠️ Please select or enter a valid town or city name (e.g. *Harare*, *Bulawayo*, *Victoria Falls*, *Mutare*):`;
           buttonsToSend = [
             { id: "CITY_HARARE", title: "📍 Harare" },
             { id: "CITY_BULAWAYO", title: "📍 Bulawayo" },
-            { id: "CITY_MUTARE", title: "📍 Mutare" }
+            { id: "CITY_VICFALLS", title: "🌊 Victoria Falls" }
           ];
           actionTaken = "STEP_RETRY";
         } else {
@@ -2010,8 +2031,8 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
         replyText = `🔍 *Search BunkBy Listings*\n\nPlease reply with the *town, city, or suburb* you are looking for:\n\n_(e.g. *Mt Pleasant*, *Harare*, *Kadoma*, *Kariba*, *Bindura*, *Chivhu*, *Bulawayo*)_`;
         buttonsToSend = [
           { id: "SEARCH_HARARE", title: "📍 Harare" },
-          { id: "SEARCH_MT_PLEASANT", title: "🏡 Mt Pleasant" },
-          { id: "SEARCH_AVONLEA", title: "🌿 Avonlea" }
+          { id: "SEARCH_BULAWAYO", title: "📍 Bulawayo" },
+          { id: "SEARCH_VICFALLS", title: "🌊 Victoria Falls" }
         ];
         actionTaken = "SEARCH_PROMPT_LOCATION";
       } else {
@@ -2050,22 +2071,34 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
         } else {
           actionTaken = "SEARCH_RESULTS";
           const baseUrl = new URL(request.url).origin || "https://bunkby.com";
-          const introMsg = `🏡 *Found ${results.length} active stay${results.length === 1 ? "" : "s"} in "${cleanQuery}":*`;
-          
-          outboundQueue.push({ text: introMsg, itemType: "intro" });
 
-          for (const room of results) {
+          if (results.length === 1) {
+            // For a single match, combine the found header with complete listing card details immediately
+            const room = results[0];
             const card = buildListingCardMessage(room, baseUrl, phone);
+            const combinedText = `🏡 *Found 1 active stay in "${cleanQuery}":*\n\n${card.text}`;
             outboundQueue.push({
-              text: card.text,
+              text: combinedText,
               imageUrl: card.imageUrl,
               itemType: "listing_card",
               listingId: room.id
             });
+          } else {
+            const introMsg = `🏡 *Found ${results.length} active stays in "${cleanQuery}":*`;
+            outboundQueue.push({ text: introMsg, itemType: "intro" });
+            for (const room of results) {
+              const card = buildListingCardMessage(room, baseUrl, phone);
+              outboundQueue.push({
+                text: card.text,
+                imageUrl: card.imageUrl,
+                itemType: "listing_card",
+                listingId: room.id
+              });
+            }
           }
 
           outboundQueue.push({
-            text: `👉 Visit https://bunkby.com to browse full interactive galleries.\n\nTap below to search another area, manage listings, or create a listing:`,
+            text: `👉 Visit https://bunkby.com to browse full interactive galleries and maps.\n\nWhat would you like to do next?`,
             buttons: [
               { id: "CMD_SEARCH", title: "🔍 Search Again" },
               { id: "CMD_MY_LISTINGS", title: "📋 My Listings" },
@@ -2112,10 +2145,10 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
 
         if (!res.success && item.imageUrl) {
           const imgFailureReason = res.error || `HTTP ${res.httpStatus} on image dispatch`;
-          console.warn(`[WhatsApp Image Dispatch Failed for ${item.imageUrl}]: ${imgFailureReason}. Falling back to text.`);
+          console.warn(`[WhatsApp Image Dispatch Failed for ${item.imageUrl}]: ${imgFailureReason}. Delivering full property text.`);
           
-          // Fallback to text message with explicit diagnostic trail
-          const fallbackRes = await sendMetaWhatsAppMessage(phone, `${item.text}\n\n🖼️ Photo: ${item.imageUrl}`, env, item.buttons);
+          // Fallback immediately to full text card so landlord/tenant NEVER misses details
+          const fallbackRes = await sendMetaWhatsAppMessage(phone, item.text, env, item.buttons);
           fallbackRes.itemType = "image_fallback_text";
           if (item.listingId) fallbackRes.listingId = item.listingId;
           fallbackRes.error = `[Image dispatch failed: ${imgFailureReason}]` + (fallbackRes.error ? ` | ${fallbackRes.error}` : "");

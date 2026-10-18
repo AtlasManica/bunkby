@@ -15,7 +15,7 @@ export const DEFAULT_ROOM_IMAGES = [
 
 export const INITIAL_ROOMS: RoomListing[] = [];
 
-export const ALL_ZIM_CITIES = ["Harare", "Bulawayo", "Chitungwiza", "Mutare", "Gweru", "Epworth", "Kwekwe", "Kadoma", "Masvingo", "Chinhoyi", "Norton", "Marondera", "Victoria Falls"];
+export const ALL_ZIM_CITIES = ["Harare", "Bulawayo", "Chitungwiza", "Mutare", "Gweru", "Victoria Falls", "Kadoma", "Kwekwe", "Chinhoyi", "Masvingo", "Marondera", "Bindura", "Kariba", "Chivhu", "Norton", "Epworth"];
 
 export const RESIDENTIAL_AMENITIES = [
   "Borehole",
