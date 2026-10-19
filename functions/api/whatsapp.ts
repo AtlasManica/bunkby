@@ -156,6 +156,185 @@ interface OutboundDispatchResult {
 }
 
 /**
+ * Comprehensive Zimbabwe Geographic Hierarchy Mapping
+ * Connects major cities (Harare, Bulawayo, Mutare, Gweru, etc.) to all their constituent suburbs.
+ * Enables parent-city searches (e.g. "Harare") to immediately find listings in Greendale, Mt Pleasant, etc.,
+ * and vice-versa.
+ */
+const ZIMBABWE_CITY_SUBURBS_MAP: Record<string, string[]> = {
+  "Harare": [
+    "Greendale", "Avondale", "Mt Pleasant", "Mount Pleasant", "Borrowdale", "Belvedere",
+    "Avenues", "Eastlea", "Highlands", "Hatfield", "Marlborough", "Mabelreign", "Milton Park",
+    "Waterfalls", "Westgate", "Kambuzuma", "Mbare", "Warren Park", "Glen Norah", "Glen View",
+    "Budiriro", "Highfield", "Chisipite", "Gunhill", "Newlands", "Alex Park", "Alexandra Park",
+    "Braeside", "Cranborne", "Logan Park", "Prospect", "Sunningdale", "Southerton", "Workington",
+    "Graniteside", "Msasa", "Vainona", "Helensvale", "Borrowdale Brooke", "Glen Lorne", "Shawasha",
+    "Shawasha Hills", "Pomona", "Emerald Hill", "Strathaven", "Monavale", "Bluffhill", "Tynwald",
+    "Ashdown Park", "Mabvuku", "Tafara", "Epworth", "Ruwa", "Chitungwiza", "Norton", "Dzivarasekwa",
+    "Kuwadzana", "Arcadia", "Hillside Harare", "Queensdale", "St Martins", "Ardbennie", "Bluff Hill"
+  ],
+  "Bulawayo": [
+    "Khumalo", "Hillside", "Suburbs", "Burnside", "Morningside", "Bradfield", "Famona",
+    "Matsheumhlope", "Woodlands", "Montrose", "Newton West", "Southwold", "Barham Green",
+    "Kumalo", "North End", "Paddonhurst", "Sunninghill", "Tshabalala", "Nkulumane",
+    "Luveve", "Magwegwe", "Entumbane", "Lobengula", "Cowdray Park", "Pelandaba", "Mpopoma",
+    "Emganwini", "Nketa", "Sizinda", "Ilanda", "Parklands", "Kenilworth", "Greenhill", "Ascot"
+  ],
+  "Mutare": [
+    "Murambi", "Palmerstone", "Fairbridge Park", "Chikanga", "Dangamvura", "Hobhouse",
+    "Yeovil", "Florida", "Bordervale", "Tiger Kloof", "Morningside", "Darlington"
+  ],
+  "Gweru": [
+    "Gweru East", "Southdowns", "Harben Park", "Nashville", "Athlone", "Daylesford",
+    "Lundi Park", "Mkoba", "Mambo", "Southview", "Ridgemont", "Windsor Park"
+  ],
+  "Victoria Falls": [
+    "Chinotimba", "Mkhosana", "Low Density", "SDR", "Industrial", "Aerodrome", "Masue"
+  ],
+  "Masvingo": [
+    "Rhodene", "Target Kopje", "Rujeko", "Mucheke", "Eastvale", "Clovelly", "Kopje"
+  ],
+  "Chinhoyi": [
+    "Coldstream", "Orange Grove", "Ruvimbo", "Chikonohono", "Bruins", "White City"
+  ],
+  "Kadoma": [
+    "Rimuka", "Waverley", "Innsfree", "Mornington", "Westview"
+  ],
+  "Kwekwe": [
+    "Mbizo", "Amaveni", "Msasa Park", "Fitchlea", "Chicago", "Golden Acres"
+  ],
+  "Marondera": [
+    "Rujeko", "Dombotombo", "Cherutombo", "Yellow City", "Winston Park", "Nyameni"
+  ],
+  "Bindura": [
+    "Chipadze", "Aerodrome", "Brockley", "Shashi View", "Greenhill"
+  ]
+};
+
+/**
+ * Builds intelligent SQL clauses matching:
+ * 1. Direct text search across suburb, city, title, landmark
+ * 2. City-to-suburb hierarchy: searching "Harare" automatically matches listings in Greendale, Avondale, etc.
+ * 3. Suburb-to-city hierarchy: searching "Greendale" matches listings with city Harare
+ */
+function buildLocationSearchClauses(cleanQuery: string, tablePrefix: string = ""): { whereSql: string; params: any[] } {
+  const prefix = tablePrefix ? `${tablePrefix}.` : "";
+  const q = cleanQuery.trim();
+  const qLower = q.toLowerCase();
+
+  const clauses: string[] = [
+    `(${prefix}suburb LIKE ? OR ${prefix}city LIKE ? OR ${prefix}title LIKE ? OR ${prefix}landmark LIKE ?)`
+  ];
+  const params: any[] = [`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`];
+
+  // 1. If searching for a city (e.g. "Harare"), match any property in its known suburbs
+  for (const [city, suburbs] of Object.entries(ZIMBABWE_CITY_SUBURBS_MAP)) {
+    if (city.toLowerCase() === qLower || qLower.includes(city.toLowerCase())) {
+      const placeholders = suburbs.map(() => "?").join(", ");
+      clauses.push(`(${prefix}suburb IN (${placeholders}))`);
+      params.push(...suburbs);
+      break;
+    }
+  }
+
+  // 2. If searching for a known suburb (e.g. "Greendale"), also match listings tagged with the parent city
+  for (const [city, suburbs] of Object.entries(ZIMBABWE_CITY_SUBURBS_MAP)) {
+    const isKnown = suburbs.some(s => s.toLowerCase() === qLower || qLower.includes(s.toLowerCase()));
+    if (isKnown) {
+      clauses.push(`(${prefix}city LIKE ?)`);
+      params.push(`%${city}%`);
+      break;
+    }
+  }
+
+  return {
+    whereSql: ` AND (` + clauses.join(" OR ") + `)`,
+    params
+  };
+}
+
+/**
+ * Uploads a listing photo directly to Meta Graph API media storage to obtain a native media_id.
+ * This completely avoids external URL crawl failures from Meta's edge servers.
+ */
+async function uploadListingPhotoToMeta(
+  rawPhoto: string,
+  token: string,
+  phoneId: string
+): Promise<string | null> {
+  if (!rawPhoto || !token || !phoneId) return null;
+  try {
+    let normalized = rawPhoto.trim();
+    // If stored as a JSON array string of multiple photos, extract the primary photo
+    if (normalized.startsWith("[")) {
+      try {
+        const parsed = JSON.parse(normalized);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          normalized = String(parsed[0]).trim();
+        }
+      } catch (_) {}
+    }
+
+    let fileBlob: Blob | null = null;
+    let mimeType = "image/jpeg";
+
+    if (normalized.startsWith("data:")) {
+      const match = normalized.match(/^data:([a-zA-Z0-9\/+-]+);base64,(.+)$/);
+      if (!match) return null;
+      mimeType = match[1];
+      const b64 = match[2];
+      const binaryStr = atob(b64);
+      const len = binaryStr.length;
+      const bytes = new Uint8Array(len);
+      for (let i = 0; i < len; i++) {
+        bytes[i] = binaryStr.charCodeAt(i);
+      }
+      fileBlob = new Blob([bytes], { type: mimeType });
+    } else if (normalized.startsWith("http://") || normalized.startsWith("https://")) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 6000);
+      try {
+        const resp = await fetch(normalized, { signal: controller.signal });
+        clearTimeout(timeoutId);
+        if (!resp.ok) return null;
+        fileBlob = await resp.blob();
+        mimeType = fileBlob.type || "image/jpeg";
+      } catch {
+        clearTimeout(timeoutId);
+        return null;
+      }
+    }
+
+    if (!fileBlob) return null;
+
+    const formData = new FormData();
+    formData.append("messaging_product", "whatsapp");
+    formData.append("type", mimeType);
+    formData.append("file", fileBlob, "property.jpg");
+
+    const uploadRes = await fetch(`https://graph.facebook.com/v26.0/${phoneId}/media`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${token}`
+      },
+      body: formData
+    });
+
+    if (!uploadRes.ok) {
+      const errText = await uploadRes.text();
+      console.warn(`[Meta Media Upload Notice]: HTTP ${uploadRes.status} - ${errText.slice(0, 80)}`);
+      return null;
+    }
+
+    const uploadData: any = await uploadRes.json();
+    return uploadData.id || null;
+  } catch (err: any) {
+    console.warn(`[Meta Media Upload Error]:`, err?.message || err);
+    return null;
+  }
+}
+
+/**
  * Resolves the public image URL for a listing photograph.
  * Handles HTTP/HTTPS URLs as well as base64 images served via /api/rooms/:id/photo
  */
@@ -236,7 +415,7 @@ function getListingPhotoUrl(listing: any, baseUrl: string): string | null {
       } catch (_) {}
     }
     const cleanBase = origin.replace(/\/+$/, "");
-    return `${cleanBase}/api/rooms/${listing.id}/photo.jpg`;
+    return `${cleanBase}/api/rooms/${listing.id}/photo`;
   }
 
   return null;
@@ -315,6 +494,7 @@ function buildListingCardMessage(
 
   return {
     imageUrl: photoUrl,
+    rawPhoto: String(listing.image_url || "").trim() || null,
     text
   };
 }
@@ -423,16 +603,18 @@ async function sendMetaWhatsAppMessage(
 
   let payload: any;
   if (imageUrl) {
-    // Outbound Meta Image Message with Caption
+    // Outbound Meta Image Message: supports both pre-uploaded Meta media_id and public link
+    const isMediaId = imageUrl.startsWith("meta_id:") || /^[0-9]{8,25}$/.test(imageUrl.trim());
+    const cleanMediaId = imageUrl.replace(/^meta_id:/, "").trim();
+
     payload = {
       messaging_product: "whatsapp",
       recipient_type: "individual",
       to: recipientPhone,
       type: "image",
-      image: {
-        link: imageUrl,
-        caption: replyText.slice(0, 1024)
-      }
+      image: isMediaId
+        ? { id: cleanMediaId, caption: replyText.slice(0, 1024) }
+        : { link: imageUrl, caption: replyText.slice(0, 1024) }
     };
   } else if (buttons && buttons.length > 0 && buttons.length <= 3) {
     payload = {
@@ -579,6 +761,24 @@ async function ensureDiagnosticTable(db: any) {
       if (!cols.includes("reports_count")) {
         await db.prepare("ALTER TABLE listings ADD COLUMN reports_count INTEGER DEFAULT 0").run();
       }
+
+      // 3. Self-healing City Normalization:
+      // If a listing has a known Harare suburb (like Greendale, Avondale, Mt Pleasant) but city is empty or null,
+      // backfill city = 'Harare' so city-wide searches always succeed.
+      try {
+        await db.prepare(`
+          UPDATE listings 
+          SET city = 'Harare' 
+          WHERE (city IS NULL OR trim(city) = '' OR city = 'None')
+            AND (
+              suburb LIKE '%Greendale%' OR suburb LIKE '%Avondale%' OR suburb LIKE '%Mt Pleasant%' OR 
+              suburb LIKE '%Borrowdale%' OR suburb LIKE '%Belvedere%' OR suburb LIKE '%Avenues%' OR
+              suburb LIKE '%Eastlea%' OR suburb LIKE '%Highlands%' OR suburb LIKE '%Hatfield%' OR
+              suburb LIKE '%Marlborough%' OR suburb LIKE '%Mabelreign%' OR suburb LIKE '%Milton Park%' OR
+              suburb LIKE '%Waterfalls%' OR suburb LIKE '%Westgate%' OR suburb LIKE '%Glen Lorne%'
+            )
+        `).run();
+      } catch (_) {}
     }
   } catch (err: any) {
     console.warn("[D1 Schema Self-Healing]:", err?.message || err);
@@ -598,10 +798,14 @@ function parseIncomingWebhook(body: any): ParsedMessage | null {
 
     // Check delivery/read status updates
     if (change.statuses && Array.isArray(change.statuses) && change.statuses.length > 0) {
+      const statusObj = change.statuses[0];
+      const statusName = statusObj.status || "receipt";
+      const statusErr = statusObj.errors?.[0];
+      const errDetail = statusErr ? `(Meta Status Code ${statusErr.code}: ${statusErr.title || statusErr.message})` : "";
       return {
-        phone: change.statuses[0].recipient_id || "",
-        text: "",
-        messageId: change.statuses[0].id || "",
+        phone: statusObj.recipient_id || "",
+        text: `${statusName} ${errDetail}`.trim(),
+        messageId: statusObj.id || "",
         name: "",
         isStatusUpdate: true,
         type: "status_receipt"
@@ -769,8 +973,8 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
         await env.DB.prepare(`
           INSERT INTO whatsapp_diagnostic_events (
             timestamp, message_id, sender, sender_name, incoming_preview, action_taken, outbound_count, status, error
-          ) VALUES (CURRENT_TIMESTAMP, ?, 'status_receipt', 'Meta Status Update', 'status update receipt', 'STATUS_RECEIPT_ACK', 0, 'status_acknowledged', NULL)
-        `).bind(incoming.messageId || null).run();
+          ) VALUES (CURRENT_TIMESTAMP, ?, 'status_receipt', 'Meta Status Update', ?, 'STATUS_RECEIPT_ACK', 0, 'status_acknowledged', NULL)
+        `).bind(incoming.messageId || null, incoming.text ? `Status: ${incoming.text}` : "status update receipt").run();
       } catch (_) {}
     }
     return jsonResponse({ status: "status_acknowledged" }, 200);
@@ -866,19 +1070,18 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
 
         const cleanQuery = text.replace(/^(search|find|looking for|i want a|need a)\s*/i, "").trim();
 
+        // Intelligent location search matching both parent city and constituent suburbs (e.g. Harare <-> Greendale)
+        const locationFilter = cleanQuery ? buildLocationSearchClauses(cleanQuery, "listings") : { whereSql: "", params: [] };
+        const countFilter = cleanQuery ? buildLocationSearchClauses(cleanQuery) : { whereSql: "", params: [] };
+
         // Count total matching listings
         let countSql = `
           SELECT COUNT(*) as total
           FROM listings
-          WHERE verification_status != 'Delisted'
+          WHERE verification_status != 'Delisted'${countFilter.whereSql}
         `;
-        const countParams: any[] = [];
-        if (cleanQuery) {
-          countSql += ` AND (suburb LIKE ? OR city LIKE ? OR title LIKE ? OR landmark LIKE ?)`;
-          countParams.push(`%${cleanQuery}%`, `%${cleanQuery}%`, `%${cleanQuery}%`, `%${cleanQuery}%`);
-        }
-        const totalCountRes: any = countParams.length > 0 
-          ? await env.DB.prepare(countSql).bind(...countParams).first()
+        const totalCountRes: any = countFilter.params.length > 0 
+          ? await env.DB.prepare(countSql).bind(...countFilter.params).first()
           : await env.DB.prepare(countSql).first();
         const totalMatching = Number(totalCountRes?.total) || 0;
 
@@ -887,18 +1090,12 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
           SELECT listings.*, landlords.full_name as landlord_name
           FROM listings
           LEFT JOIN landlords ON listings.landlord_id = landlords.id
-          WHERE listings.verification_status != 'Delisted'
+          WHERE listings.verification_status != 'Delisted'${locationFilter.whereSql}
+          ORDER BY listings.created_at DESC LIMIT 3 OFFSET 0
         `;
-        const params: any[] = [];
-        if (cleanQuery) {
-          querySql += ` AND (listings.suburb LIKE ? OR listings.city LIKE ? OR listings.title LIKE ? OR listings.landmark LIKE ?)`;
-          params.push(`%${cleanQuery}%`, `%${cleanQuery}%`, `%${cleanQuery}%`, `%${cleanQuery}%`);
-        }
-
-        querySql += ` ORDER BY listings.created_at DESC LIMIT 3 OFFSET 0`;
 
         const stmt = env.DB.prepare(querySql);
-        const { results } = params.length > 0 ? await stmt.bind(...params).all() : await stmt.all();
+        const { results } = locationFilter.params.length > 0 ? await stmt.bind(...locationFilter.params).all() : await stmt.all();
 
         if (!results || results.length === 0) {
           replyText = `🏡 No active listings currently found in *"${cleanQuery}"*.\n\n💡 *Suggestions:*\n• Try searching a wider area like *Harare*, *Bulawayo*, or nearby suburbs (*Avonlea*, *Belvedere*, *Avenues*, *Mt Pleasant*).\n• Tap *Create a Listing* below to post your property on BunkBy!`;
@@ -920,14 +1117,15 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
           // Send up to 3 property cards
           for (const room of results) {
             const card = buildListingCardMessage(room, baseUrl, phone);
-            // 1. If photo is available, queue as separate optional photo message
+            // 1. If photo is available, queue as separate optional photo message with rawPhoto for Meta upload
             if (card.imageUrl) {
               outboundQueue.push({
                 text: `📸 Photo for: *${room.title || "Accommodation"}*`,
                 imageUrl: card.imageUrl,
+                rawPhoto: card.rawPhoto,
                 itemType: "listing_photo",
                 listingId: room.id
-              });
+              } as any);
             }
             // 2. GUARANTEED complete standalone text card with full details, specs & direct contact
             outboundQueue.push({
@@ -2093,19 +2291,18 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
           cleanQuery = "Victoria Falls";
         }
 
+        // Intelligent location search matching both parent city and constituent suburbs (e.g. Harare <-> Greendale)
+        const locationFilter = cleanQuery ? buildLocationSearchClauses(cleanQuery, "listings") : { whereSql: "", params: [] };
+        const countFilter = cleanQuery ? buildLocationSearchClauses(cleanQuery) : { whereSql: "", params: [] };
+
         // Count total matching listings
         let countSql = `
           SELECT COUNT(*) as total
           FROM listings
-          WHERE verification_status != 'Delisted'
+          WHERE verification_status != 'Delisted'${countFilter.whereSql}
         `;
-        const countParams: any[] = [];
-        if (cleanQuery) {
-          countSql += ` AND (suburb LIKE ? OR city LIKE ? OR title LIKE ? OR landmark LIKE ?)`;
-          countParams.push(`%${cleanQuery}%`, `%${cleanQuery}%`, `%${cleanQuery}%`, `%${cleanQuery}%`);
-        }
-        const totalCountRes: any = countParams.length > 0 
-          ? await env.DB.prepare(countSql).bind(...countParams).first()
+        const totalCountRes: any = countFilter.params.length > 0 
+          ? await env.DB.prepare(countSql).bind(...countFilter.params).first()
           : await env.DB.prepare(countSql).first();
         const totalMatching = Number(totalCountRes?.total) || 0;
 
@@ -2114,19 +2311,13 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
           SELECT listings.*, landlords.full_name as landlord_name
           FROM listings
           LEFT JOIN landlords ON listings.landlord_id = landlords.id
-          WHERE listings.verification_status != 'Delisted'
+          WHERE listings.verification_status != 'Delisted'${locationFilter.whereSql}
+          ORDER BY listings.created_at DESC LIMIT 3 OFFSET ?
         `;
-        const params: any[] = [];
-        if (cleanQuery) {
-          querySql += ` AND (listings.suburb LIKE ? OR listings.city LIKE ? OR listings.title LIKE ? OR listings.landmark LIKE ?)`;
-          params.push(`%${cleanQuery}%`, `%${cleanQuery}%`, `%${cleanQuery}%`, `%${cleanQuery}%`);
-        }
 
-        querySql += ` ORDER BY listings.created_at DESC LIMIT 3 OFFSET ?`;
-        params.push(searchOffset);
-
+        const bindParams = [...locationFilter.params, searchOffset];
         const stmt = env.DB.prepare(querySql);
-        const { results } = await stmt.bind(...params).all();
+        const { results } = await stmt.bind(...bindParams).all();
 
         if (!results || results.length === 0) {
           replyText = `🏡 No active listings found in *"${cleanQuery || "your search"}"*.\n\n💡 *Suggestions:*\n• Try searching a major city or town (e.g. *Harare*, *Bulawayo*, *Victoria Falls*, *Mutare*, *Kadoma*).\n• Tap *Create a Listing* below to post a property on BunkBy!`;
@@ -2151,14 +2342,15 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
           // Send up to 3 individual property cards
           for (const room of results) {
             const card = buildListingCardMessage(room, baseUrl, phone);
-            // 1. If photo is available, queue as separate optional photo message
+            // 1. If photo is available, queue as separate optional photo message with rawPhoto for Meta upload
             if (card.imageUrl) {
               outboundQueue.push({
                 text: `📸 Photo for: *${room.title || "Accommodation"}*`,
                 imageUrl: card.imageUrl,
+                rawPhoto: card.rawPhoto,
                 itemType: "listing_photo",
                 listingId: room.id
-              });
+              } as any);
             }
             // 2. GUARANTEED complete standalone text card with full details, specs & direct contact
             outboundQueue.push({
@@ -2226,7 +2418,26 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
           await new Promise(r => setTimeout(r, 600));
         }
 
-        let res = await sendMetaWhatsAppMessage(phone, item.text, env, item.buttons, item.imageUrl);
+        // Reliable Image Delivery: If this item has a photo, attempt to pre-upload directly to Meta Media Storage
+        // to receive a native media_id. This eliminates external domain crawl failures!
+        let effectiveImageUrl = item.imageUrl;
+        const rawPhoto = (item as any).rawPhoto;
+        const token = env.WHATSAPP_ACCESS_TOKEN?.trim();
+        const phoneId = env.WHATSAPP_PHONE_NUMBER_ID?.trim();
+
+        if (item.imageUrl && token && phoneId) {
+          const photoToUpload = rawPhoto || item.imageUrl;
+          try {
+            const uploadedMediaId = await uploadListingPhotoToMeta(photoToUpload, token, phoneId);
+            if (uploadedMediaId) {
+              effectiveImageUrl = `meta_id:${uploadedMediaId}`;
+            }
+          } catch (_) {
+            // Keep original effectiveImageUrl as fallback
+          }
+        }
+
+        let res = await sendMetaWhatsAppMessage(phone, item.text, env, item.buttons, effectiveImageUrl);
         
         // Granular diagnostic metadata attached to result
         res.itemType = item.itemType || "message";
