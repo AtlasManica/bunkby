@@ -11,7 +11,15 @@ export async function onRequestGet({ env }) {
 
     const mappedListings = results.map((row: any) => ({
         ...row,
-        category: row.category || (["Lodge / Guesthouse", "Hotel", "Lodge", "Guesthouse", "Bed & Breakfast"].includes(row.property_type) ? "hospitality" : "residential"),
+        category: row.category || (
+          ["Lodge / Guesthouse", "Hotel", "Lodge", "Guesthouse", "Bed & Breakfast"].includes(row.property_type)
+            ? "hospitality"
+            : ["Commercial", "Shop", "Warehouse", "Table"].includes(row.property_type)
+            ? "commercial"
+            : ["Student Hostel", "Boarding House", "Single Student Room", "Shared Student Room"].includes(row.property_type) || row.tenant_type === "Student"
+            ? "student"
+            : "residential"
+        ),
         businessName: row.business_name || null,
         frequency: row.rent_cycle,
         propertyType: row.property_type,

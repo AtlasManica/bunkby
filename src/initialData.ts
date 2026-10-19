@@ -57,6 +57,13 @@ export const COMMERCIAL_PROPERTY_TYPES: PropertyType[] = [
   "Table"
 ];
 
+export const STUDENT_PROPERTY_TYPES: PropertyType[] = [
+  "Student Hostel",
+  "Boarding House",
+  "Single Student Room",
+  "Shared Student Room"
+];
+
 export const RESIDENTIAL_PROPERTY_TYPES: PropertyType[] = [
   "Single Room",
   "Cottage",
@@ -65,9 +72,7 @@ export const RESIDENTIAL_PROPERTY_TYPES: PropertyType[] = [
   "Full house",
   "Apartment / Flat",
   "Townhouse / Cluster",
-  "Boarding House",
   "Shared Space",
-  "Student Hostel",
   "House Sale"
 ];
 
@@ -83,6 +88,7 @@ export const ALL_PROPERTY_TYPES: PropertyType[] = [
   "Commercial",
   ...RESIDENTIAL_PROPERTY_TYPES,
   ...HOSPITALITY_PROPERTY_TYPES,
+  ...STUDENT_PROPERTY_TYPES,
   "Warehouse",
   "Shop",
   "Table"
