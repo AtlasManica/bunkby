@@ -222,14 +222,52 @@ function buildLocationSearchClauses(cleanQuery: string, tablePrefix: string = ""
   const q = cleanQuery.trim();
   const qLower = q.toLowerCase();
 
+  // Category quick-filters:
+  if (qLower === "residential" || qLower === "res" || qLower === "rooms") {
+    return {
+      whereSql: ` AND (${prefix}category = 'residential' OR ${prefix}category IS NULL OR ${prefix}property_type NOT IN ('Lodge / Guesthouse', 'Hotel', 'Lodge', 'Guesthouse', 'Bed & Breakfast', 'Commercial', 'Shop', 'Warehouse'))`,
+      params: []
+    };
+  }
+  if (qLower === "guesthouse/lodge" || qLower === "guesthouse" || qLower === "lodge" || qLower === "hospitality" || qLower === "hotel") {
+    return {
+      whereSql: ` AND (${prefix}category = 'hospitality' OR ${prefix}property_type IN ('Lodge / Guesthouse', 'Hotel', 'Lodge', 'Guesthouse', 'Bed & Breakfast'))`,
+      params: []
+    };
+  }
+  if (qLower === "student" || qLower === "student accommodation" || qLower === "hostel" || qLower === "boarding house") {
+    return {
+      whereSql: ` AND (${prefix}tenant_type = 'Student' OR ${prefix}property_type IN ('Student Hostel', 'Boarding House') OR ${prefix}title LIKE '%student%')`,
+      params: []
+    };
+  }
+  if (qLower === "commercial" || qLower === "shop" || qLower === "shops" || qLower === "warehouse" || qLower === "office") {
+    return {
+      whereSql: ` AND (${prefix}category = 'commercial' OR ${prefix}property_type IN ('Commercial', 'Warehouse', 'Shop', 'Table') OR ${prefix}title LIKE '%commercial%' OR ${prefix}title LIKE '%shop%' OR ${prefix}title LIKE '%office%')`,
+      params: []
+    };
+  }
+
   const clauses: string[] = [
     `(${prefix}suburb LIKE ? OR ${prefix}city LIKE ? OR ${prefix}title LIKE ? OR ${prefix}landmark LIKE ?)`
   ];
   const params: any[] = [`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`];
 
+  // Refined multi-word precision (e.g. "Rhodene Masvingo", "Rhodene, Masvingo", "Avonlea Harare")
+  // Breaks tokens by comma, slash, plus, or whitespace
+  const tokens = q.split(/[,/+\s]+/).map(t => t.trim()).filter(t => t.length >= 2);
+  if (tokens.length >= 2) {
+    const tokenSubclauses: string[] = [];
+    for (const t of tokens) {
+      tokenSubclauses.push(`(${prefix}suburb LIKE ? OR ${prefix}city LIKE ? OR ${prefix}title LIKE ? OR ${prefix}landmark LIKE ?)`);
+      params.push(`%${t}%`, `%${t}%`, `%${t}%`, `%${t}%`);
+    }
+    clauses.push(`(` + tokenSubclauses.join(" AND ") + `)`);
+  }
+
   // 1. If searching for a city (e.g. "Harare"), match any property in its known suburbs
   for (const [city, suburbs] of Object.entries(ZIMBABWE_CITY_SUBURBS_MAP)) {
-    if (city.toLowerCase() === qLower || qLower.includes(city.toLowerCase())) {
+    if (city.toLowerCase() === qLower || tokens.some(t => t.toLowerCase() === city.toLowerCase())) {
       const placeholders = suburbs.map(() => "?").join(", ");
       clauses.push(`(${prefix}suburb IN (${placeholders}))`);
       params.push(...suburbs);
@@ -237,9 +275,9 @@ function buildLocationSearchClauses(cleanQuery: string, tablePrefix: string = ""
     }
   }
 
-  // 2. If searching for a known suburb (e.g. "Greendale"), also match listings tagged with the parent city
+  // 2. If searching for a known suburb (e.g. "Greendale" or "Rhodene"), also match listings tagged with the parent city
   for (const [city, suburbs] of Object.entries(ZIMBABWE_CITY_SUBURBS_MAP)) {
-    const isKnown = suburbs.some(s => s.toLowerCase() === qLower || qLower.includes(s.toLowerCase()));
+    const isKnown = suburbs.some(s => s.toLowerCase() === qLower || tokens.some(t => t.toLowerCase() === s.toLowerCase()));
     if (isKnown) {
       clauses.push(`(${prefix}city LIKE ?)`);
       params.push(`%${city}%`);
@@ -440,16 +478,34 @@ function buildListingCardMessage(
   const cleanPhone = (listing.contact_phone || "").replace(/\D/g, "");
   const waContactLink = cleanPhone ? `https://wa.me/${cleanPhone.startsWith("0") ? "263" + cleanPhone.slice(1) : cleanPhone}` : null;
 
+  // Normalize landlord/host phone to international format starting with +263
+  const rawDigits = (listing.contact_phone || "").replace(/\D/g, "");
+  let displayPhone = listing.contact_phone || "Contact via BunkBy";
+  let waDigits = rawDigits;
+  if (rawDigits.startsWith("263")) {
+    displayPhone = `+${rawDigits}`;
+    waDigits = rawDigits;
+  } else if (rawDigits.startsWith("0") && rawDigits.length >= 9) {
+    displayPhone = `+263${rawDigits.slice(1)}`;
+    waDigits = `263${rawDigits.slice(1)}`;
+  } else if (rawDigits.length === 9) {
+    displayPhone = `+263${rawDigits}`;
+    waDigits = `263${rawDigits}`;
+  } else if (rawDigits.length > 0 && !displayPhone.startsWith("+")) {
+    displayPhone = `+${rawDigits}`;
+  }
+  const formattedWaContactLink = waDigits ? `https://wa.me/${waDigits}` : waContactLink;
+
   let text = "";
   if (isHospitality) {
     text += `🏨 *${listing.business_name || listing.title}*\n`;
     if (listing.business_name && listing.title && listing.business_name !== listing.title) {
       text += `"${listing.title}"\n`;
     }
-    text += `✨ _[Hospitality & Guest Stay]_\n\n`;
+    text += `✨ *${listing.property_type || "Hospitality & Guest Stay"}*\n\n`;
   } else {
     text += `🏠 *${listing.title}*\n`;
-    text += `🏷️ _[${listing.property_type || "Residential Rental"}]_\n\n`;
+    text += `🏷️ *${listing.property_type || "Residential Rental"}*\n\n`;
   }
 
   text += `📍 *Location:* ${listing.suburb}, ${listing.city || "Harare"}`;
@@ -464,7 +520,7 @@ function buildListingCardMessage(
   }
   text += `\n`;
 
-  if (listing.tenant_type) {
+  if (listing.tenant_type && !isHospitality) {
     text += `👤 *Seeking:* ${listing.tenant_type}\n`;
   }
 
@@ -486,9 +542,9 @@ function buildListingCardMessage(
     }
   }
 
-  text += `\n📞 *Direct Landlord/Host:* ${listing.contact_phone || "Contact via BunkBy"}\n`;
-  if (waContactLink) {
-    text += `💬 *WhatsApp Host Directly:* ${waContactLink}\n`;
+  text += `\n📞 *Landlord/Host Contact:* ${displayPhone}\n`;
+  if (formattedWaContactLink) {
+    text += `💬 *WhatsApp Host Directly:* ${formattedWaContactLink}\n`;
   }
   text += `🔗 *Full Gallery & Map:* ${listingUrl}`;
 
@@ -777,6 +833,17 @@ async function ensureDiagnosticTable(db: any) {
               suburb LIKE '%Marlborough%' OR suburb LIKE '%Mabelreign%' OR suburb LIKE '%Milton Park%' OR
               suburb LIKE '%Waterfalls%' OR suburb LIKE '%Westgate%' OR suburb LIKE '%Glen Lorne%'
             )
+        `).run();
+      } catch (_) {}
+
+      // 4. Remove any audit test / dummy listings (e.g. audit test cottage or dummy listings)
+      try {
+        await db.prepare(`
+          DELETE FROM listings 
+          WHERE title LIKE '%test cottage%' 
+             OR title LIKE '%audit test%' 
+             OR title LIKE '%dummy%'
+             OR suburb LIKE '%dummy%'
         `).run();
       } catch (_) {}
     }
@@ -1206,10 +1273,11 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
             `8️⃣ Boarding House\n` +
             `9️⃣ Shared Space\n` +
             `🔟 Student Hostel\n` +
-            `1️⃣1️⃣ Warehouse\n` +
-            `1️⃣2️⃣ Shop\n` +
-            `1️⃣3️⃣ Table\n` +
-            `1️⃣4️⃣ House Sale`;
+            `1️⃣1️⃣ Commercial (Shops/Offices)\n` +
+            `1️⃣2️⃣ Warehouse\n` +
+            `1️⃣3️⃣ Shop\n` +
+            `1️⃣4️⃣ Table\n` +
+            `1️⃣5️⃣ House Sale`;
           buttonsToSend = [
             { id: "RTYPE_ROOM", title: "🚪 Single Room" },
             { id: "RTYPE_COTTAGE", title: "🏡 Cottage" },
@@ -1266,10 +1334,12 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
             "8": "Boarding House",
             "9": "Shared Space",
             "10": "Student Hostel",
-            "11": "Warehouse",
-            "12": "Shop",
-            "13": "Table",
-            "14": "House Sale",
+            "11": "Commercial",
+            "12": "Warehouse",
+            "13": "Shop",
+            "14": "Table",
+            "15": "House Sale",
+            "commercial": "Commercial",
             "rtype_room": "Single Room",
             "rtype_cottage": "Cottage",
             "rtype_flat": "Apartment / Flat"
@@ -1428,7 +1498,7 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
         }
 
         if (!chosenCity) {
-          replyText = `⚠️ Please select or enter a valid town or city name (e.g. *Harare*, *Bulawayo*, *Victoria Falls*, *Mutare*):`;
+          replyText = `⚠️ Please select or enter a valid town or city name (e.g. *Harare*, *Bulawayo*, *Victoria Falls*):`;
           buttonsToSend = [
             { id: "CITY_HARARE", title: "📍 Harare" },
             { id: "CITY_BULAWAYO", title: "📍 Bulawayo" },
@@ -1443,7 +1513,7 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
             WHERE phone_number = ?
           `).bind(JSON.stringify(collectedData), phone).run();
 
-          replyText = `✅ City: *${chosenCity}*\n\n*Step 5/11: Suburb or Area*\nWhich suburb or neighbourhood in ${chosenCity} is the property in?\n_(e.g. *Avonlea*, *Belvedere*, *Avenues*, *Rhodene*, *Khumalo*)_`;
+          replyText = `✅ City: *${chosenCity}*\n\n*Step 5/11: Suburb or Area*\nWhich suburb or neighbourhood in ${chosenCity} is the property in?\n_(e.g. *Avonlea*, *Belvedere*, *Avenues*, *Khumalo*, *Low Density*)_`;
           actionTaken = "LISTING_STEP_SUBURB";
         }
       }
@@ -1553,21 +1623,31 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
           const cycleLabel = collectedData.rent_cycle || (isHospitality ? "Night" : "Month");
 
           if (isHospitality) {
-            // Hospitality stays typically do not have security deposits, proceed directly to audience
+            // Hospitality stays skip deposit and guest audience, proceeding directly to amenities
             collectedData.deposit = 0;
+            collectedData.tenant_type = "Guests";
             await env.DB.prepare(`
               UPDATE chatbot_sessions 
-              SET current_step = 'AWAITING_TENANT_TYPE', collected_data = ?, updated_at = CURRENT_TIMESTAMP 
+              SET current_step = 'AWAITING_AMENITIES', collected_data = ?, updated_at = CURRENT_TIMESTAMP 
               WHERE phone_number = ?
             `).bind(JSON.stringify(collectedData), phone).run();
 
-            replyText = `✅ Rate: *$${priceNum} / ${cycleLabel.toLowerCase()}*\n\n*Step 9/11: Preferred Audience / Guests*\nWho is this accommodation best suited for?\n\nTap an option below:`;
+            replyText = `✅ Rate: *$${priceNum} / ${cycleLabel.toLowerCase()}*\n\n*Step 9/10: Amenities Checklist*\nReply with numbers of included amenities (e.g. *1, 2, 7*):\n` +
+              `1️⃣ Wifi / Internet\n` +
+              `2️⃣ Swimming Pool\n` +
+              `3️⃣ Breakfast Included\n` +
+              `4️⃣ Solar Power Backup\n` +
+              `5️⃣ Air Conditioning / Ensuite\n` +
+              `6️⃣ Secure Parking\n` +
+              `7️⃣ Generator Backup\n` +
+              `8️⃣ DSTV / Satellite\n` +
+              `9️⃣ Restaurant / Bar\n` +
+              `🔟 Airport Shuttle\n\n` +
+              `Or tap *Standard Amenities* to select all popular features:`;
             buttonsToSend = [
-              { id: "TTYPE_GUEST", title: "🧳 Travelers / Guests" },
-              { id: "TTYPE_GENERAL", title: "👥 General Public" },
-              { id: "TTYPE_PROFESSIONAL", title: "💼 Business / Work" }
+              { id: "AMEN_ALL_HOSP", title: "✨ Standard Amenities" }
             ];
-            actionTaken = "LISTING_STEP_TENANT_TYPE";
+            actionTaken = "LISTING_STEP_AMENITIES";
           } else {
             // Residential rentals ask for deposit with buttons
             await env.DB.prepare(`
@@ -2266,11 +2346,11 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
             updated_at = CURRENT_TIMESTAMP
         `).bind(phone).run();
 
-        replyText = `🔍 *Search BunkBy Listings*\n\nPlease reply with the *town, city, or suburb* you are looking for:\n\n_(e.g. *Mt Pleasant*, *Harare*, *Kadoma*, *Kariba*, *Bindura*, *Chivhu*, *Bulawayo*)_`;
+        replyText = `🔍 *Search BunkBy Listings*\n\nReply with any location or category to find accommodation:\n• *By Area:* e.g. *Harare*, *Avonlea*, *Bulawayo*, *Victoria Falls*\n• *By Category:* *Residential*, *Guesthouse/Lodge*, *Student*, or *Commercial*\n\n_(Tap a quick category button below or type any location)_`;
         buttonsToSend = [
-          { id: "SEARCH_HARARE", title: "📍 Harare" },
-          { id: "SEARCH_BULAWAYO", title: "📍 Bulawayo" },
-          { id: "SEARCH_VICFALLS", title: "📍 Victoria Falls" }
+          { id: "SEARCH_CAT_RESIDENTIAL", title: "🏠 Residential" },
+          { id: "SEARCH_CAT_HOSPITALITY", title: "🏨 Guesthouse/Lodge" },
+          { id: "SEARCH_CAT_STUDENT", title: "🎓 Student Hostels" }
         ];
         actionTaken = "SEARCH_PROMPT_LOCATION";
       } else {
@@ -2289,6 +2369,14 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
           cleanQuery = "Bulawayo";
         } else if (buttonPayload === "SEARCH_VICFALLS") {
           cleanQuery = "Victoria Falls";
+        } else if (buttonPayload === "SEARCH_CAT_RESIDENTIAL") {
+          cleanQuery = "Residential";
+        } else if (buttonPayload === "SEARCH_CAT_HOSPITALITY") {
+          cleanQuery = "Guesthouse/Lodge";
+        } else if (buttonPayload === "SEARCH_CAT_STUDENT") {
+          cleanQuery = "Student";
+        } else if (buttonPayload === "SEARCH_CAT_COMMERCIAL") {
+          cleanQuery = "Commercial";
         }
 
         // Intelligent location search matching both parent city and constituent suburbs (e.g. Harare <-> Greendale)
@@ -2320,7 +2408,7 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
         const { results } = await stmt.bind(...bindParams).all();
 
         if (!results || results.length === 0) {
-          replyText = `🏡 No active listings found in *"${cleanQuery || "your search"}"*.\n\n💡 *Suggestions:*\n• Try searching a major city or town (e.g. *Harare*, *Bulawayo*, *Victoria Falls*, *Mutare*, *Kadoma*).\n• Tap *Create a Listing* below to post a property on BunkBy!`;
+          replyText = `🏡 No active listings found in *"${cleanQuery || "your search"}"*.\n\n💡 *Suggestions:*\n• Try searching a major city or town (e.g. *Harare*, *Bulawayo*, *Victoria Falls*).\n• Tap *Create a Listing* below to post a property on BunkBy!`;
           actionTaken = "SEARCH_NO_RESULTS";
           buttonsToSend = [
             { id: "CMD_SEARCH", title: "🔍 Search Again" },

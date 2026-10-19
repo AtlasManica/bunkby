@@ -50,6 +50,13 @@ export const HOSPITALITY_AMENITIES = [
 
 export const ALL_AMENITIES = Array.from(new Set([...RESIDENTIAL_AMENITIES, ...HOSPITALITY_AMENITIES]));
 
+export const COMMERCIAL_PROPERTY_TYPES: PropertyType[] = [
+  "Commercial",
+  "Shop",
+  "Warehouse",
+  "Table"
+];
+
 export const RESIDENTIAL_PROPERTY_TYPES: PropertyType[] = [
   "Single Room",
   "Cottage",
@@ -73,6 +80,7 @@ export const HOSPITALITY_PROPERTY_TYPES: PropertyType[] = [
 ];
 
 export const ALL_PROPERTY_TYPES: PropertyType[] = [
+  "Commercial",
   ...RESIDENTIAL_PROPERTY_TYPES,
   ...HOSPITALITY_PROPERTY_TYPES,
   "Warehouse",

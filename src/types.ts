@@ -14,11 +14,12 @@ export interface Landlord {
   role?: string;
 }
 
-export type ListingCategory = "residential" | "hospitality";
+export type ListingCategory = "residential" | "hospitality" | "commercial";
 
 export type ListingStatus = "Active" | "Rented" | "Unavailable" | "Expired" | "Delisted";
 
 export type PropertyType = 
+  | "Commercial"
   | "Single Room"
   | "Cottage"
   | "2 rooms"

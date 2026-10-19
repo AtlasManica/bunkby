@@ -401,10 +401,12 @@ export default function App() {
     const isHospitality = newRoomForm.category === "hospitality" || 
       HOSPITALITY_PROPERTY_TYPES.includes(newRoomForm.propertyType) ||
       ["Lodge / Guesthouse", "Hotel", "Lodge", "Guesthouse", "Bed & Breakfast"].includes(newRoomForm.propertyType);
+    const isCommercial = newRoomForm.category === "commercial" ||
+      ["Commercial", "Shop", "Warehouse", "Table"].includes(newRoomForm.propertyType);
 
     const payload = {
       ...newRoomForm,
-      category: (isHospitality ? "hospitality" : "residential") as ListingCategory,
+      category: (isHospitality ? "hospitality" : isCommercial ? "commercial" : "residential") as ListingCategory,
       business_name: newRoomForm.business_name || (isHospitality ? newRoomForm.title : ""),
       businessName: newRoomForm.business_name || (isHospitality ? newRoomForm.title : ""),
       image_url: resolvedImageUrl,
@@ -879,7 +881,9 @@ export default function App() {
       const isHosp = room.category === "hospitality" || 
         HOSPITALITY_PROPERTY_TYPES.includes(room.propertyType) ||
         ["Lodge / Guesthouse", "Hotel", "Lodge", "Guesthouse", "Bed & Breakfast"].includes(room.propertyType);
-      const roomCat = isHosp ? "hospitality" : "residential";
+      const isComm = room.category === "commercial" || 
+        ["Commercial", "Shop", "Warehouse", "Table"].includes(room.propertyType);
+      const roomCat = isHosp ? "hospitality" : isComm ? "commercial" : "residential";
       if (roomCat !== selectedCategory) return false;
     }
 
@@ -1236,6 +1240,24 @@ export default function App() {
                     <span>Hospitality</span>
                     <span className="text-[10px] bg-black/40 px-1.5 py-0.5 rounded-full font-mono font-black text-white">
                       {listings.filter(r => r.status === "Active" && (r.category === "hospitality" || ["Lodge / Guesthouse", "Hotel", "Lodge", "Guesthouse", "Bed & Breakfast"].includes(r.propertyType))).length}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedCategory("commercial");
+                      setSelectedPropertyType("");
+                    }}
+                    className={`px-3 py-1.5 sm:px-4 sm:py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 sm:gap-2 cursor-pointer ${
+                      selectedCategory === "commercial"
+                        ? "bg-[#FF7A00] text-white shadow-md shadow-orange-500/30"
+                        : "bg-white/15 text-white hover:bg-white/25 border border-white/20 backdrop-blur-md"
+                    }`}
+                  >
+                    <Building2 className="w-3.5 h-3.5 stroke-[2.5]" />
+                    <span>Commercial</span>
+                    <span className="text-[10px] bg-black/40 px-1.5 py-0.5 rounded-full font-mono font-black text-white">
+                      {listings.filter(r => r.status === "Active" && (r.category === "commercial" || ["Commercial", "Shop", "Warehouse", "Table"].includes(r.propertyType))).length}
                     </span>
                   </button>
                 </div>
@@ -2723,26 +2745,26 @@ export default function App() {
                 {/* Category Switcher */}
                 <div className="space-y-1.5">
                   <label className="text-xs font-bold text-slate-500 uppercase tracking-wide">Marketplace Category*</label>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <button
                       type="button"
                       onClick={() => setNewRoomForm(prev => ({ 
                         ...prev, 
                         category: "residential", 
-                        propertyType: "Room (In Main House)", 
+                        propertyType: "Single Room", 
                         frequency: "Month", 
                         tenantType: "General" 
                       }))}
                       className={`p-3 rounded-xl border text-left flex items-center gap-3 transition-all cursor-pointer ${
-                        newRoomForm.category !== "hospitality"
+                        newRoomForm.category === "residential"
                           ? "border-[#021024] bg-[#021024] text-white shadow-sm"
                           : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100"
                       }`}
                     >
-                      <Home className={`w-5 h-5 ${newRoomForm.category !== "hospitality" ? "text-[#FF7A00]" : "text-slate-400"}`} />
+                      <Home className={`w-5 h-5 ${newRoomForm.category === "residential" ? "text-[#FF7A00]" : "text-slate-400"}`} />
                       <div>
-                        <div className="text-xs font-bold leading-none">Residential Rental</div>
-                        <div className={`text-[10px] mt-1 ${newRoomForm.category !== "hospitality" ? "text-slate-300" : "text-slate-400"}`}>Rooms, flats & cottages</div>
+                        <div className="text-xs font-bold leading-none">Residential</div>
+                        <div className={`text-[10px] mt-1 ${newRoomForm.category === "residential" ? "text-slate-300" : "text-slate-400"}`}>Rooms, flats & cottages</div>
                       </div>
                     </button>
 
@@ -2763,8 +2785,30 @@ export default function App() {
                     >
                       <Hotel className={`w-5 h-5 ${newRoomForm.category === "hospitality" ? "text-[#FF7A00]" : "text-slate-400"}`} />
                       <div>
-                        <div className="text-xs font-bold leading-none">Hospitality & Stays</div>
-                        <div className={`text-[10px] mt-1 ${newRoomForm.category === "hospitality" ? "text-[#E2E8F0]" : "text-slate-400"}`}>Lodges, guesthouses & hotels</div>
+                        <div className="text-xs font-bold leading-none">Hospitality</div>
+                        <div className={`text-[10px] mt-1 ${newRoomForm.category === "hospitality" ? "text-[#E2E8F0]" : "text-slate-400"}`}>Lodges & guesthouses</div>
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setNewRoomForm(prev => ({ 
+                        ...prev, 
+                        category: "commercial", 
+                        propertyType: "Commercial", 
+                        frequency: "Month", 
+                        tenantType: "Professional" 
+                      }))}
+                      className={`p-3 rounded-xl border text-left flex items-center gap-3 transition-all cursor-pointer ${
+                        newRoomForm.category === "commercial"
+                          ? "border-[#052659] bg-[#052659] text-white shadow-sm"
+                          : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100"
+                      }`}
+                    >
+                      <Building2 className={`w-5 h-5 ${newRoomForm.category === "commercial" ? "text-[#FF7A00]" : "text-slate-400"}`} />
+                      <div>
+                        <div className="text-xs font-bold leading-none">Commercial</div>
+                        <div className={`text-[10px] mt-1 ${newRoomForm.category === "commercial" ? "text-[#E2E8F0]" : "text-slate-400"}`}>Shops, offices & warehouses</div>
                       </div>
                     </button>
                   </div>
@@ -2821,7 +2865,7 @@ export default function App() {
                     <label className="text-xs font-bold text-slate-500 uppercase tracking-wide">Suburb Name*</label>
                     <input 
                       type="text" 
-                      placeholder="e.g. Avonlea / Murambi"
+                      placeholder="e.g. Avonlea / Khumalo"
                       required
                       value={newRoomForm.suburb}
                       onChange={(e) => setNewRoomForm(prev => ({ ...prev, suburb: e.target.value }))}
@@ -2884,7 +2928,11 @@ export default function App() {
                       className="w-full py-2.5 px-3 rounded-xl border border-slate-200 text-xs font-medium bg-slate-50 focus:outline-none cursor-pointer"
                     >
                       {newRoomForm.category === "hospitality" 
-                        ? ["Lodge / Guesthouse", "Hotel", "Bed & Breakfast", "Self-Catering Cottage"].map(pt => (
+                        ? ["Lodge / Guesthouse", "Hotel", "Bed & Breakfast", "Lodge", "Guesthouse"].map(pt => (
+                            <option key={pt} value={pt}>{pt}</option>
+                          ))
+                        : newRoomForm.category === "commercial"
+                        ? ["Commercial", "Shop", "Warehouse", "Table"].map(pt => (
                             <option key={pt} value={pt}>{pt}</option>
                           ))
                         : ALL_PROPERTY_TYPES.map(pt => (
