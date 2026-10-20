@@ -109,7 +109,7 @@ export async function onRequestGet({ request, env }: { request: Request; env: En
     return jsonResponse({
       status: "online",
       service: "BunkBy WhatsApp Cloudflare Pages Function",
-      version: "2026-10-18_diagnostic_v12_delete_listings_and_easy_search",
+      version: "2026-10-20_diagnostic_v15_perfect_category_parity",
       metaConfigured: Boolean(activeToken && activePhoneId),
       hasAccessToken: Boolean(activeToken),
       hasPhoneNumberId: Boolean(activePhoneId),
@@ -564,6 +564,13 @@ function buildListingCardMessage(
   }
   const formattedWaContactLink = waDigits ? `https://wa.me/${waDigits}` : waContactLink;
 
+  const isStudent = listing.category === "student" || [
+    "Student Hostel", "Boarding House", "Single Student Room", "Shared Student Room"
+  ].includes(listing.property_type) || listing.tenant_type === "Student";
+  const isCommercial = listing.category === "commercial" || [
+    "Commercial", "Shop", "Warehouse", "Table"
+  ].includes(listing.property_type);
+
   let text = "";
   if (isHospitality) {
     text += `🏨 *${listing.business_name || listing.title}*\n`;
@@ -571,6 +578,12 @@ function buildListingCardMessage(
       text += `"${listing.title}"\n`;
     }
     text += `✨ *${listing.property_type || "Hospitality & Guest Stay"}*\n\n`;
+  } else if (isStudent) {
+    text += `🎓 *${listing.title}*\n`;
+    text += `🏷️ *${listing.property_type || "Student Accommodation"}*\n\n`;
+  } else if (isCommercial) {
+    text += `🏢 *${listing.title}*\n`;
+    text += `🏷️ *${listing.property_type || "Commercial Space"}*\n\n`;
   } else {
     text += `🏠 *${listing.title}*\n`;
     text += `🏷️ *${listing.property_type || "Residential Rental"}*\n\n`;
@@ -758,17 +771,24 @@ async function sendMetaWhatsAppMessage(
       }
     };
   } else {
+    // If buttons array has > 3 items (e.g. 4 categories: Residential, Hospitality, Commercial, Student),
+    // or no buttons, deliver cleanly as text.
+    let fullText = replyText;
+    if (buttons && buttons.length > 3) {
+      // Append formatted button list so user can tap or reply with numbers
+      fullText += "\n\n" + buttons.map((b, i) => `${i + 1}️⃣ *${b.title}*`).join("\n");
+    }
     payload = {
       messaging_product: "whatsapp",
       recipient_type: "individual",
       to: recipientPhone,
       type: "text",
-      text: { body: replyText }
+      text: { body: fullText }
     };
   }
 
   try {
-    const res = await fetch(endpoint, {
+    let res = await fetch(endpoint, {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${token}`,
@@ -782,6 +802,49 @@ async function sendMetaWhatsAppMessage(
       data = await res.json();
     } catch {
       data = {};
+    }
+
+    // BULLETPROOF FALLBACK: If interactive message with buttons fails for ANY reason
+    // (e.g. Meta Error 131005 Access Denied, 24-hr customer service window, invalid button payload, or template error),
+    // immediately retry sending as pure text with formatted numbers so the user NEVER gets stuck!
+    if (!res.ok && payload.type === "interactive") {
+      console.warn(`[Meta Interactive Notice] HTTP ${res.status}: ${data?.error?.message || "interactive rejected"}. Auto-retrying as plain text.`);
+      let fallbackText = replyText;
+      if (buttons && buttons.length > 0) {
+        fallbackText += "\n\n" + buttons.map((b, i) => (i + 1) + "️⃣ *" + b.title + "*").join("\n");
+      }
+      const plainPayload = {
+        messaging_product: "whatsapp",
+        recipient_type: "individual",
+        to: recipientPhone,
+        type: "text",
+        text: { body: fallbackText }
+      };
+      const textRes = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(plainPayload)
+      });
+      let textData: any = {};
+      try {
+        textData = await textRes.json();
+      } catch {
+        textData = {};
+      }
+      if (textRes.ok) {
+        return {
+          success: true,
+          httpStatus: textRes.status,
+          messageId: textData.messages?.[0]?.id,
+          tokenFingerprint,
+          phoneNumberIdUsed: `${phoneId.slice(0, 4)}***`
+        };
+      }
+      res = textRes;
+      data = textData;
     }
 
     if (!res.ok) {
@@ -1227,7 +1290,15 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
           WHERE phone_number = ?
         `).bind(JSON.stringify(searchSessionData), phone).run();
 
-        replyText = `✅ Selected: *${categoryLabel}*\n\n*Step 2/2: Enter Suburb, Town, or City*\nWhich area or neighborhood are you looking in?\n\n_(e.g. *Avonlea*, *Harare*, *Khumalo Bulawayo*, *Victoria Falls*, or type *All* to view all available listings)_`;
+        const locationExample = chosenCategory === "hospitality"
+          ? "*Victoria Falls*, *Harare*, *Vumba*, or *Bulawayo*"
+          : chosenCategory === "student"
+          ? "*Mt Pleasant Harare*, *Bulawayo*, *Chinhoyi*, or *Gweru*"
+          : chosenCategory === "commercial"
+          ? "*Harare CBD*, *Belmont Bulawayo*, or *Eastlea*"
+          : "*Avonlea*, *Harare*, *Khumalo Bulawayo*, or *Mutare*";
+
+        replyText = `✅ Selected Category: *${categoryLabel}*\n\n*Now enter the City, Town, or Suburb:*\nWhere would you like to find ${chosenCategory === "hospitality" ? "lodges and guest houses" : chosenCategory === "student" ? "student accommodation" : chosenCategory === "commercial" ? "commercial properties" : "residential rentals"}?\n\n_(e.g. ${locationExample}, or reply *All* to see all available)_`;
         actionTaken = "SEARCH_PROMPT_LOCATION";
       }
       // ---------------------------------------------------------
@@ -1282,9 +1353,10 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
           actionTaken = "SEARCH_RESULTS";
           const baseUrl = new URL(request.url).origin || "https://bunkby.com";
 
+          const catSnippet = categoryLabel ? ` (${categoryLabel})` : "";
           const headerMsg = totalMatching > results.length
-            ? `🏡 *Showing stays 1–${results.length} of ${totalMatching} in "${cleanQuery}":*`
-            : `🏡 *Found ${totalMatching} active stay${totalMatching === 1 ? "" : "s"} in "${cleanQuery}":*`;
+            ? `🏡 *Showing ${results.length} of ${totalMatching} properties${catSnippet} in "${cleanQuery}":*`
+            : `🏡 *Found ${totalMatching} active propert${totalMatching === 1 ? "y" : "ies"}${catSnippet} in "${cleanQuery}":*`;
           
           outboundQueue.push({ text: headerMsg, itemType: "intro" });
 
@@ -2170,7 +2242,7 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
             replyText = `📸 *All 3 photos received!*\n\n📋 *Listing Preview & Confirmation:*\n\n` +
               `• *Headline:* ${collectedData.title}\n` +
               `• *Type:* ${collectedData.property_type}\n` +
-              `• *Category:* ${isHospitality ? "Hospitality & Stays" : "Residential Rental"}\n` +
+              `• *Category:* ${collectedData.category === "student" ? "Student Accommodation" : collectedData.category === "commercial" ? "Commercial Properties" : isHospitality ? "Hospitality & Stays" : "Residential Rentals"}\n` +
               `• *Location:* ${collectedData.suburb}, ${collectedData.city || "Harare"}${collectedData.landmark ? ` (${collectedData.landmark})` : ""}\n` +
               `• *Rate:* $${collectedData.price} / ${period}\n` +
               `• *Deposit:* ${depositStr}\n` +
@@ -2334,7 +2406,7 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
               city: cityVal,
               deposit: Number(collectedData.deposit || 0),
               property_type: collectedData.property_type || "Single Room",
-              tenant_type: "General",
+              tenant_type: collectedData.tenant_type || (categoryVal === "student" ? "Student" : categoryVal === "commercial" ? "Professional" : categoryVal === "hospitality" ? "Guest" : "General"),
               rent_cycle: collectedData.rent_cycle || (isHospitality ? "Night" : "Month"),
               contact_method: "Call / Whatsapp",
               contact_phone: collectedData.contact_phone || phone,
@@ -2364,7 +2436,7 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
           replyText = `🎉 *Congratulations! Your accommodation is LIVE on BunkBy!* (Listing #${listingId})\n\n` +
             `📋 *Summary:*\n` +
             `• *Title:* ${collectedData.title}\n` +
-            `• *Category:* ${isHospitality ? "Hospitality & Stays" : "Residential Rental"}\n` +
+            `• *Category:* ${collectedData.category === "student" ? "Student Accommodation" : collectedData.category === "commercial" ? "Commercial Properties" : isHospitality ? "Hospitality & Stays" : "Residential Rentals"}\n` +
             `• *Suburb:* ${collectedData.suburb}\n` +
             `• *Rate:* $${collectedData.price}/${collectedData.rent_cycle || "month"}\n` +
             `• *Contact:* ${collectedData.contact_phone || phone}\n\n` +
@@ -2578,9 +2650,21 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
     // -------------------------------------------------------------
     else if (
       buttonPayload?.startsWith("PAGE_") ||
+      buttonPayload?.startsWith("SEARCH_CAT_") ||
       buttonPayload === "CMD_SEARCH" ||
       buttonPayload === "CMD_SEARCH_MENU" ||
       lowerText === "search" ||
+      lowerText === "1" ||
+      lowerText === "2" ||
+      lowerText === "3" ||
+      lowerText === "4" ||
+      lowerText === "residential" ||
+      lowerText === "hospitality" ||
+      lowerText === "commercial" ||
+      lowerText === "student" ||
+      lowerText === "student accommodation" ||
+      lowerText === "guesthouse" ||
+      lowerText === "lodge" ||
       lowerText.startsWith("search ") ||
       lowerText.startsWith("find ") ||
       lowerText.startsWith("looking for ") ||
@@ -2616,10 +2700,10 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
             updated_at = CURRENT_TIMESTAMP
         `).bind(phone).run();
 
-        replyText = `🔍 *Search BunkBy Accommodation*\n\n*Step 1/2: Choose what you are looking for:*\n\n1️⃣ 🏠 *Residential Rentals* (Rooms, Cottages, Flats, Houses)\n2️⃣ 🏨 *Guesthouses & Lodges* (Nightly Stays, Hotels, B&Bs)\n3️⃣ 🏢 *Commercial Properties* (Shops, Offices, Warehouses)\n4️⃣ 🎓 *Student Accommodation* (Hostels & Boarding Houses)\n\nTap an option below, or reply with *1*, *2*, *3*, or *4*:`;
+        replyText = `🔍 *Search BunkBy Accommodation*\n\n*Which kind of stay / property are you looking for?*\n\n1️⃣ 🏠 *Residential Rentals*\n_(Rooms, Cottages, Flats, Full Houses)_\n\n2️⃣ 🏨 *Hospitality & Stays*\n_(Lodges, Guest Houses, Hotels, B&Bs)_\n\n3️⃣ 🏢 *Commercial Properties*\n_(Shops, Offices, Warehouses, Tables)_\n\n4️⃣ 🎓 *Student Accommodation*\n_(Hostels, Boarding Houses, Campus Rooms)\n\nTap a button below or reply *1*, *2*, *3*, or *4*:`;
         buttonsToSend = [
           { id: "SEARCH_CAT_RESIDENTIAL", title: "🏠 Residential" },
-          { id: "SEARCH_CAT_HOSPITALITY", title: "🏨 Guesthouse/Lodge" },
+          { id: "SEARCH_CAT_HOSPITALITY", title: "🏨 Hospitality" },
           { id: "SEARCH_CAT_COMMERCIAL", title: "🏢 Commercial" }
         ];
         actionTaken = "SEARCH_PROMPT_CATEGORY";
@@ -2643,17 +2727,28 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
           buttonPayload === "SEARCH_CAT_RESIDENTIAL" ||
           buttonPayload === "SEARCH_CAT_HOSPITALITY" ||
           buttonPayload === "SEARCH_CAT_COMMERCIAL" ||
-          buttonPayload === "SEARCH_CAT_STUDENT"
+          buttonPayload === "SEARCH_CAT_STUDENT" ||
+          lowerText === "1" ||
+          lowerText === "2" ||
+          lowerText === "3" ||
+          lowerText === "4" ||
+          lowerText === "residential" ||
+          lowerText === "hospitality" ||
+          lowerText === "commercial" ||
+          lowerText === "student" ||
+          lowerText === "student accommodation" ||
+          lowerText === "guesthouse" ||
+          lowerText === "lodge"
         ) {
           let chosenCategory = "residential";
           let categoryLabel = "Residential Rentals";
-          if (buttonPayload === "SEARCH_CAT_COMMERCIAL") {
+          if (buttonPayload === "SEARCH_CAT_COMMERCIAL" || lowerText === "3" || lowerText === "commercial") {
             chosenCategory = "commercial";
             categoryLabel = "Commercial Properties (Shops / Offices / Warehouses)";
-          } else if (buttonPayload === "SEARCH_CAT_HOSPITALITY") {
+          } else if (buttonPayload === "SEARCH_CAT_HOSPITALITY" || lowerText === "2" || lowerText === "hospitality" || lowerText === "guesthouse" || lowerText === "lodge") {
             chosenCategory = "hospitality";
             categoryLabel = "Guesthouses & Lodges";
-          } else if (buttonPayload === "SEARCH_CAT_STUDENT") {
+          } else if (buttonPayload === "SEARCH_CAT_STUDENT" || lowerText === "4" || lowerText === "student" || lowerText === "student accommodation") {
             chosenCategory = "student";
             categoryLabel = "Student Accommodation & Hostels";
           } else {
@@ -2661,6 +2756,7 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
             categoryLabel = "Residential Rentals (Rooms / Cottages / Flats)";
           }
 
+          const sessionPayload = JSON.stringify({ searchCategory: chosenCategory, categoryLabel });
           await env.DB.prepare(`
             INSERT INTO chatbot_sessions (phone_number, current_step, collected_data, updated_at)
             VALUES (?, 'AWAITING_SEARCH_QUERY', ?, CURRENT_TIMESTAMP)
@@ -2668,15 +2764,19 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
               current_step = 'AWAITING_SEARCH_QUERY',
               collected_data = ?,
               updated_at = CURRENT_TIMESTAMP
-          `).bind(phone, JSON.stringify({ searchCategory: chosenCategory, categoryLabel }), JSON.stringify({ searchCategory: chosenCategory, categoryLabel })).run();
+          `).bind(phone, sessionPayload, sessionPayload).run();
 
-          replyText = `✅ Selected: *${categoryLabel}*\n\n*Step 2/2: Enter Suburb, Town, or City*\nWhich area or neighborhood are you looking in?\n\n_(e.g. *Avonlea*, *Harare*, *Khumalo Bulawayo*, *Victoria Falls*, or type *All* to view all available listings)_`;
+          const locationExample = chosenCategory === "hospitality"
+            ? "*Victoria Falls*, *Harare*, *Vumba*, or *Bulawayo*"
+            : chosenCategory === "student"
+            ? "*Mt Pleasant Harare*, *Bulawayo*, *Chinhoyi*, or *Gweru*"
+            : chosenCategory === "commercial"
+            ? "*Harare CBD*, *Belmont Bulawayo*, or *Eastlea*"
+            : "*Avonlea*, *Harare*, *Khumalo Bulawayo*, or *Mutare*";
+
+          replyText = `✅ Selected Category: *${categoryLabel}*\n\n*Now enter the City, Town, or Suburb:*\nWhere would you like to find ${chosenCategory === "hospitality" ? "lodges and guest houses" : chosenCategory === "student" ? "student accommodation" : chosenCategory === "commercial" ? "commercial properties" : "residential rentals"}?\n\n_(e.g. ${locationExample}, or reply *All* to see all available)_`;
           actionTaken = "SEARCH_PROMPT_LOCATION";
-          const res = await sendMetaWhatsAppMessage(phone, replyText, env, buttonsToSend);
-          res.itemType = "single_reply";
-          dispatchResults.push(res);
-          return jsonResponse({ status: "processed", action: actionTaken }, 200);
-        }
+        } else {
 
         // Intelligent location search matching both parent city and constituent suburbs (e.g. Harare <-> Greendale)
         const locationFilter = cleanQuery ? buildLocationSearchClauses(cleanQuery, "listings") : { whereSql: "", params: [] };
@@ -2777,6 +2877,7 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
           });
         }
       }
+    }
     }
 
     // -------------------------------------------------------------
