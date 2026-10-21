@@ -409,6 +409,7 @@ app.get("/api/listings", (req, res) => {
         landlords.full_name as landlordName 
       FROM listings 
       LEFT JOIN landlords ON listings.landlord_id = landlords.id 
+      WHERE listings.verification_status != 'Delisted'
       ORDER BY listings.created_at DESC
     `).all().map((row: any) => ({
         ...row,

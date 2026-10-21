@@ -109,7 +109,7 @@ export async function onRequestGet({ request, env }: { request: Request; env: En
     return jsonResponse({
       status: "online",
       service: "BunkBy WhatsApp Cloudflare Pages Function",
-      version: "2026-10-21_diagnostic_v18_whatsapp_gallery_on_demand",
+      version: "2026-10-21_diagnostic_v20_global_commercial_seo_prompts",
       metaConfigured: Boolean(activeToken && activePhoneId),
       hasAccessToken: Boolean(activeToken),
       hasPhoneNumberId: Boolean(activePhoneId),
@@ -2584,12 +2584,18 @@ Explore all areas or view map on:
 
       if (confirmMatch) {
         const delId = confirmMatch[1];
+        const last9 = phone.replace(/\D/g, "").slice(-9);
         // Mark listing as Delisted
         await env.DB.prepare(`
           UPDATE listings 
           SET verification_status = 'Delisted' 
-          WHERE id = ? AND (landlord_id = ? OR contact_phone = ? OR contact_phone LIKE ?)
-        `).bind(delId, phoneId, phone, `%${phone.slice(-9)}%`).run();
+          WHERE id = ? AND (
+            landlord_id = ? OR 
+            contact_phone = ? OR 
+            contact_phone LIKE ? OR 
+            contact_phone LIKE ?
+          )
+        `).bind(delId, phoneId, phone, `%${last9}%`, `%${phone}%`).run();
 
         replyText = `🗑️ *Listing #${delId} has been successfully deleted!*\n\nIt has been removed from BunkBy searches and the website.`;
         buttonsToSend = [
@@ -2601,10 +2607,16 @@ Explore all areas or view map on:
       } else if (promptMatch || textIdMatch) {
         const targetId = promptMatch ? promptMatch[1] : textIdMatch![1];
         // Find listing to confirm ownership
+        const last9 = phone.replace(/\D/g, "").slice(-9);
         const targetListing = await env.DB.prepare(`
           SELECT id, title, suburb FROM listings 
-          WHERE id = ? AND verification_status != 'Delisted' AND (landlord_id = ? OR contact_phone = ? OR contact_phone LIKE ?)
-        `).bind(targetId, phoneId, phone, `%${phone.slice(-9)}%`).first();
+          WHERE id = ? AND verification_status != 'Delisted' AND (
+            landlord_id = ? OR 
+            contact_phone = ? OR 
+            contact_phone LIKE ? OR 
+            contact_phone LIKE ?
+          )
+        `).bind(targetId, phoneId, phone, `%${last9}%`, `%${phone}%`).first();
 
         if (!targetListing) {
           replyText = `⚠️ Listing #${targetId} was not found under your phone number (${phone}).\n\nReply *my listings* to view your active properties.`;
@@ -2826,7 +2838,7 @@ Explore all areas or view map on:
             updated_at = CURRENT_TIMESTAMP
         `).bind(phone).run();
 
-        replyText = `🔍 *Search BunkBy Accommodation*\n\n*Which kind of stay / property are you looking for?*\n\n1️⃣ 🏠 *Residential Rentals*\n_(Rooms, Cottages, Flats, Full Houses)_\n\n2️⃣ 🏨 *Hospitality & Stays*\n_(Lodges, Guest Houses, Hotels, B&Bs)_\n\n3️⃣ 🏢 *Commercial Properties*\n_(Shops, Offices, Warehouses, Tables)_\n\n4️⃣ 🎓 *Student Accommodation*\n_(Hostels, Boarding Houses, Campus Rooms)\n\nTap a button below or reply *1*, *2*, *3*, or *4*:`;
+        replyText = `🔍 *Search BunkBy Property & Accommodation*\n_Verified transparent pricing, real photos & direct WhatsApp contact with zero agent fees._\n\n1️⃣ 🏠 *Residential Rentals*\n_(Rooms, Cottages, Flats, Full Houses)_\n\n2️⃣ 🏨 *Hospitality & Stays (Local & Global)*\n_(Safari Lodges, Guest Houses, Hotels, B&Bs, Holiday Stays)_\n\n3️⃣ 🏢 *Commercial Real Estate*\n_(Retail Shops, Office Spaces, Warehouses, Market Tables)_\n\n4️⃣ 🎓 *Student Accommodation*\n_(Hostels, Boarding Houses, Student Rooms)_\n\nTap an option below or reply *1*, *2*, *3*, or *4*:`;
         buttonsToSend = [
           { id: "SEARCH_CAT_RESIDENTIAL", title: "🏠 Residential" },
           { id: "SEARCH_CAT_HOSPITALITY", title: "🏨 Hospitality" },
@@ -3028,11 +3040,11 @@ Explore all areas or view map on:
     // DEFAULT GREETING / WELCOME MENU
     // -------------------------------------------------------------
     else {
-      replyText = `👋 *Welcome to BunkBy Zimbabwe!*\nYour direct accommodation marketplace with zero agent fees.\n\n*What would you like to do?*\n🔍 Tap *Search Stays* or type any place (e.g. *Mt Pleasant*, *Harare*)\n🏡 Tap *Create a Listing* to post your property\n📋 Tap *My Listings* to view or delete your listings\n❌ Type *cancel* anytime to reset`;
+      replyText = `👋 *Welcome to BunkBy!*\nYour direct marketplace for *Hospitality Stays, Commercial Properties & Rentals* with transparent pricing and zero agent fees.\n\n🌍 *What are you looking for today?*\n🏨 *Lodges & Hotels* (e.g. *Victoria Falls*, *Nyanga*, *Harare*)\n🏢 *Commercial Spaces* (Shops, Offices, Warehouses)\n🏠 *Residential Rentals* (Rooms, Cottages, Flats)\n🎓 *Student Hostels* (Near Universities)\n\n🔍 Tap *Search Properties* or send any location\n🏡 Tap *Post Property* to list free\n📋 Tap *My Listings* to manage or delete`;
       actionTaken = "WELCOME_MENU";
       buttonsToSend = [
         { id: "CMD_SEARCH", title: "🔍 Search Stays" },
-        { id: "CMD_LIST", title: "🏡 Create a Listing" },
+        { id: "CMD_LIST", title: "🏡 Post Property" },
         { id: "CMD_MY_LISTINGS", title: "📋 My Listings" }
       ];
     }

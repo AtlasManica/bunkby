@@ -1,6 +1,10 @@
 {
   "name": "BunkBy",
-  "description": "Zimbabwe's agent-free accommodation marketplace for rooms, cottages, apartments, guesthouses, and lodges with direct WhatsApp connection.",
-  "requestFramePermissions": ["camera"],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "description": "Zimbabwe's agent-free property & accommodation marketplace. Book verified safari lodges, guesthouses & hotels globally, find residential rentals, commercial shops & offices, and student hostels with direct WhatsApp contact and transparent pricing.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }

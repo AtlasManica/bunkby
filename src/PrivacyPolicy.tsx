@@ -212,30 +212,39 @@ export const PrivacyPolicy: React.FC<PrivacyPolicyProps> = ({ onBackToHome }) =>
           </div>
         </section>
 
-        {/* SECTION 7: Data Retention & Server Data Distinction */}
+        {/* SECTION 7: Property Listing Lifespan, Retention & Management */}
         <section className="bg-white border border-slate-200 rounded-xl p-4 sm:p-6 space-y-2.5 sm:space-y-3 shadow-xs">
           <h2 className="text-lg sm:text-xl font-bold text-slate-900 flex items-center">
             <span className="text-[#FF7A00] font-mono font-bold mr-2">7.</span>
-            Data Retention
+            Property Listing Lifespan & Data Retention
           </h2>
           <div className="text-sm text-slate-600 leading-relaxed space-y-3">
             <p>
-              We retain personal data only for as long as necessary to fulfill the purposes for which it was collected:
+              To maintain an active, high-integrity marketplace and prevent stale or occupied accommodations from frustrating prospective tenants, BunkBy enforces clear listing lifespans and transparent retention schedules:
             </p>
-            <ul className="list-disc pl-5 space-y-2 text-slate-600">
+            <ul className="list-disc pl-5 space-y-2.5 text-slate-600">
               <li>
-                <strong className="text-slate-900">Active Listings:</strong> Property details, photos, and landlord contact phone numbers remain active and accessible on BunkBy until deactivated, marked as rented, or deleted. Marking a listing as rented updates its public visibility status on the marketplace but may retain underlying listing records in our database until an explicit deletion is requested.
+                <strong className="text-slate-900">30-Day Listing Lifespan:</strong> Standard published properties (residential rentals, commercial spaces, student rooms, and hospitality stays) remain active and discoverable on the marketplace for a standard cycle of thirty (30) days from publication or renewal.
               </li>
               <li>
-                <strong className="text-slate-900">Landlord Accounts:</strong> Account profiles and verification credentials are kept to enable listing management until account closure or an explicit deletion request is fulfilled.
+                <strong className="text-slate-900">Landlord Self-Service Renewal & Delisting:</strong> Landlords and property hosts retain 24/7 full self-service control. When a room or space is occupied, hosts can mark the property as <em>Rented / Delisted</em> or permanently delete it at any time directly from their landlord dashboard or via the automated WhatsApp bot (by sending <em>"my listings"</em> or <em>"delete"</em>). Delisted properties are immediately removed from public searches.
               </li>
               <li>
-                <strong className="text-slate-900">WhatsApp Inquiries & Session State:</strong> Listing prompts or conversational interactions conducted via WhatsApp are held temporarily to process queries or create listings, and are cleared or overwritten in routine operation.
+                <strong className="text-slate-900">Tenant Real-Time Availability Check:</strong> Prospective renters and guests can tap <em>"Ask Host: Is this still available?"</em> on any property card to initiate direct communication with the host via WhatsApp, verifying occupancy status in real time with zero agent fees.
               </li>
               <li>
-                <strong className="text-slate-900">Technical Logs:</strong> Operational diagnostics and connection data (such as request timestamps or error events) may be recorded by web servers or hosting providers for diagnostic maintenance, security monitoring, and service stability, retained according to provider operational schedules.
+                <strong className="text-slate-900">Expired & Archived Listings:</strong> Listings that reach the conclusion of their 30-day active period without host renewal are automatically transitioned out of the public browse directory into an inactive archive state. Property data is permanently removed upon an explicit deletion request from the host.
+              </li>
+              <li>
+                <strong className="text-slate-900">Landlord Accounts & Contact Data:</strong> Registered landlord names, contact phone numbers, and authentication tokens are securely retained solely to allow hosts to manage their properties until the host requests account closure or record erasure.
+              </li>
+              <li>
+                <strong className="text-slate-900">WhatsApp Inquiries & Temporary Sessions:</strong> Chatbot interaction session states, temporary upload queues, and diagnostic timestamps are retained only for the duration required to complete property listing or search operations, after which temporary sessions are cleared.
               </li>
             </ul>
+            <p>
+              When a user submits a deletion request under Section 8, we promptly erase eligible records from our active databases, subject only to mandatory legal obligations (such as fraud prevention or dispute records).
+            </p>
           </div>
         </section>
 

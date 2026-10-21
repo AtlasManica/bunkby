@@ -1052,7 +1052,7 @@ export default function App() {
               <span className="text-lg sm:text-2xl font-display font-black uppercase tracking-tight text-white">
                 Bunk<span className="text-[#FF7A00]">By</span>
               </span>
-              <p className="text-[9px] sm:text-[10px] text-[#E2E8F0] tracking-wider font-mono font-bold leading-none hidden xs:block">100% FREE • AGENT-FREE</p>
+              <p className="text-[9px] sm:text-[10px] text-[#E2E8F0] tracking-wider font-mono font-bold leading-none hidden xs:block">PROPERTIES • STAYS • ZERO FEES</p>
             </div>
           </div>
 
@@ -1195,15 +1195,15 @@ export default function App() {
               <div className="relative z-10 max-w-3xl mx-auto space-y-3 sm:space-y-4">
                 <div className="inline-flex items-center gap-1.5 bg-[#052659]/90 backdrop-blur-md border border-white/20 text-white px-2.5 sm:px-3.5 py-1 rounded-full text-[9px] sm:text-xs font-black tracking-wider shadow-sm max-w-full">
                   <ShieldCheck className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-[#FF7A00] shrink-0" />
-                  <span className="truncate">ZIMBABWE'S AGENT-FREE ACCOMMODATION MARKETPLACE • DEAL DIRECT</span>
+                  <span className="truncate">DIRECT PROPERTY & HOSPITALITY MARKETPLACE • ZERO AGENT COMMISSIONS</span>
                 </div>
 
                 <h1 className="text-xl sm:text-3xl md:text-5xl font-display font-black tracking-tight text-white leading-tight drop-shadow-md">
-                  Find a Place to Stay in <span className="text-[#FF7A00] drop-shadow-sm">Zimbabwe</span>
+                  Find Stays, Commercial Spaces & Rentals in <span className="text-[#FF7A00] drop-shadow-sm">Zimbabwe</span>
                 </h1>
 
-                <p className="text-xs sm:text-sm md:text-base text-slate-200 font-medium max-w-xl mx-auto leading-relaxed drop-shadow-sm line-clamp-2 sm:line-clamp-none">
-                  Verified rooms, cottages, apartments, guesthouses, and lodges across Harare, Bulawayo, Mutare, Gweru, and beyond. Free direct contact with landlords — zero middleman fees.
+                <p className="text-xs sm:text-sm md:text-base text-slate-200 font-medium max-w-2xl mx-auto leading-relaxed drop-shadow-sm line-clamp-2 sm:line-clamp-none">
+                  Book world-class safari lodges, boutique guesthouses & hotels, discover prime commercial retail shops & offices, or rent verified cottages & rooms with 100% transparent pricing and direct WhatsApp contact.
                 </p>
 
                 <div className="pt-1 flex flex-wrap gap-2 sm:gap-3 justify-center">
@@ -1921,14 +1921,11 @@ export default function App() {
               </div>
 
               {/* Availability pulse reminder banner */}
-              <div className="bg-sky-50 border border-sky-150 rounded-2xl p-4 flex items-center gap-3">
-                <div className="w-10 h-10 bg-sky-100 rounded-xl flex items-center justify-center shrink-0">
-                  <TrendingUp className="w-5 h-5 text-sky-600" />
-                </div>
-                <div>
-                  <h4 className="text-xs font-bold text-sky-900 uppercase tracking-wide font-mono">Dynamic Availability Pulse active</h4>
-                  <p className="text-xs text-sky-850 font-medium">To maintain accurate listings, BunkBy transmits a WhatsApp ping every 48 hours. Simply reply <strong>YES</strong> to keep active or the room deactivates automatically!</p>
-                </div>
+                            {/* Listing Freshness & Marketplace Integrity Banner */}
+              <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs">
+                <p className="text-xs text-slate-600 font-medium leading-relaxed">
+                  Listings remain active for 30 days. You can easily mark a property as rented, reactivate, or delete it anytime right here or via WhatsApp.
+                </p>
               </div>
 
               {/* Landlord portfolio list */}
@@ -2163,15 +2160,15 @@ export default function App() {
               <div className="bg-white rounded-3xl p-6 border border-slate-200">
                 <h3 className="text-base font-bold text-slate-900 mb-3 flex items-center gap-1.5 font-display">
                   <CheckCircle className="w-5 h-5 text-orange-500" />
-                  <span>How Availability Pulse Works</span>
+                  <span>Listing Lifecycle & Freshness Guarantee</span>
                 </h3>
                 <p className="text-sm text-slate-500 leading-relaxed mb-4">
-                  To guarantee BunkBy only retains high-integrity listings, our automatic WhatsApp/SMS service broadcasts an inquiry ping every 48 hours asking if your flat is occupied. Landlords reply with a single word "YES" or "NO" to update status instantly. This ensures high-converting traffic and robust tenant matches.
+                  To guarantee BunkBy retains high-integrity, fresh, and accurate inventory, all published listings remain active for <strong>30 days</strong>. Landlords can manage, renew, mark as rented, or delist properties anytime with a single tap either in their dashboard or directly in WhatsApp.
                 </p>
-                <div className="bg-blue-50/50 rounded-xl p-3.5 border border-blue-900/5 font-mono text-xs">
-                  <p className="font-bold text-slate-700 mb-1">💬 Preview Pulse Ping Msg:</p>
-                  <div className="bg-white p-2.5 rounded-lg border border-slate-200 text-slate-600 italic">
-                    "Hi {userProfile.name}, is your single room listed in {listings[0]?.suburb || "Harare"} still vacant? Reply 1 for VACANT or 2 for RETIRED/RENTED."
+                <div className="bg-amber-50/60 rounded-xl p-3.5 border border-amber-200 font-mono text-xs">
+                  <p className="font-bold text-slate-800 mb-1">⚡ Smart Tenant Inquiry Feature:</p>
+                  <div className="bg-white p-2.5 rounded-lg border border-slate-200 text-slate-700 text-xs font-sans leading-relaxed">
+                    Prospective tenants viewing older listings can tap <strong>"Ask Host: Is this still available?"</strong> on WhatsApp. This allows instant occupancy verification directly between tenant and landlord with zero agent fees or spam.
                   </div>
                 </div>
               </div>
@@ -2505,7 +2502,7 @@ export default function App() {
                   </span>
                 </div>
                 <p className="text-xs text-slate-500 leading-relaxed">
-                  Receive prompt notifications of rental interest matches directly on your WhatsApp line. You will also get our automatic bi-weekly "Availability Pulse" check-ins to make sure your listings stay search-active!
+                  Receive prompt notifications of rental interest matches and tenant inquiries directly on your WhatsApp line. You can manage or delist your active properties anytime with a quick message!
                 </p>
                 
                 <div className="bg-slate-50 rounded-xl p-3 border border-slate-200 space-y-1.5">
@@ -2745,17 +2742,7 @@ export default function App() {
             </p>
           </div>
 
-          {/* Direct WhatsApp Connection (Opposite Side / Right) */}
-          <div className="text-[11px] text-[#E2E8F0] font-normal max-w-xs text-center sm:text-right flex flex-col items-center sm:items-end justify-between">
-            <div className="flex items-center justify-center sm:justify-end h-8">
-              <h4 className="text-white font-extrabold text-xs uppercase tracking-wider leading-none">
-                Direct WhatsApp Connection
-              </h4>
-            </div>
-            <p className="text-[#E2E8F0] leading-relaxed mt-3">
-              Connect directly with verified landlords and hosts with zero agency middlemen fees.
-            </p>
-          </div>
+
 
         </div>
 
