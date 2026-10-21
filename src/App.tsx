@@ -1,4 +1,28 @@
 import { compressImageFile } from "./utils/imageCompressor";
+
+// Helper to extract the 1st (primary) photo for any room listing
+// Safely handles JSON array strings, array objects, single URLs, or fallback placeholders
+export function getPrimaryListingPhoto(room: any): string {
+  if (!room) return DEFAULT_ROOM_IMAGES[0];
+  if (Array.isArray(room.images) && room.images.length > 0 && room.images[0]) {
+    const first = String(room.images[0]).trim();
+    if (!first.startsWith("[")) return first;
+  }
+  const raw = String(room.image_url || "").trim();
+  if (raw.startsWith("[")) {
+    try {
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr) && arr.length > 0 && arr[0]) {
+        return String(arr[0]).trim();
+      }
+    } catch (_) {}
+  }
+  if (raw) return raw;
+  if (Array.isArray(room.images) && room.images.length > 0 && room.images[0]) {
+    return String(room.images[0]).trim();
+  }
+  return DEFAULT_ROOM_IMAGES[0];
+}
 import PrivacyPolicy from "./PrivacyPolicy";
 /**
  * @license
@@ -1551,9 +1575,9 @@ export default function App() {
                         }}
                         className="relative aspect-16/10 sm:aspect-16/9 w-full overflow-hidden bg-slate-100 shrink-0 flex items-center justify-center cursor-pointer"
                       >
-                        {(room.image_url || (room.images && room.images[0])) ? (
+                        {getPrimaryListingPhoto(room) ? (
                           <img 
-                            src={room.image_url || (room.images && room.images[0])} 
+                            src={getPrimaryListingPhoto(room)} 
                             alt={room.title}
                             className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
                             referrerPolicy="no-referrer"
@@ -1990,7 +2014,7 @@ export default function App() {
                             <div className="relative aspect-16/10 sm:aspect-16/9 w-full overflow-hidden bg-slate-100 shrink-0 flex items-center justify-center">
                               {(room.image_url || (room.images && room.images[0])) ? (
                                 <img 
-                                  src={room.image_url || (room.images && room.images[0])} 
+                                  src={getPrimaryListingPhoto(room)} 
                                   alt={room.title}
                                   className="w-full h-full object-cover"
                                   referrerPolicy="no-referrer"
@@ -3339,7 +3363,7 @@ export default function App() {
                 <div className="w-14 h-14 rounded-xl overflow-hidden bg-slate-200 shrink-0 flex items-center justify-center">
                   {(pendingContactRoom.image_url || (pendingContactRoom.images && pendingContactRoom.images[0])) ? (
                     <img
-                      src={pendingContactRoom.image_url || pendingContactRoom.images[0]}
+                      src={getPrimaryListingPhoto(pendingContactRoom)}
                       alt={pendingContactRoom.title}
                       className="w-full h-full object-cover"
                     />

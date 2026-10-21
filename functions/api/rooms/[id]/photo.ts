@@ -1,10 +1,10 @@
 /**
  * Public Listing Photo Endpoint for Cloudflare Pages Functions
  * Serves real photos (base64 Data URIs or HTTP redirects) to Meta WhatsApp Cloud API and external clients
+ * Supports index query parameter (?index=0, ?index=1, ?index=2) to serve specific gallery photos.
  * Route: GET /api/rooms/:id/photo
  */
-
-export async function onRequestGet({ env, params }: { env: any; params: any }) {
+export async function onRequestGet({ request, env, params }: { request?: Request; env: any; params: any }) {
   try {
     const id = String(params.id || "").replace(/\.[a-zA-Z0-9]+$/, "");
     if (!id || !env.DB) {
@@ -19,14 +19,25 @@ export async function onRequestGet({ env, params }: { env: any; params: any }) {
       return new Response("Photograph not found", { status: 404 });
     }
 
-    let raw = String(listing.image_url).trim();
+    let photoIndex = 0;
+    if (request) {
+      try {
+        const url = new URL(request.url);
+        const idxParam = url.searchParams.get("index") || url.searchParams.get("idx") || url.searchParams.get("i");
+        if (idxParam !== null) {
+          photoIndex = parseInt(idxParam, 10) || 0;
+        }
+      } catch (_) {}
+    }
 
-    // If stored as JSON array of multiple photos, extract the primary photo
+    let raw = String(listing.image_url).trim();
+    // If stored as JSON array of multiple photos, extract the photo at photoIndex (fallback to 0)
     if (raw.startsWith("[")) {
       try {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          raw = String(parsed[0]).trim();
+          const selected = parsed[photoIndex] !== undefined ? parsed[photoIndex] : parsed[0];
+          raw = String(selected).trim();
         }
       } catch (_) {}
     }

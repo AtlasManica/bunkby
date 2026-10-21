@@ -109,7 +109,7 @@ export async function onRequestGet({ request, env }: { request: Request; env: En
     return jsonResponse({
       status: "online",
       service: "BunkBy WhatsApp Cloudflare Pages Function",
-      version: "2026-10-21_diagnostic_v17_fix_add_listing_buttons_order",
+      version: "2026-10-21_diagnostic_v18_whatsapp_gallery_on_demand",
       metaConfigured: Boolean(activeToken && activePhoneId),
       hasAccessToken: Boolean(activeToken),
       hasPhoneNumberId: Boolean(activePhoneId),
@@ -623,9 +623,22 @@ function buildListingCardMessage(
     }
   }
 
+  // Check total photos available
+  let totalAvailablePhotos = 1;
+  const rawImg = String(listing.image_url || "").trim();
+  if (rawImg.startsWith("[")) {
+    try {
+      const arr = JSON.parse(rawImg);
+      if (Array.isArray(arr) && arr.length > 0) totalAvailablePhotos = arr.length;
+    } catch (_) {}
+  }
+
   text += `\n📞 *Landlord/Host Contact:* ${displayPhone}\n`;
   if (formattedWaContactLink) {
     text += `💬 *WhatsApp Host Directly:* ${formattedWaContactLink}\n`;
+  }
+  if (totalAvailablePhotos > 1) {
+    text += `📸 *Gallery:* ${totalAvailablePhotos} photos available (reply *photos ${listing.id}* to view all here!)\n`;
   }
   text += `🔗 *Full Gallery & Map:* ${listingUrl}`;
 
@@ -2653,6 +2666,111 @@ Explore all areas or view map on:
       }
     }
 
+    // -------------------------------------------------------------
+    // PRIORITY 4.5: ON-DEMAND PROPERTY PHOTOS IN WHATSAPP
+    // Lets users view all 2 or 3 photos of any listing right inside WhatsApp!
+    // Triggers on: button SHOW_PHOTOS_{id}, or text "photos 123", "pics 123", "pictures 123"
+    // -------------------------------------------------------------
+    else if (
+      buttonPayload?.startsWith("SHOW_PHOTOS_") ||
+      buttonPayload?.startsWith("PHOTOS_") ||
+      lowerText.startsWith("photo ") ||
+      lowerText.startsWith("photos ") ||
+      lowerText.startsWith("pic ") ||
+      lowerText.startsWith("pics ") ||
+      lowerText.startsWith("pictures ")
+    ) {
+      let targetId = "";
+      if (buttonPayload?.startsWith("SHOW_PHOTOS_")) {
+        targetId = buttonPayload.replace("SHOW_PHOTOS_", "");
+      } else if (buttonPayload?.startsWith("PHOTOS_")) {
+        targetId = buttonPayload.replace("PHOTOS_", "");
+      } else {
+        const match = lowerText.match(/(?:photo|photos|pic|pics|pictures)\s+(\d+)/);
+        if (match) targetId = match[1];
+      }
+
+      if (targetId) {
+        const listing = await env.DB.prepare(
+          "SELECT * FROM listings WHERE id = ?"
+        ).bind(targetId).first();
+
+        if (!listing) {
+          replyText = `⚠️ Listing #${targetId} was not found. Reply *search* to find active properties!`;
+          buttonsToSend = [
+            { id: "CMD_SEARCH", title: "🔍 Search Stays" },
+            { id: "CMD_LIST", title: "🏡 Add Listing" }
+          ];
+          actionTaken = "PHOTOS_NOT_FOUND";
+        } else {
+          // Unpack all available photos
+          const raw = String(listing.image_url || "").trim();
+          let allPhotos: string[] = [];
+          if (raw.startsWith("[")) {
+            try {
+              const arr = JSON.parse(raw);
+              if (Array.isArray(arr)) {
+                allPhotos = arr.map((item: any) => String(item).trim()).filter(Boolean);
+              }
+            } catch (_) {}
+          }
+          if (allPhotos.length === 0 && raw) {
+            allPhotos = [raw];
+          }
+
+          const baseUrl = new URL(request.url).origin || "https://bunkby.com";
+          const totalPhotos = allPhotos.length;
+          const listingUrl = `${baseUrl.replace(/\/+$/, "")}/#listing-${listing.id}`;
+
+          // Header message for the photo gallery
+          const title = listing.business_name || listing.title;
+          const headerMsg = `📸 *Photo Gallery for #${listing.id}: ${title}*\n📍 ${listing.suburb}, ${listing.city || "Harare"}\n💰 $${listing.price} / ${listing.rent_cycle || "month"}\n\nDisplaying ${totalPhotos} verified photo${totalPhotos === 1 ? "" : "s"} below:`;
+          outboundQueue.push({ text: headerMsg, itemType: "intro" });
+
+          // Send each photo directly into WhatsApp chat
+          for (let i = 0; i < totalPhotos; i++) {
+            const photoDataOrUrl = allPhotos[i];
+            const cleanBase = (baseUrl && (baseUrl.startsWith("https://") || baseUrl.startsWith("http://")))
+              ? baseUrl.replace(/\/+$/, "")
+              : "https://bunkby.com";
+            const photoUrl = `${cleanBase}/api/rooms/${listing.id}/photo?index=${i}`;
+            const photoCaption = `📸 Photo ${i + 1} of ${totalPhotos} · #${listing.id} ${title}`;
+
+            outboundQueue.push({
+              imageUrl: photoUrl,
+              rawPhoto: photoDataOrUrl,
+              text: photoCaption,
+              itemType: "card"
+            });
+          }
+
+          // Footer with contact and return to search
+          const cleanPhone = (listing.contact_phone || "").replace(/\D/g, "");
+          const waLink = cleanPhone ? `https://wa.me/${cleanPhone.startsWith("0") ? "263" + cleanPhone.slice(1) : cleanPhone}` : null;
+          let footerMsg = `✅ *All ${totalPhotos} photo${totalPhotos === 1 ? "" : "s"} shown for #${listing.id}.*\n\n`;
+          if (waLink) {
+            footerMsg += `💬 *Chat Landlord directly:* ${waLink}\n`;
+          }
+          footerMsg += `🔗 *View on Web & Map:* ${listingUrl}`;
+
+          outboundQueue.push({
+            text: footerMsg,
+            buttons: [
+              { id: "CMD_SEARCH", title: "🔍 Back to Search" },
+              { id: "CMD_LIST", title: "🏡 Add Listing" }
+            ],
+            itemType: "action_footer"
+          });
+          actionTaken = "PHOTOS_DELIVERED";
+        }
+      } else {
+        replyText = `📸 To view property photos, reply *photos [listing number]* (for example: *photos 105*) or tap a button on any property card.`;
+        buttonsToSend = [
+          { id: "CMD_SEARCH", title: "🔍 Search Stays" }
+        ];
+        actionTaken = "PHOTOS_USAGE_HELP";
+      }
+    }
     // -------------------------------------------------------------
     // PRIORITY 5: ACCOMMODATION SEARCH (No Active Session)
     // -------------------------------------------------------------
