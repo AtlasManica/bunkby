@@ -413,7 +413,15 @@ app.get("/api/listings", (req, res) => {
       ORDER BY listings.created_at DESC
     `).all().map((row: any) => ({
         ...row,
-        category: row.category || (["Lodge / Guesthouse", "Hotel", "Lodge", "Guesthouse", "Bed & Breakfast"].includes(row.property_type) ? "hospitality" : "residential"),
+        category: row.category || (
+          ["Lodge / Guesthouse", "Hotel", "Lodge", "Guesthouse", "Bed & Breakfast"].includes(row.property_type)
+            ? "hospitality"
+            : ["Commercial", "Shop", "Warehouse", "Table", "Office"].includes(row.property_type)
+            ? "commercial"
+            : ["Student Hostel", "Boarding House", "Single Student Room", "Shared Student Room"].includes(row.property_type) || row.tenant_type === "Student"
+            ? "student"
+            : "residential"
+        ),
         businessName: row.business_name || null,
         frequency: row.rent_cycle,
         propertyType: row.property_type,
@@ -453,7 +461,15 @@ app.post("/api/listings", (req, res) => {
     category, business_name, businessName, is_premium, isPremium, listing_tier, listingTier, expiry_date, expiryDate
   } = req.body;
 
-  const resolvedCategory = category || (["Lodge / Guesthouse", "Hotel", "Lodge", "Guesthouse", "Bed & Breakfast"].includes(property_type) ? "hospitality" : "residential");
+  const resolvedCategory = category || (
+    ["Lodge / Guesthouse", "Hotel", "Lodge", "Guesthouse", "Bed & Breakfast"].includes(property_type)
+      ? "hospitality"
+      : ["Commercial", "Shop", "Warehouse", "Table", "Office"].includes(property_type)
+      ? "commercial"
+      : ["Student Hostel", "Boarding House", "Single Student Room", "Shared Student Room"].includes(property_type) || tenant_type === "Student"
+      ? "student"
+      : "residential"
+  );
   const resolvedBusinessName = business_name || businessName || null;
   const resolvedIsPremium = (is_premium !== undefined ? is_premium : isPremium) ? 1 : (resolvedCategory === "hospitality" ? 1 : 0);
   const resolvedTier = listing_tier || listingTier || (resolvedCategory === "hospitality" ? "paid" : "free");

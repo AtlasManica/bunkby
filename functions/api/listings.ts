@@ -61,7 +61,15 @@ export async function onRequestPost({ request, env }) {
       category, business_name, businessName, is_premium, isPremium, listing_tier, listingTier, expiry_date, expiryDate
     } = data;
     
-    const resolvedCategory = category || (["Lodge / Guesthouse", "Hotel", "Lodge", "Guesthouse", "Bed & Breakfast"].includes(property_type) ? "hospitality" : "residential");
+    const resolvedCategory = category || (
+      ["Lodge / Guesthouse", "Hotel", "Lodge", "Guesthouse", "Bed & Breakfast"].includes(property_type)
+        ? "hospitality"
+        : ["Commercial", "Shop", "Warehouse", "Table", "Office"].includes(property_type)
+        ? "commercial"
+        : ["Student Hostel", "Boarding House", "Single Student Room", "Shared Student Room"].includes(property_type) || tenant_type === "Student"
+        ? "student"
+        : "residential"
+    );
     const resolvedBusinessName = business_name || businessName || null;
     const resolvedIsPremium = 0;
     const resolvedTier = "free";

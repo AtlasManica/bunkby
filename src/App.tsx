@@ -889,6 +889,57 @@ export default function App() {
   };
 
   // Filter listings based on selected search components
+    // Category Resolution & Badge Visual Helper
+  const getListingCategoryInfo = (room: RoomListing) => {
+    const rawCat = (room.category || "").toLowerCase();
+    const propType = room.propertyType || "";
+    const isCommercial = 
+      rawCat === "commercial" || 
+      ["Commercial", "Shop", "Warehouse", "Table", "Office"].includes(propType);
+    const isStudent = 
+      rawCat === "student" || 
+      ["Student Hostel", "Boarding House", "Single Student Room", "Shared Student Room"].includes(propType) ||
+      room.tenantType === "Student";
+    const isHospitality = 
+      rawCat === "hospitality" || 
+      ["Lodge / Guesthouse", "Hotel", "Lodge", "Guesthouse", "Bed & Breakfast", "Boutique Hotel", "Short-Stay Apartment"].includes(propType);
+
+    if (isCommercial) {
+      return {
+        key: "commercial",
+        label: "Commercial",
+        icon: Building2,
+        bgClass: "bg-blue-900 text-white",
+        badgeBorder: "border-blue-700/40"
+      };
+    }
+    if (isStudent) {
+      return {
+        key: "student",
+        label: "Student",
+        icon: GraduationCap,
+        bgClass: "bg-emerald-800 text-white",
+        badgeBorder: "border-emerald-600/40"
+      };
+    }
+    if (isHospitality) {
+      return {
+        key: "hospitality",
+        label: "Hospitality",
+        icon: Hotel,
+        bgClass: "bg-[#052659] text-white",
+        badgeBorder: "border-sky-600/40"
+      };
+    }
+    return {
+      key: "residential",
+      label: "Residential",
+      icon: Home,
+      bgClass: "bg-[#021024] text-white",
+      badgeBorder: "border-slate-700/40"
+    };
+  };
+
   const filteredListings = listings.filter((room) => {
     // Only search renters see Active listings (Landlord sees all including delisted in their dashboard)
     if (activeTab === "browse" && room.status !== "Active") return false;
@@ -916,15 +967,7 @@ export default function App() {
 
     // Category filter
     if (selectedCategory !== "all") {
-      const isHosp = room.category === "hospitality" || 
-        HOSPITALITY_PROPERTY_TYPES.includes(room.propertyType) ||
-        ["Lodge / Guesthouse", "Hotel", "Lodge", "Guesthouse", "Bed & Breakfast"].includes(room.propertyType);
-      const isComm = room.category === "commercial" || 
-        ["Commercial", "Shop", "Warehouse", "Table"].includes(room.propertyType);
-      const isStud = room.category === "student" || 
-        ["Student Hostel", "Boarding House", "Single Student Room", "Shared Student Room"].includes(room.propertyType) ||
-        room.tenantType === "Student";
-      const roomCat = isHosp ? "hospitality" : isComm ? "commercial" : isStud ? "student" : "residential";
+      const roomCat = getListingCategoryInfo(room).key;
       if (roomCat !== selectedCategory) return false;
     }
 
@@ -1261,7 +1304,7 @@ export default function App() {
                     <Home className="w-3.5 h-3.5 stroke-[2.5]" />
                     <span>Residential</span>
                     <span className="text-[10px] bg-black/40 px-1.5 py-0.5 rounded-full font-mono font-black text-white">
-                      {listings.filter(r => r.status === "Active" && (r.category === "residential" || (!r.category && !["Lodge / Guesthouse", "Hotel", "Lodge", "Guesthouse", "Bed & Breakfast"].includes(r.propertyType)))).length}
+                      {listings.filter(r => r.status === "Active" && getListingCategoryInfo(r).key === "residential").length}
                     </span>
                   </button>
 
@@ -1280,7 +1323,7 @@ export default function App() {
                     <Hotel className="w-3.5 h-3.5 stroke-[2.5]" />
                     <span>Hospitality</span>
                     <span className="text-[10px] bg-black/40 px-1.5 py-0.5 rounded-full font-mono font-black text-white">
-                      {listings.filter(r => r.status === "Active" && (r.category === "hospitality" || ["Lodge / Guesthouse", "Hotel", "Lodge", "Guesthouse", "Bed & Breakfast"].includes(r.propertyType))).length}
+                      {listings.filter(r => r.status === "Active" && getListingCategoryInfo(r).key === "hospitality").length}
                     </span>
                   </button>
                   <button
@@ -1298,7 +1341,7 @@ export default function App() {
                     <Building2 className="w-3.5 h-3.5 stroke-[2.5]" />
                     <span>Commercial</span>
                     <span className="text-[10px] bg-black/40 px-1.5 py-0.5 rounded-full font-mono font-black text-white">
-                      {listings.filter(r => r.status === "Active" && (r.category === "commercial" || ["Commercial", "Shop", "Warehouse", "Table"].includes(r.propertyType))).length}
+                      {listings.filter(r => r.status === "Active" && getListingCategoryInfo(r).key === "commercial").length}
                     </span>
                   </button>
                   <button
@@ -1316,7 +1359,7 @@ export default function App() {
                     <GraduationCap className="w-3.5 h-3.5 stroke-[2.5]" />
                     <span>Student Accom.</span>
                     <span className="text-[10px] bg-black/40 px-1.5 py-0.5 rounded-full font-mono font-black text-white">
-                      {listings.filter(r => r.status === "Active" && (r.category === "student" || ["Student Hostel", "Boarding House", "Single Student Room", "Shared Student Room"].includes(r.propertyType) || r.tenantType === "Student")).length}
+                      {listings.filter(r => r.status === "Active" && getListingCategoryInfo(r).key === "student").length}
                     </span>
                   </button>
                 </div>
@@ -1589,17 +1632,16 @@ export default function App() {
                         
                         {/* Top ribbon tags - compact */}
                         <div className="absolute top-2.5 left-2.5 flex flex-wrap gap-1 z-10 max-w-[70%]">
-                          {isHospitality ? (
-                            <span className="bg-[#052659] text-white font-bold text-[9px] tracking-wide uppercase px-2 py-0.5 rounded-full flex items-center gap-1 shadow-xs">
-                              <Hotel className="w-2.5 h-2.5 text-[#FF7A00] shrink-0" />
-                              <span>Hospitality</span>
-                            </span>
-                          ) : (
-                            <span className="bg-[#021024] text-white font-bold text-[9px] tracking-wide uppercase px-2 py-0.5 rounded-full flex items-center gap-1 shadow-xs">
-                              <Home className="w-2.5 h-2.5 text-[#FF7A00] shrink-0" />
-                              <span>Residential</span>
-                            </span>
-                          )}
+                          {(() => {
+                            const catInfo = getListingCategoryInfo(room);
+                            const IconComponent = catInfo.icon;
+                            return (
+                              <span className={`${catInfo.bgClass} font-bold text-[9px] tracking-wide uppercase px-2 py-0.5 rounded-full flex items-center gap-1 shadow-xs border ${catInfo.badgeBorder}`}>
+                                <IconComponent className="w-2.5 h-2.5 text-[#FF7A00] shrink-0" />
+                                <span>{catInfo.label}</span>
+                              </span>
+                            );
+                          })()}
 
                           <span className="bg-slate-900/85 backdrop-blur-xs text-[#FF7A00] font-mono font-bold text-[8.5px] px-1.5 py-0.5 rounded-full uppercase truncate">
                             {room.propertyType}
@@ -1994,17 +2036,16 @@ export default function App() {
                                 </span>
                               )}
 
-                              {(room.category === "hospitality" || ["Lodge / Guesthouse", "Hotel", "Lodge", "Guesthouse", "Bed & Breakfast"].includes(room.propertyType)) ? (
-                                <span className="bg-[#052659] text-white font-bold text-[9px] uppercase tracking-wider px-2 py-0.5 rounded-full shadow-sm flex items-center gap-1">
-                                  <Hotel className="w-2.5 h-2.5 text-[#FF7A00]" />
-                                  <span>Hospitality</span>
-                                </span>
-                              ) : (
-                                <span className="bg-[#021024] text-white font-bold text-[9px] uppercase tracking-wider px-2 py-0.5 rounded-full shadow-sm flex items-center gap-1">
-                                  <Home className="w-2.5 h-2.5 text-[#FF7A00]" />
-                                  <span>Residential</span>
-                                </span>
-                              )}
+                              {(() => {
+                                const catInfo = getListingCategoryInfo(room);
+                                const IconComponent = catInfo.icon;
+                                return (
+                                  <span className={`${catInfo.bgClass} font-bold text-[9px] uppercase tracking-wider px-2 py-0.5 rounded-full shadow-sm flex items-center gap-1 border ${catInfo.badgeBorder}`}>
+                                    <IconComponent className="w-2.5 h-2.5 text-[#FF7A00] shrink-0" />
+                                    <span>{catInfo.label}</span>
+                                  </span>
+                                );
+                              })()}
                             </div>
 
                             {/* Card Image */}
@@ -3636,6 +3677,16 @@ export default function App() {
                           </div>
                         )}
                         <div className="absolute top-3 left-3 flex flex-wrap gap-1.5">
+                          {(() => {
+                            const catInfo = getListingCategoryInfo(selectedListingDetail);
+                            const IconComponent = catInfo.icon;
+                            return (
+                              <span className={`${catInfo.bgClass} font-bold text-[9px] tracking-wide uppercase px-2.5 py-1 rounded-full flex items-center gap-1 shadow-sm border ${catInfo.badgeBorder}`}>
+                                <IconComponent className="w-2.5 h-2.5 text-[#FF7A00] shrink-0" />
+                                <span>{catInfo.label}</span>
+                              </span>
+                            );
+                          })()}
                           {selectedListingDetail.isSample && (
                             <span className="bg-amber-500 text-white font-mono font-bold text-[9px] px-2.5 py-1 rounded-full uppercase tracking-wider shadow-sm">
                               Sample Listing
