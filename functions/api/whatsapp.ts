@@ -109,7 +109,7 @@ export async function onRequestGet({ request, env }: { request: Request; env: En
     return jsonResponse({
       status: "online",
       service: "BunkBy WhatsApp Cloudflare Pages Function",
-      version: "2026-10-20_diagnostic_v15_perfect_category_parity",
+      version: "2026-10-21_diagnostic_v17_fix_add_listing_buttons_order",
       metaConfigured: Boolean(activeToken && activePhoneId),
       hasAccessToken: Boolean(activeToken),
       hasPhoneNumberId: Boolean(activePhoneId),
@@ -1386,10 +1386,12 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
           const safeQuery = cleanQuery.slice(0, 15).replace(/[^a-zA-Z0-9]/g, "");
 
           const navButtons: Array<{ id: string; title: string }> = [];
+          const safeCat = (searchCategory || "all").slice(0, 12);
+          const remainingCount = totalMatching - results.length;
           if (hasMore) {
             navButtons.push({
-              id: `PAGE_3_${safeQuery}`,
-              title: `⏩ Next 3 Stays (${totalMatching - results.length} left)`
+              id: `PAGE_3_${safeCat}_${safeQuery}`,
+              title: `⏩ Next 3 Stays (${remainingCount} left)`
             });
             navButtons.push({ id: "CMD_SEARCH", title: "🔍 New Search" });
             navButtons.push({ id: "CMD_LIST", title: "🏡 Add Listing" });
@@ -1399,9 +1401,15 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
             navButtons.push({ id: "CMD_LIST", title: "🏡 Add Listing" });
           }
 
+          const searchWebUrl = cleanQuery && cleanQuery.toLowerCase() !== "all"
+            ? `https://bunkby.com/#search=${encodeURIComponent(cleanQuery)}`
+            : "https://bunkby.com";
           const footerText = hasMore
-            ? `📄 *Viewing ${results.length} of ${totalMatching} stays.* Tap *Next 3 Stays* below to see the next batch, or visit https://bunkby.com for full galleries:`
-            : `✅ *You have reached the end of listings in "${cleanQuery}".* Tap below to search another area or create a listing:`;
+            ? `📄 *Viewing 1–${results.length} of ${totalMatching} available properties.* Tap *Next 3 Stays* below to view the next batch, or see full galleries on the web:
+🔗 ${searchWebUrl}`
+            : `✅ *You have viewed all ${totalMatching} available propert${totalMatching === 1 ? "y" : "ies"} in "${cleanQuery}".*
+Explore all areas or view map on:
+🔗 ${searchWebUrl}`;
 
           outboundQueue.push({
             text: footerText,
@@ -1503,7 +1511,7 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
           replyText = `⚠️ Please select a listing category below:`;
           buttonsToSend = [
             { id: "CAT_RESIDENTIAL", title: "🏠 Residential" },
-            { id: "CAT_STUDENT", title: "🎓 Student Accom." },
+            { id: "CAT_HOSPITALITY", title: "🏨 Hospitality" },
             { id: "CAT_COMMERCIAL", title: "🏢 Commercial" }
           ];
           actionTaken = "STEP_RETRY";
@@ -2534,7 +2542,7 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
       replyText = `🏡 *Welcome to BunkBy Property Listing!*\nLet's get your property posted on Zimbabwe's direct marketplace.\n\n*Step 1/11: Choose Category*\n\n1️⃣ 🏠 *Residential Rentals*\n_(Rooms, Cottages, Flats, Full Houses)_\n\n2️⃣ 🏨 *Hospitality & Stays*\n_(Lodges, Guest Houses, Hotels, B&Bs)_\n\n3️⃣ 🏢 *Commercial Properties*\n_(Shops, Offices, Warehouses, Tables)_\n\n4️⃣ 🎓 *Student Accommodation*\n_(Hostels, Boarding Houses, Student Rooms)_\n\nTap an option or reply with *1*, *2*, *3*, or *4*:`;
       buttonsToSend = [
         { id: "CAT_RESIDENTIAL", title: "🏠 Residential" },
-        { id: "CAT_STUDENT", title: "🎓 Student Accom." },
+        { id: "CAT_HOSPITALITY", title: "🏨 Hospitality" },
         { id: "CAT_COMMERCIAL", title: "🏢 Commercial" }
       ];
       actionTaken = "LISTING_STEP_CATEGORY";
@@ -2710,13 +2718,19 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
       } else {
         // User typed a place name directly or tapped a pagination button
         let cleanQuery = text.replace(/^(search|find|looking for|i want a|need a)\s*/i, "").trim();
-        let searchOffset = 0;
-
+                let searchOffset = 0;
+        let paginatedCategory = "";
         if (buttonPayload?.startsWith("PAGE_")) {
-          // Format: PAGE_{offset}_{encodedQuery}
+          // Format: PAGE_{offset}_{category}_{query} OR legacy PAGE_{offset}_{query}
           const pageParts = buttonPayload.split("_");
           searchOffset = parseInt(pageParts[1], 10) || 0;
-          cleanQuery = pageParts.slice(2).join("_") || cleanQuery;
+          const candidateCat = pageParts[2] || "";
+          if (["residential", "hospitality", "commercial", "student"].includes(candidateCat.toLowerCase())) {
+            paginatedCategory = candidateCat.toLowerCase();
+            cleanQuery = pageParts.slice(3).join("_") || "";
+          } else {
+            cleanQuery = pageParts.slice(2).join("_") || cleanQuery;
+          }
         } else if (buttonPayload === "SEARCH_HARARE") {
           cleanQuery = "Harare";
         } else if (buttonPayload === "SEARCH_BULAWAYO") {
@@ -2778,9 +2792,13 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
           actionTaken = "SEARCH_PROMPT_LOCATION";
         } else {
 
-        // Intelligent location search matching both parent city and constituent suburbs (e.g. Harare <-> Greendale)
-        const locationFilter = cleanQuery ? buildLocationSearchClauses(cleanQuery, "listings") : { whereSql: "", params: [] };
-        const countFilter = cleanQuery ? buildLocationSearchClauses(cleanQuery) : { whereSql: "", params: [] };
+        // Intelligent combined category and location search
+        const locationFilter = paginatedCategory
+          ? buildCategoryAndLocationClauses(paginatedCategory, cleanQuery, "listings")
+          : (cleanQuery ? buildLocationSearchClauses(cleanQuery, "listings") : { whereSql: "", params: [] });
+        const countFilter = paginatedCategory
+          ? buildCategoryAndLocationClauses(paginatedCategory, cleanQuery)
+          : (cleanQuery ? buildLocationSearchClauses(cleanQuery) : { whereSql: "", params: [] });
 
         // Count total matching listings
         let countSql = `
@@ -2853,10 +2871,12 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
           const safeQuery = cleanQuery.slice(0, 15).replace(/[^a-zA-Z0-9]/g, "");
 
           const navButtons: Array<{ id: string; title: string }> = [];
+          const safeCat = (paginatedCategory || "all").slice(0, 12);
+          const remainingCount = totalMatching - endNum;
           if (hasMore) {
             navButtons.push({
-              id: `PAGE_${nextOffset}_${safeQuery}`,
-              title: `⏩ Next 3 Stays (${totalMatching - endNum} left)`
+              id: `PAGE_${nextOffset}_${safeCat}_${safeQuery}`,
+              title: `⏩ Next 3 Stays (${remainingCount} left)`
             });
             navButtons.push({ id: "CMD_SEARCH", title: "🔍 New Search" });
             navButtons.push({ id: "CMD_LIST", title: "🏡 Add Listing" });
@@ -2866,9 +2886,15 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
             navButtons.push({ id: "CMD_LIST", title: "🏡 Add Listing" });
           }
 
+          const searchWebUrl = cleanQuery && cleanQuery.toLowerCase() !== "all"
+            ? `https://bunkby.com/#search=${encodeURIComponent(cleanQuery)}`
+            : "https://bunkby.com";
           const footerText = hasMore
-            ? `📄 *Viewing ${endNum} of ${totalMatching} stays.* Tap *Next 3 Stays* below to see the next batch, or visit https://bunkby.com for full galleries:`
-            : `✅ *You have reached the end of listings in "${cleanQuery}".* Tap below to search another area or create a listing:`;
+            ? `📄 *Viewing ${startNum}–${endNum} of ${totalMatching} available properties.* Tap *Next 3 Stays* below to view the next batch, or see full galleries on the web:
+🔗 ${searchWebUrl}`
+            : `✅ *You have reached the end of all ${totalMatching} listings in "${cleanQuery}".*
+Explore all areas or view map on:
+🔗 ${searchWebUrl}`;
 
           outboundQueue.push({
             text: footerText,

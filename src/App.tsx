@@ -1,3 +1,4 @@
+import { compressImageFile } from "./utils/imageCompressor";
 import PrivacyPolicy from "./PrivacyPolicy";
 /**
  * @license
@@ -434,7 +435,7 @@ export default function App() {
 
     const finalPayload = {
       ...payload,
-      category: isHospitality ? "hospitality" : "residential",
+      category: payload.category || (isHospitality ? "hospitality" : "residential"),
       business_name: payload.business_name || payload.businessName || "",
       businessName: payload.business_name || payload.businessName || "",
       isPremium: makePremium,
@@ -492,7 +493,8 @@ export default function App() {
            setListings(prev => [newListing, ...prev]);
            showToast(makePremium ? "✨ Premium Listing activated for 30 Days successfully!" : "🎉 Listing published live on BunkBy!");
         } else {
-           showToast("⚠️ Network issue, unable to list room right now");
+           const errData = await res.json().catch(() => ({}));
+          showToast(errData.error || "⚠️ Network issue, unable to list room right now");
         }
       }
     } catch (e) {
@@ -709,8 +711,8 @@ export default function App() {
       if (ctx) {
         ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
         const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
-        if (uploadedImages.length >= 2) {
-          showToast("⚠️ Maximum of 2 pictures allowed! Remove one to snap a new one.");
+        if (uploadedImages.length >= 3) {
+          showToast("⚠️ Maximum of 3 pictures allowed! Remove one to snap a new one.");
           return;
         }
         setUploadedImages(prev => [...prev, dataUrl]);
@@ -720,26 +722,31 @@ export default function App() {
     }
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
-      const files = Array.from(e.target.files);
-      const remainingBytesAllowed = 2 - uploadedImages.length;
-      if (remainingBytesAllowed <= 0) {
-        showToast("⚠️ Already uploaded maximum of 2 pictures!");
+      const files: File[] = Array.from(e.target.files);
+      const remainingSlots = 3 - uploadedImages.length;
+      if (remainingSlots <= 0) {
+        showToast("⚠️ Already uploaded maximum of 3 pictures!");
         return;
       }
       
-      const filesToProcess = files.slice(0, remainingBytesAllowed);
-      filesToProcess.forEach(file => {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          if (reader.result) {
-            setUploadedImages(prev => [...prev, reader.result as string]);
-          }
-        };
-        reader.readAsDataURL(file as Blob);
-      });
-      showToast(`📁 Processed ${filesToProcess.length} uploaded image(s) successfully!`);
+      const filesToProcess = files.slice(0, remainingSlots);
+      showToast(`⏳ Optimizing ${filesToProcess.length} image(s)...`);
+      try {
+        const compressedList: string[] = [];
+        for (const file of filesToProcess) {
+          const compressed = await compressImageFile(file, 1280, 1280, 0.82);
+          compressedList.push(compressed);
+        }
+        setUploadedImages(prev => [...prev, ...compressedList]);
+        showToast(`✅ Added ${compressedList.length} optimized photo(s)!`);
+      } catch (err) {
+        console.error("Compression error:", err);
+        showToast("⚠️ Failed to process some images");
+      }
+      // Reset input value so re-selecting same file works
+      e.target.value = "";
     }
   };
 
@@ -2077,9 +2084,20 @@ export default function App() {
                                         contactMethod: room.contactMethod,
                                         phone: room.phone,
                                         landlordName: room.landlordName,
-                                        imageUrl: room.images[0]
+                                        imageUrl: (room.images && room.images[0]) || room.image_url || ""
                                       });
-                                      setUploadedImages(room.images || []);
+                                      const existingRoomPhotos = (() => {
+                                        if (room.images && room.images.length > 0) return room.images;
+                                        const raw = String(room.image_url || "").trim();
+                                        if (raw.startsWith("[")) {
+                                          try {
+                                            const arr = JSON.parse(raw);
+                                            if (Array.isArray(arr) && arr.length > 0) return arr;
+                                          } catch (_) {}
+                                        }
+                                        return raw ? [raw] : [];
+                                      })();
+                                      setUploadedImages(existingRoomPhotos);
                                       setIsEditing(room.id);
                                       setIsCreateModalOpen(true);
                                     }}
@@ -3100,7 +3118,7 @@ export default function App() {
                 {/* Real Landlord Pictures and Live Camera Snapping Module */}
                 <div className="space-y-3 bg-slate-50 border border-slate-200/80 p-4 rounded-2xl">
                   <div>
-                    <label className="text-xs font-bold text-slate-700 uppercase tracking-wide block">Room Photos (Select Up To 2)</label>
+                    <label className="text-xs font-bold text-slate-700 uppercase tracking-wide block">Room Photos (Select Up To 3)</label>
                     <p className="text-[10px] text-slate-400 font-medium">Add real property photos to attract renters, or use fallback draft images below.</p>
                   </div>
 
@@ -3126,7 +3144,7 @@ export default function App() {
                     ))}
 
                     {/* Upload Slot Placeholder */}
-                    {uploadedImages.length < 2 && !cameraActive && (
+                    {uploadedImages.length < 3 && !cameraActive && (
                       <div className="border-2 border-dashed border-slate-300 rounded-xl aspect-video flex flex-col items-center justify-center p-3 text-center bg-white hover:bg-slate-50 transition-all cursor-pointer relative">
                         <Upload className="w-5 h-5 text-slate-400 mb-1" />
                         <span className="text-[10px] font-bold text-slate-500">Device Upload</span>
@@ -3165,7 +3183,7 @@ export default function App() {
                       </div>
                     </div>
                   ) : (
-                    uploadedImages.length < 2 && (
+                    uploadedImages.length < 3 && (
                       <div className="flex gap-2">
                         <button 
                           type="button" 
@@ -3576,11 +3594,19 @@ export default function App() {
               <div className="p-4 sm:p-6 overflow-y-auto space-y-4 sm:space-y-6 text-left flex-grow">
                 {/* Photo Gallery with Thumbnail Switcher */}
                 {(() => {
-                  const photos = (selectedListingDetail.images && selectedListingDetail.images.length > 0)
-                    ? selectedListingDetail.images
-                    : selectedListingDetail.image_url
-                      ? [selectedListingDetail.image_url]
-                      : [];
+                  const photos = (() => {
+                    if (selectedListingDetail.images && selectedListingDetail.images.length > 0) {
+                      return selectedListingDetail.images;
+                    }
+                    const raw = String(selectedListingDetail.image_url || "").trim();
+                    if (raw.startsWith("[")) {
+                      try {
+                        const parsed = JSON.parse(raw);
+                        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+                      } catch (_) {}
+                    }
+                    return raw ? [raw] : [];
+                  })();
                   const activePhoto = photos[detailActivePhotoIdx] || photos[0];
 
                   return (
