@@ -61,7 +61,7 @@ export interface ParsedWhatsAppInput {
 }
 
 export interface SearchFilters {
-  category?: "residential" | "hospitality" | "all";
+  category?: "residential" | "hospitality" | "commercial" | "student" | "all";
   city?: string;
   suburb?: string;
   propertyType?: string;
@@ -186,27 +186,60 @@ const COMMON_SUBURBS = [
 ];
 
 const PROPERTY_TYPES_KEYWORDS: Record<string, string> = {
+  "single student room": "Single Student Room",
+  "shared student room": "Shared Student Room",
+  "student hostel": "Student Hostel",
+  "boarding house": "Boarding House",
+  "boarding": "Boarding House",
+  "hostel": "Student Hostel",
+  "hostels": "Student Hostel",
   "single room": "Single Room",
   "bed-sitter": "Bed-sitter",
   "bedsitter": "Bed-sitter",
   "cottage": "Cottage",
   "cottages": "Cottage",
-  "apartment": "Apartment",
-  "apartments": "Apartment",
-  "flat": "Apartment",
-  "flats": "Apartment",
-  "boarding house": "Boarding House",
-  "boarding": "Boarding House",
-  "hostel": "Student Hostel",
-  "student hostel": "Student Hostel",
+  "townhouse": "Townhouse / Cluster",
+  "cluster": "Townhouse / Cluster",
+  "apartment": "Apartment / Flat",
+  "apartments": "Apartment / Flat",
+  "flat": "Apartment / Flat",
+  "flats": "Apartment / Flat",
+  "full house": "Full house",
+  "house sale": "House Sale",
+  "lodge / guesthouse": "Lodge / Guesthouse",
   "lodge": "Lodge",
   "lodges": "Lodge",
   "guesthouse": "Guesthouse",
   "guesthouses": "Guesthouse",
   "guest house": "Guesthouse",
   "hotel": "Hotel",
+  "hotels": "Hotel",
   "b&b": "Bed & Breakfast",
-  "bed and breakfast": "Bed & Breakfast"
+  "bed and breakfast": "Bed & Breakfast",
+  "bed & breakfast": "Bed & Breakfast",
+  "retail shop": "Shop",
+  "retail shops": "Shop",
+  "storefront": "Shop",
+  "storefronts": "Shop",
+  "shop": "Shop",
+  "shops": "Shop",
+  "warehouse": "Warehouse",
+  "warehouses": "Warehouse",
+  "storage": "Warehouse",
+  "market stall": "Table",
+  "market stalls": "Table",
+  "flea market": "Table",
+  "stall": "Table",
+  "stalls": "Table",
+  "booth": "Table",
+  "booths": "Table",
+  "table": "Table",
+  "tables": "Table",
+  "office space": "Commercial",
+  "office suite": "Commercial",
+  "offices": "Commercial",
+  "office": "Commercial",
+  "commercial": "Commercial"
 };
 
 const AMENITY_KEYWORDS: Record<string, string> = {
@@ -237,23 +270,40 @@ export function parseNaturalLanguageQuery(query: string): SearchFilters {
   };
 
   // 1. Detect Category
-  const hospitalityMatches = ["lodge", "guesthouse", "guest house", "hotel", "b&b", "bed & breakfast", "night", "per night"];
-  const residentialMatches = ["cottage", "single room", "rooms", "bed-sitter", "bedsitter", "flat", "apartment", "boarding", "monthly", "tenant", "student"];
+  const commercialMatches = ["commercial", "shop", "shops", "retail", "storefront", "office", "offices", "warehouse", "warehouses", "market stall", "stall", "booth", "table", "tables"];
+  const studentMatches = ["student hostel", "boarding house", "single student", "shared student", "student", "hostel", "hostels", "boarding", "campus"];
+  const hospitalityMatches = ["lodge", "guesthouse", "guest house", "hotel", "b&b", "bed & breakfast", "bed and breakfast", "night", "per night", "hospitality"];
+  const residentialMatches = ["cottage", "single room", "2 rooms", "3 rooms", "bed-sitter", "bedsitter", "flat", "apartment", "townhouse", "cluster", "full house", "monthly", "residential"];
 
+  let commScore = 0;
+  let studScore = 0;
   let hospScore = 0;
   let resScore = 0;
 
+  for (const w of commercialMatches) {
+    if (new RegExp(`\\b${w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(lower)) commScore++;
+  }
+  for (const w of studentMatches) {
+    if (new RegExp(`\\b${w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(lower)) studScore++;
+  }
   for (const w of hospitalityMatches) {
-    if (lower.includes(w)) hospScore++;
+    if (new RegExp(`\\b${w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(lower)) hospScore++;
   }
   for (const w of residentialMatches) {
-    if (lower.includes(w)) resScore++;
+    if (new RegExp(`\\b${w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(lower)) resScore++;
   }
 
-  if (hospScore > resScore && hospScore > 0) {
-    filters.category = "hospitality";
-  } else if (resScore > hospScore && resScore > 0) {
-    filters.category = "residential";
+  const maxScore = Math.max(commScore, studScore, hospScore, resScore);
+  if (maxScore > 0) {
+    if (commScore === maxScore) {
+      filters.category = "commercial";
+    } else if (studScore === maxScore) {
+      filters.category = "student";
+    } else if (hospScore === maxScore) {
+      filters.category = "hospitality";
+    } else {
+      filters.category = "residential";
+    }
   }
 
   // 2. Detect City
@@ -305,9 +355,21 @@ export function parseNaturalLanguageQuery(query: string): SearchFilters {
 
   // 5. Detect Property Type
   for (const [key, val] of Object.entries(PROPERTY_TYPES_KEYWORDS)) {
-    const regex = new RegExp(`\\b${key}\\b`, "i");
+    const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const regex = new RegExp(`\\b${escapedKey}\\b`, "i");
     if (regex.test(lower)) {
+      // Avoid treating generic word "commercial" as an exclusive subtype unless "office" is mentioned
+      if (key === "commercial" && !/\boffice/i.test(lower)) {
+        continue;
+      }
       filters.propertyType = val;
+      if (["Shop", "Warehouse", "Table", "Commercial"].includes(val)) {
+        filters.category = "commercial";
+      } else if (["Student Hostel", "Boarding House", "Single Student Room", "Shared Student Room"].includes(val)) {
+        filters.category = "student";
+      } else if (["Lodge", "Lodge / Guesthouse", "Guesthouse", "Hotel", "Bed & Breakfast"].includes(val)) {
+        filters.category = "hospitality";
+      }
       break;
     }
   }
@@ -336,10 +398,20 @@ export function searchListings(db: Database, filters: SearchFilters, limit = 5):
   const conditions: string[] = ["listings.verification_status != 'Delisted'"];
   const params: any[] = [];
 
-  // Category filter
+  // Category filter (strictly prevents commercial/student/hospitality from leaking into residential)
   if (filters.category && filters.category !== "all") {
-    conditions.push("listings.category = ?");
-    params.push(filters.category);
+    if (filters.category === "commercial") {
+      conditions.push("(listings.category = 'commercial' OR listings.property_type IN ('Commercial', 'Shop', 'Warehouse', 'Table', 'Office'))");
+    } else if (filters.category === "student") {
+      conditions.push("(listings.category = 'student' OR listings.tenant_type = 'Student' OR listings.property_type IN ('Student Hostel', 'Boarding House', 'Single Student Room', 'Shared Student Room'))");
+    } else if (filters.category === "hospitality") {
+      conditions.push("(listings.category = 'hospitality' OR listings.property_type IN ('Lodge / Guesthouse', 'Hotel', 'Lodge', 'Guesthouse', 'Guest House', 'Bed & Breakfast', 'Short-Stay Apartment'))");
+    } else if (filters.category === "residential") {
+      conditions.push("(listings.category = 'residential' OR ((listings.category IS NULL OR trim(listings.category) = '') AND listings.property_type NOT IN ('Lodge / Guesthouse', 'Hotel', 'Lodge', 'Guesthouse', 'Guest House', 'Bed & Breakfast', 'Short-Stay Apartment', 'Commercial', 'Shop', 'Warehouse', 'Table', 'Office', 'Student Hostel', 'Boarding House', 'Single Student Room', 'Shared Student Room')))");
+    } else {
+      conditions.push("listings.category = ?");
+      params.push(filters.category);
+    }
   }
 
   // City filter
@@ -354,10 +426,18 @@ export function searchListings(db: Database, filters: SearchFilters, limit = 5):
     params.push(`%${filters.suburb}%`);
   }
 
-  // Property Type filter
+  // Property Type filter (with canonical commercial/hospitality alias awareness)
   if (filters.propertyType) {
-    conditions.push("listings.property_type LIKE ?");
-    params.push(`%${filters.propertyType}%`);
+    if (filters.propertyType === "Commercial") {
+      conditions.push("(listings.property_type = 'Commercial' OR listings.property_type = 'Office' OR listings.property_type LIKE '%Office%')");
+    } else if (filters.propertyType === "Table") {
+      conditions.push("(listings.property_type = 'Table' OR listings.property_type LIKE '%Table%' OR listings.property_type LIKE '%Stall%')");
+    } else if (filters.propertyType === "Guesthouse") {
+      conditions.push("(listings.property_type = 'Guesthouse' OR listings.property_type = 'Guest House' OR listings.property_type = 'Lodge / Guesthouse')");
+    } else {
+      conditions.push("listings.property_type LIKE ?");
+      params.push(`%${filters.propertyType}%`);
+    }
   }
 
   // Price filters
@@ -378,13 +458,15 @@ export function searchListings(db: Database, filters: SearchFilters, limit = 5):
     }
   }
 
-  // Fallback: If no suburb/city/price extracted, do a general keyword LIKE match across title, suburb, landmark
+  // Fallback: If no suburb/city/price/propertyType extracted, do a general keyword LIKE match across title, suburb, landmark, city
   if (!filters.suburb && !filters.city && !filters.propertyType && filters.rawQuery) {
     const cleanTokens = filters.rawQuery
       .replace(/^(search|find|show|looking for|room in|house in)\s*/i, "")
       .trim();
 
-    if (cleanTokens && cleanTokens.length >= 2) {
+    const lowerClean = cleanTokens.toLowerCase();
+    const isGenericCatOrAll = ["all", "any", "residential", "hospitality", "commercial", "student", "accommodation"].includes(lowerClean);
+    if (cleanTokens && cleanTokens.length >= 2 && !isGenericCatOrAll) {
       conditions.push("(listings.suburb LIKE ? OR listings.title LIKE ? OR listings.landmark LIKE ? OR listings.city LIKE ?)");
       params.push(`%${cleanTokens}%`, `%${cleanTokens}%`, `%${cleanTokens}%`, `%${cleanTokens}%`);
     }
@@ -620,8 +702,17 @@ export function createListMessage(
  * Builds a WhatsApp Listing Card with real photograph and formatted caption
  */
 export function buildListingCard(listing: any, baseUrl: string, toPhone: string): WhatsAppMessagePayload {
-  const isHospitality = listing.category === "hospitality";
-  const cycle = listing.rent_cycle || (isHospitality ? "Night" : "Month");
+  const isHospitality = listing.category === "hospitality" || [
+    "Lodge / Guesthouse", "Hotel", "Lodge", "Guesthouse", "Guest House", "Bed & Breakfast"
+  ].includes(listing.property_type);
+  const isCommercial = listing.category === "commercial" || [
+    "Commercial", "Shop", "Warehouse", "Table", "Office"
+  ].includes(listing.property_type);
+  const isStudent = listing.category === "student" || [
+    "Student Hostel", "Boarding House", "Single Student Room", "Shared Student Room"
+  ].includes(listing.property_type) || listing.tenant_type === "Student";
+
+  const cycle = listing.rent_cycle || (isHospitality ? "Night" : isStudent ? "Semester" : "Month");
   const photoUrl = getListingPhotoUrl(listing, baseUrl);
   const cleanBase = baseUrl.replace(/\/+$/, "");
   const listingUrl = `${cleanBase}/#listing-${listing.id}`;
@@ -635,7 +726,13 @@ export function buildListingCard(listing: any, baseUrl: string, toPhone: string)
     if (listing.business_name && listing.title && listing.business_name !== listing.title) {
       caption += `"${listing.title}"\n`;
     }
-    caption += `✨ _[Hospitality & Guest Stay]_\n\n`;
+    caption += `✨ _[${listing.property_type || "Hospitality & Guest Stay"}]_\n\n`;
+  } else if (isCommercial) {
+    caption += `🏢 *${listing.title}*\n`;
+    caption += `🏷️ _[${listing.property_type || "Commercial Property"}]_\n\n`;
+  } else if (isStudent) {
+    caption += `🎓 *${listing.title}*\n`;
+    caption += `🏷️ _[${listing.property_type || "Student Accommodation"}]_\n\n`;
   } else {
     caption += `🏠 *${listing.title}*\n`;
     caption += `🏷️ _[${listing.property_type || "Residential Rental"}]_\n\n`;

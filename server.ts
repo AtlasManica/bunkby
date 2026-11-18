@@ -883,7 +883,7 @@ app.post("/api/whatsapp", async (req, res) => {
     const contact = changeVal?.contacts?.[0];
     const rawSender = msg?.from || contact?.wa_id || "";
     const sanitizedSender = rawSender ? `${rawSender.slice(0, 4)}***${rawSender.slice(-3)}` : "unknown";
-    const textPreview = msg?.text?.body || msg?.interactive?.button_reply?.title || msg?.type || "";
+    const textPreview = msg?.text?.body || msg?.interactive?.button_reply?.title || msg?.interactive?.list_reply?.title || msg?.type || "";
 
     console.log(`[WhatsApp Webhook Received] Incoming event (Field: ${field}, Sender: ${sanitizedSender})`);
 
@@ -968,6 +968,12 @@ app.post("/api/whatsapp/chat", async (req, res) => {
           let interactiveDesc = p.interactive.body.text;
           if (p.interactive.action?.buttons) {
             interactiveDesc += "\n\n🔘 Buttons:\n" + p.interactive.action.buttons.map(b => `[${b.reply.title}]`).join(" ");
+          }
+          if (p.interactive.action?.sections) {
+            interactiveDesc += `\n\n📋 List [${p.interactive.action.button || "Options"}]:\n` +
+              p.interactive.action.sections
+                .map(s => `*${s.title}*\n` + s.rows.map(r => `• ${r.title}`).join("\n"))
+                .join("\n\n");
           }
           textParts.push(interactiveDesc);
         }

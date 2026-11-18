@@ -105,6 +105,11 @@ const WhatsAppIcon = ({ className = "w-4 h-4" }: { className?: string }) => (
   </svg>
 );
 
+const BUNKBY_WHATSAPP_DISPLAY = "+263 78 978 3200";
+const BUNKBY_WHATSAPP_E164 = "263789783200";
+const getBunkByWhatsAppUrl = (message: string) =>
+  `https://wa.me/${BUNKBY_WHATSAPP_E164}?text=${encodeURIComponent(message)}`;
+
 // BunkBy Orange Stacked Squares Logo Component (Official branding asset public/bunkbylogo.png)
 const BunkByLogo = ({ className = "w-10 h-10" }: { className?: string }) => (
   <div className={`${className} bg-white rounded-xl overflow-hidden p-0.5 border border-white/20 shadow-xs flex items-center justify-center shrink-0 select-none`}>
@@ -338,6 +343,17 @@ export default function App() {
       if (currentPath === "/privacy-policy") return;
       const newUrl = newSearch ? `/?${newSearch}` : "/";
       window.history.replaceState(null, "", newUrl);
+
+      // Keep canonical tag pointing to primary domain root https://bunkby.com/
+      try {
+        let canonicalTag = document.querySelector('link[rel="canonical"]');
+        if (!canonicalTag) {
+          canonicalTag = document.createElement("link");
+          canonicalTag.setAttribute("rel", "canonical");
+          document.head.appendChild(canonicalTag);
+        }
+        canonicalTag.setAttribute("href", "https://bunkby.com/");
+      } catch (_) {}
     } catch (_) {}
   }, [
     searchTerm, selectedCity, selectedSuburb, selectedCategory,
@@ -1125,11 +1141,22 @@ export default function App() {
             </button>
             <button 
               onClick={() => navigateTo("/", "help")}
-              className={`px-2.5 py-1.5 rounded-lg transition-all ${activeTab === "help" ? "bg-[#021024] text-white font-extrabold shadow-xs border border-white/10" : "hover:text-white text-slate-200 hover:bg-[#021024]/40 font-semibold"}`}
+              className={`px-2.5 py-1.5 rounded-lg transition-all whitespace-nowrap shrink-0 ${activeTab === "help" ? "bg-[#021024] text-white font-extrabold shadow-xs border border-white/10" : "hover:text-white text-slate-200 hover:bg-[#021024]/40 font-semibold"}`}
               id="nav-help"
             >
               Help & FAQ
             </button>
+            <a
+              href={getBunkByWhatsAppUrl("Hi BunkBy! I would like assistance.")}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-2.5 py-1.5 rounded-lg transition-all whitespace-nowrap shrink-0 text-slate-200 hover:text-white hover:bg-[#021024]/40 font-semibold flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#25D366]"
+              id="nav-whatsapp"
+              title={`Chat with BunkBy WhatsApp Bot (${BUNKBY_WHATSAPP_DISPLAY})`}
+            >
+              <WhatsAppIcon className="w-3.5 h-3.5 text-[#25D366] shrink-0" />
+              <span>WhatsApp Bot</span>
+            </a>
           </nav>
 
           {/* Right Controls / User details */}
@@ -1204,11 +1231,21 @@ export default function App() {
         </button>
         <button 
           onClick={() => navigateTo("/", "help")}
-          className={`flex flex-col items-center justify-center py-1 px-2 rounded-md min-h-[44px] min-w-[56px] transition-colors ${activeTab === "help" ? "text-white font-extrabold bg-[#021024]/50" : "text-[#E2E8F0] hover:text-white"}`}
+          className={`flex flex-col items-center justify-center py-1 px-2 rounded-md min-h-[44px] min-w-[52px] transition-colors ${activeTab === "help" ? "text-white font-extrabold bg-[#021024]/50" : "text-[#E2E8F0] hover:text-white"}`}
         >
           <HelpCircle className="w-4 h-4 shrink-0" />
           <span className="leading-tight mt-0.5">Help</span>
         </button>
+        <a
+          href={getBunkByWhatsAppUrl("Hi BunkBy! I would like assistance.")}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex flex-col items-center justify-center py-1 px-2 rounded-md min-h-[44px] min-w-[52px] transition-colors text-[#E2E8F0] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#25D366]"
+          aria-label="Open BunkBy WhatsApp Bot"
+        >
+          <WhatsAppIcon className="w-4 h-4 text-[#25D366] shrink-0" />
+          <span className="leading-tight mt-0.5">WhatsApp</span>
+        </a>
       </nav>
 
       {/* Application Body Content */}
@@ -1236,11 +1273,6 @@ export default function App() {
               />
 
               <div className="relative z-10 max-w-3xl mx-auto space-y-3 sm:space-y-4">
-                <div className="inline-flex items-center gap-1.5 bg-[#052659]/90 backdrop-blur-md border border-white/20 text-white px-2.5 sm:px-3.5 py-1 rounded-full text-[9px] sm:text-xs font-black tracking-wider shadow-sm max-w-full">
-                  <ShieldCheck className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-[#FF7A00] shrink-0" />
-                  <span className="truncate">DIRECT PROPERTY & HOSPITALITY MARKETPLACE • ZERO AGENT COMMISSIONS</span>
-                </div>
-
                 <h1 className="text-xl sm:text-3xl md:text-5xl font-display font-black tracking-tight text-white leading-tight drop-shadow-md">
                   Find Stays, Commercial Spaces & Rentals in <span className="text-[#FF7A00] drop-shadow-sm">Zimbabwe</span>
                 </h1>
@@ -1249,7 +1281,7 @@ export default function App() {
                   Book world-class safari lodges, boutique guesthouses & hotels, discover prime commercial retail shops & offices, or rent verified cottages & rooms with 100% transparent pricing and direct WhatsApp contact.
                 </p>
 
-                <div className="pt-1 flex flex-wrap gap-2 sm:gap-3 justify-center">
+                <div className="pt-1 flex flex-wrap gap-2 sm:gap-3 justify-center items-center">
                   <button 
                     onClick={() => {
                       if (!userProfile) {
@@ -1260,12 +1292,22 @@ export default function App() {
                         setIsCreateModalOpen(true);
                       }
                     }}
-                    className="bg-[#FF7A00] hover:bg-[#e66e00] text-white font-black px-3.5 sm:px-5 py-2 sm:py-2.5 rounded-xl shadow-lg shadow-orange-500/30 transition-all text-xs sm:text-sm flex items-center gap-1.5 cursor-pointer min-h-[38px]"
+                    className="bg-[#FF7A00] hover:bg-[#e66e00] text-white font-black px-3.5 sm:px-5 py-2 sm:py-2.5 rounded-xl shadow-lg shadow-orange-500/30 transition-all text-xs sm:text-sm flex items-center gap-1.5 cursor-pointer min-h-[40px] whitespace-nowrap"
                   >
                     <Plus className="w-3.5 h-3.5 shrink-0 stroke-[3]" />
                     <span>List Accommodation (Free)</span>
                   </button>
 
+                  <a
+                    id="hero-whatsapp-cta"
+                    href={getBunkByWhatsAppUrl("Hi BunkBy! I would like to find accommodation.")}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="group bg-white hover:bg-[#FF7900] text-[#052659] hover:text-white border border-slate-200 hover:border-[#FF7900] font-bold px-3.5 sm:px-5 py-2 sm:py-2.5 rounded-xl shadow-md transition-all text-xs sm:text-sm inline-flex items-center justify-center gap-2 min-h-[40px] whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF7900]"
+                  >
+                    <WhatsAppIcon className="w-4 h-4 text-[#25D366] group-hover:text-white transition-colors shrink-0" />
+                    <span>Find Accommodation on WhatsApp</span>
+                  </a>
                 </div>
 
                 {/* Category Switcher Tabs: All, Residential, Hospitality */}
@@ -1561,6 +1603,50 @@ export default function App() {
                 </div>
               </div>
             </div>
+
+            {/* Compact WhatsApp Discovery & Acquisition Promo Strip */}
+            <section
+              id="whatsapp-promo-section"
+              aria-label="BunkBy on WhatsApp"
+              className="bg-white rounded-xl sm:rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-xs"
+            >
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                <div className="space-y-1.5 max-w-2xl">
+                  <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+                    <h2 className="text-base sm:text-lg font-display font-bold text-[#021024]">
+                      Find Your Next Place on WhatsApp
+                    </h2>
+                    <a
+                      href={getBunkByWhatsAppUrl("Hi BunkBy! I would like to find accommodation.")}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs font-mono font-semibold text-emerald-700 hover:text-emerald-800 underline underline-offset-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#15803d] rounded-xs"
+                      title={`Chat with BunkBy on WhatsApp (${BUNKBY_WHATSAPP_DISPLAY})`}
+                    >
+                      {BUNKBY_WHATSAPP_DISPLAY}
+                    </a>
+                  </div>
+                  <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
+                    Looking for a room, cottage, guesthouse, lodge or commercial space? Chat with BunkBy on WhatsApp to discover available properties. You can also submit your own property listing directly through WhatsApp.
+                  </p>
+                </div>
+
+                <div className="flex items-center shrink-0">
+                  <a
+                    id="promo-whatsapp-cta"
+                    href={getBunkByWhatsAppUrl("Hi BunkBy! I would like to find accommodation.")}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="bg-[#15803d] hover:bg-[#166534] text-white font-bold text-xs sm:text-sm px-4 py-2.5 rounded-xl shadow-xs transition-colors inline-flex items-center justify-center gap-2 min-h-[42px] whitespace-nowrap shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#052659]"
+                  >
+                    <span className="w-5 h-5 rounded-full bg-[#25D366] flex items-center justify-center shrink-0">
+                      <WhatsAppIcon className="w-3.5 h-3.5 text-white shrink-0" />
+                    </span>
+                    <span>Chat on WhatsApp</span>
+                  </a>
+                </div>
+              </div>
+            </section>
 
             {/* Mobile result count header when filter panel is collapsed */}
             <div className="sm:hidden flex items-center justify-between px-1 text-xs text-slate-600 font-medium">
@@ -2779,11 +2865,24 @@ export default function App() {
               </span>
             </div>
             <p className="text-[11px] text-[#E2E8F0] font-normal leading-relaxed mt-3">
-              Zimbabwe's agent-free accommodation marketplace for rooms, cottages, flats, guesthouses, and lodges with direct WhatsApp connection.
+              Zimbabwe's agent-free property and accommodation marketplace for rooms, cottages, flats, guesthouses, lodges, student accommodation, and commercial properties with direct WhatsApp connection.
             </p>
           </div>
 
-
+          <div className="flex flex-col items-center sm:items-end gap-2 text-xs">
+            <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 font-bold">
+              BunkBy WhatsApp Marketplace
+            </span>
+            <a
+              href={getBunkByWhatsAppUrl("Hi BunkBy! I would like assistance.")}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 text-white hover:text-[#25D366] font-semibold transition-colors whitespace-nowrap"
+            >
+              <WhatsAppIcon className="w-4 h-4 text-[#25D366] shrink-0" />
+              <span className="font-mono">{BUNKBY_WHATSAPP_DISPLAY}</span>
+            </a>
+          </div>
 
         </div>
 
@@ -4047,9 +4146,9 @@ export default function App() {
               <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-2xl space-y-2">
                 <p className="text-[11px] font-bold text-emerald-900">Prefer automated WhatsApp assistance?</p>
                 <a
-                  href={`https://wa.me/263771122334?text=${encodeURIComponent(
+                  href={getBunkByWhatsAppUrl(
                     `Hello BunkBy Zimbabwe Support, I need to reset my landlord account PIN. My name is ${recoveryName || "registered owner"} and my phone number is ${recoveryPhone || "provided"}.`
-                  )}`}
+                  )}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="w-full bg-[#25D366] hover:bg-[#1EBE5D] text-white font-bold py-2 px-3 rounded-xl text-xs flex items-center justify-center gap-2 transition-all shadow-xs"
@@ -4133,6 +4232,25 @@ export default function App() {
           </div>
         )}
       </AnimatePresence>
+
+      {/* Floating WhatsApp Assistant Button (bottom-right, compact circular on mobile, labeled on sm+) */}
+      <motion.a
+        id="floating-whatsapp-cta"
+        href={getBunkByWhatsAppUrl("Hi BunkBy! I would like assistance.")}
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label="Chat with BunkBy on WhatsApp (+263 78 978 3200)"
+        title={`Chat with BunkBy on WhatsApp (${BUNKBY_WHATSAPP_DISPLAY})`}
+        initial={{ opacity: 0, y: 14, scale: 0.94 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+        className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-40 inline-flex items-center justify-center gap-2 w-12 h-12 sm:w-auto sm:h-11 sm:pl-2 sm:pr-4 rounded-full bg-[#25D366] sm:bg-[#15803d] hover:bg-[#166534] text-white font-bold text-xs sm:text-sm shadow-lg shadow-emerald-950/25 hover:shadow-xl hover:-translate-y-0.5 active:translate-y-0 transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#021024]"
+      >
+        <span className="sm:w-7 sm:h-7 sm:rounded-full sm:bg-[#25D366] flex items-center justify-center shrink-0">
+          <WhatsAppIcon className="w-6 h-6 sm:w-4.5 sm:h-4.5 text-white shrink-0" />
+        </span>
+        <span className="hidden sm:inline whitespace-nowrap">Chat with BunkBy</span>
+      </motion.a>
 
     </div>
   );

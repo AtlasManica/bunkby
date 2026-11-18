@@ -12,17 +12,31 @@ interface PrivacyPolicyProps {
 export const PrivacyPolicy: React.FC<PrivacyPolicyProps> = ({ onBackToHome }) => {
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "smooth" });
-    document.title = "Privacy Policy | BunkBy – Zimbabwe Accommodation Marketplace";
+    document.title = "Privacy Policy | BunkBy – Zimbabwe Property Marketplace";
     // Set meta description for privacy policy page
     const metaDesc = document.querySelector('meta[name="description"]');
     const prevDesc = metaDesc ? metaDesc.getAttribute("content") : "";
     if (metaDesc) {
-      metaDesc.setAttribute("content", "Read the official BunkBy Privacy Policy. Learn how we handle accommodation listings, host information, user enquiries, and WhatsApp communications across Zimbabwe.");
+      metaDesc.setAttribute("content", "Official BunkBy Privacy Policy. Search, browse, or list accommodation and commercial properties either online or 24/7 on WhatsApp (+263 78 978 3200) with zero agent fees.");
     }
+
+    // Set canonical tag dynamically for privacy policy
+    let canonicalTag = document.querySelector('link[rel="canonical"]');
+    const prevCanonical = canonicalTag ? canonicalTag.getAttribute("href") : "https://bunkby.com/";
+    if (!canonicalTag) {
+      canonicalTag = document.createElement("link");
+      canonicalTag.setAttribute("rel", "canonical");
+      document.head.appendChild(canonicalTag);
+    }
+    canonicalTag.setAttribute("href", "https://bunkby.com/privacy-policy");
+
     return () => {
-      document.title = "BunkBy – Zimbabwe Accommodation Marketplace | Agent-Free Rooms, Cottages & Lodges";
+      document.title = "BunkBy – Zimbabwe Property Marketplace & Global Lodges, Hotels, Commercial & Rentals";
       if (metaDesc && prevDesc) {
         metaDesc.setAttribute("content", prevDesc);
+      }
+      if (canonicalTag && prevCanonical) {
+        canonicalTag.setAttribute("href", prevCanonical);
       }
     };
   }, []);

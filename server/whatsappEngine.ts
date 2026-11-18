@@ -9,7 +9,8 @@ import {
   createListMessage,
   sendWhatsAppMessage,
   WhatsAppMessagePayload,
-  ParsedWhatsAppInput
+  ParsedWhatsAppInput,
+  SearchFilters
 } from "./whatsappService";
 
 export interface BotProcessResult {
@@ -134,27 +135,39 @@ async function processWhatsAppMessageInternal(
   const session = db.prepare("SELECT * FROM chatbot_sessions WHERE phone_number = ?").get(phone) as any;
 
   // =========================================================================
-  // COMMAND: CANCEL / RESET / EXIT
+  // COMMAND: UNIVERSAL CANCEL / RESET / EXIT (Works at ANY step)
   // =========================================================================
+  const cancelPhrases = [
+    "cancel",
+    "cancel session",
+    "cancel listing",
+    "cancel search",
+    "❌ cancel",
+    "❌ cancel session",
+    "❌ cancel search",
+    "❌ cancel listing",
+    "reset",
+    "exit",
+    "quit"
+  ];
+  const cancelPayloads = ["BTN_CANCEL", "CMD_CANCEL", "CMD_CANCEL_LISTING", "SEARCH_CANCEL"];
+
   if (
-    lowerText === "cancel" ||
-    lowerText === "reset" ||
-    lowerText === "exit" ||
-    lowerText === "quit" ||
-    buttonPayload === "CMD_CANCEL" ||
-    buttonPayload === "CMD_CANCEL_LISTING"
+    cancelPhrases.includes(lowerText) ||
+    cancelPayloads.includes(buttonPayload)
   ) {
     if (session) {
       db.prepare("DELETE FROM chatbot_sessions WHERE phone_number = ?").run(phone);
     }
-    const cancelMsg = "🚫 *Session cancelled.*\n\nYou can search for places anytime by typing e.g. *\"rooms in Avondale under $250\"*, or type *\"list\"* to post accommodation!";
+    const cancelMsg = "🚫 *Your current session has been cancelled.* No listing was published.\n\nWhat would you like to do next?";
     queuePayload(
       createButtonMessage(
         phone,
         cancelMsg,
         [
           { id: "CMD_SEARCH_MENU", title: "🔍 Search Stays" },
-          { id: "CMD_START_LISTING", title: "🏡 Post Listing" }
+          { id: "CMD_START_LISTING", title: "🏡 Post Property" },
+          { id: "CMD_MY_LISTINGS", title: "📋 My Listings" }
         ],
         "BunkBy Zimbabwe"
       )
@@ -168,6 +181,211 @@ async function processWhatsAppMessageInternal(
     };
   }
 
+  // Helper: Send 4-category Interactive List for Listing Creation
+  const queueListingCategoryMenu = (bodyText: string) => {
+    queuePayload(
+      createListMessage(
+        phone,
+        "Post on BunkBy",
+        bodyText,
+        "Choose Category",
+        [
+          {
+            title: "Property Categories",
+            rows: [
+              { id: "CAT_RESIDENTIAL", title: "Residential Rentals", description: "Rooms, cottages, flats & full houses" },
+              { id: "CAT_HOSPITALITY", title: "Hospitality & Stays", description: "Guesthouses, lodges, hotels & B&Bs" },
+              { id: "CAT_COMMERCIAL", title: "Commercial Properties", description: "Shops, offices, warehouses & market tables" },
+              { id: "CAT_STUDENT", title: "Student Accommodation", description: "Student hostels, boarding houses & rooms" }
+            ]
+          },
+          {
+            title: "Options",
+            rows: [
+              { id: "BTN_CANCEL", title: "❌ Cancel Session", description: "Cancel listing and return to main menu" }
+            ]
+          }
+        ],
+        "Select a category or reply CANCEL anytime"
+      )
+    );
+  };
+
+  // Helper: Send Subtype Interactive List for any category
+  const queuePropertyTypeMenu = (category: string, bodyText: string) => {
+    if (category === "commercial") {
+      queuePayload(
+        createListMessage(
+          phone,
+          "Commercial Space Type",
+          bodyText,
+          "Choose Space Type",
+          [
+            {
+              title: "Commercial Subtypes",
+              rows: [
+                { id: "CTYPE_SHOP", title: "Retail Shop", description: "Shops, boutiques & storefronts (Shop)" },
+                { id: "CTYPE_COMMERCIAL", title: "Offices / Commercial", description: "Office suites & general commercial spaces" },
+                { id: "CTYPE_WAREHOUSE", title: "Warehouse", description: "Warehouses & industrial storage" },
+                { id: "CTYPE_TABLE", title: "Market Stall / Table", description: "Flea market tables, stalls & booths" }
+              ]
+            },
+            {
+              title: "Options",
+              rows: [
+                { id: "BTN_CANCEL", title: "❌ Cancel", description: "Exit listing and return to main menu" }
+              ]
+            }
+          ]
+        )
+      );
+    } else if (category === "student") {
+      queuePayload(
+        createListMessage(
+          phone,
+          "Student Accommodation",
+          bodyText,
+          "Choose Space Type",
+          [
+            {
+              title: "Student Housing Types",
+              rows: [
+                { id: "STYPE_HOSTEL", title: "Student Hostel", description: "Purpose-built student hostel accommodation" },
+                { id: "STYPE_BOARDING", title: "Boarding House", description: "Student boarding house near campus" },
+                { id: "STYPE_SINGLE", title: "Single Student Room", description: "Private room for one student" },
+                { id: "STYPE_SHARED", title: "Shared Student Room", description: "2-sleeper or shared student room" }
+              ]
+            },
+            {
+              title: "Options",
+              rows: [
+                { id: "BTN_CANCEL", title: "❌ Cancel", description: "Exit listing and return to main menu" }
+              ]
+            }
+          ]
+        )
+      );
+    } else if (category === "hospitality") {
+      queuePayload(
+        createListMessage(
+          phone,
+          "Hospitality & Stays",
+          bodyText,
+          "Choose Stay Type",
+          [
+            {
+              title: "Hospitality Types",
+              rows: [
+                { id: "HTYPE_GUESTHOUSE", title: "Guesthouse", description: "Private guesthouse accommodation" },
+                { id: "HTYPE_LODGE_GH", title: "Lodge / Guesthouse", description: "Lodge & guesthouse property" },
+                { id: "HTYPE_LODGE", title: "Lodge", description: "Safari, bush or holiday lodge" },
+                { id: "HTYPE_HOTEL", title: "Hotel", description: "Hotel room or suite" },
+                { id: "HTYPE_BNB", title: "Bed & Breakfast", description: "Cozy B&B with morning breakfast" }
+              ]
+            },
+            {
+              title: "Options",
+              rows: [
+                { id: "BTN_CANCEL", title: "❌ Cancel", description: "Exit listing and return to main menu" }
+              ]
+            }
+          ]
+        )
+      );
+    } else {
+      queuePayload(
+        createListMessage(
+          phone,
+          "Residential Property",
+          bodyText,
+          "Select Property Type",
+          [
+            {
+              title: "Residential Types",
+              rows: [
+                { id: "RTYPE_ROOM", title: "Single Room", description: "Single residential room" },
+                { id: "RTYPE_COTTAGE", title: "Cottage", description: "Self-contained garden cottage" },
+                { id: "RTYPE_2ROOMS", title: "2 rooms", description: "Two-room rental unit" },
+                { id: "RTYPE_3ROOMS", title: "3 rooms", description: "Three-room rental home" },
+                { id: "RTYPE_HOUSE", title: "Full house", description: "Entire residential house" },
+                { id: "RTYPE_FLAT", title: "Apartment / Flat", description: "Apartment or flat" },
+                { id: "RTYPE_TOWNHOUSE", title: "Townhouse / Cluster", description: "Cluster or townhouse" },
+                { id: "RTYPE_SHARED", title: "Shared Space", description: "Shared flat or house space" },
+                { id: "RTYPE_SALE", title: "House Sale", description: "Property available for sale" }
+              ]
+            },
+            {
+              title: "Options",
+              rows: [
+                { id: "BTN_CANCEL", title: "❌ Cancel", description: "Exit listing and return to main menu" }
+              ]
+            }
+          ]
+        )
+      );
+    }
+  };
+
+  // Helper: Send 4-category Interactive List for Property Search
+  const queueSearchCategoryMenu = (bodyText: string) => {
+    queuePayload(
+      createListMessage(
+        phone,
+        "Search BunkBy",
+        bodyText,
+        "Choose Category",
+        [
+          {
+            title: "Property Categories",
+            rows: [
+              { id: "SEARCH_CAT_RESIDENTIAL", title: "Residential Rentals", description: "Rooms, cottages, flats & houses" },
+              { id: "SEARCH_CAT_HOSPITALITY", title: "Hospitality & Stays", description: "Guesthouses, lodges, hotels & B&Bs" },
+              { id: "SEARCH_CAT_COMMERCIAL", title: "Commercial Properties", description: "Shops, offices, warehouses & stalls" },
+              { id: "SEARCH_CAT_STUDENT", title: "Student Accommodation", description: "Hostels, boarding houses & rooms" }
+            ]
+          },
+          {
+            title: "Options",
+            rows: [
+              { id: "BTN_CANCEL", title: "❌ Cancel Search", description: "Exit search and return to main menu" }
+            ]
+          }
+        ],
+        "Or type e.g. 'shops in Harare' anytime"
+      )
+    );
+  };
+
+  // Helper: Send Commercial Subtype Filter List for Search
+  const queueSearchCommercialSubtypeMenu = (bodyText: string) => {
+    queuePayload(
+      createListMessage(
+        phone,
+        "Commercial Search",
+        bodyText,
+        "Choose Space Type",
+        [
+          {
+            title: "Commercial Subtypes",
+            rows: [
+              { id: "SEARCH_SUBTYPE_ALL", title: "All Commercial Spaces", description: "Show shops, offices, warehouses & tables" },
+              { id: "SEARCH_SUBTYPE_SHOP", title: "Retail Shops", description: "Shops, boutiques & storefronts (Shop)" },
+              { id: "SEARCH_SUBTYPE_COMMERCIAL", title: "Offices / Commercial", description: "Office suites & general commercial spaces" },
+              { id: "SEARCH_SUBTYPE_WAREHOUSE", title: "Warehouses", description: "Industrial warehouses & storage spaces" },
+              { id: "SEARCH_SUBTYPE_TABLE", title: "Market Stalls / Tables", description: "Flea market tables, stalls & booths" }
+            ]
+          },
+          {
+            title: "Options",
+            rows: [
+              { id: "BTN_CANCEL", title: "❌ Cancel Search", description: "Exit search and return to main menu" }
+            ]
+          }
+        ]
+      )
+    );
+  };
+
   // =========================================================================
   // COMMAND: START LISTING FLOW (LANDLORD / HOST)
   // =========================================================================
@@ -178,9 +396,7 @@ async function processWhatsAppMessageInternal(
       lowerText === "register" ||
       lowerText === "add room" ||
       lowerText === "new listing" ||
-      lowerText === "host" ||
-      buttonPayload === "CMD_START_LISTING" ||
-      buttonPayload === "CMD_LIST"
+      lowerText === "host"
     )) ||
     buttonPayload === "CMD_START_LISTING" ||
     buttonPayload === "CMD_LIST"
@@ -208,19 +424,8 @@ async function processWhatsAppMessageInternal(
         updated_at = CURRENT_TIMESTAMP
     `).run(phone, initialData);
 
-    const stepMsg = "🏡 *Welcome to BunkBy Listing Assistant!*\n\nLet's get your accommodation or property published to verified tenants, businesses, and guests.\n\n*Step 1/8: Choose Property Category*\n\n1️⃣ 🏠 *Residential Rental* (Room, Cottage, Flat, House)\n2️⃣ 🏨 *Hospitality & Stay* (Lodge, Guesthouse, Hotel, B&B)\n3️⃣ 🏢 *Commercial Property* (Shop, Office, Warehouse, Table)\n4️⃣ 🎓 *Student Accommodation* (Hostel, Boarding House)\n\nReply with number (1, 2, 3, or 4) or tap an option below:";
-    queuePayload(
-      createButtonMessage(
-        phone,
-        stepMsg,
-        [
-          { id: "CAT_RESIDENTIAL", title: "🏠 Residential" },
-          { id: "CAT_COMMERCIAL", title: "🏢 Commercial" },
-          { id: "CAT_HOSPITALITY", title: "🏨 Hospitality" }
-        ],
-        "Post on BunkBy"
-      )
-    );
+    const stepMsg = "🏡 *Welcome to BunkBy Listing Assistant!*\n\nLet's get your property published directly with zero agent fees.\n\n*Step 1/8: Choose Property Category*\nTap *Choose Category* below to select from:\n• Residential Rentals\n• Hospitality & Stays\n• Commercial Properties\n• Student Accommodation";
+    queueListingCategoryMenu(stepMsg);
 
     await dispatchAll();
     return {
@@ -233,7 +438,7 @@ async function processWhatsAppMessageInternal(
   }
 
   // =========================================================================
-  // ACTIVE LANDLORD LISTING STATE MACHINE
+  // ACTIVE CONVERSATION STATE MACHINE (LISTING & GUIDED SEARCH)
   // =========================================================================
   if (session) {
     const currentStep = session.current_step;
@@ -244,13 +449,190 @@ async function processWhatsAppMessageInternal(
       data = {};
     }
 
-    // --- STEP 1: AWAITING_CATEGORY ---
+    // --- SEARCH STEP 1: AWAITING_SEARCH_CATEGORY ---
+    if (currentStep === "AWAITING_SEARCH_CATEGORY") {
+      const normPayload = (buttonPayload || "").toUpperCase().trim();
+      const normInput = lowerText.trim();
+
+      let chosenCategory = "";
+      let categoryLabel = "";
+
+      if (normPayload === "SEARCH_CAT_COMMERCIAL" || normInput === "3" || normInput.includes("commercial") || normInput.includes("shop") || normInput.includes("office") || normInput.includes("warehouse") || normInput.includes("stall") || normInput.includes("table")) {
+        chosenCategory = "commercial";
+        categoryLabel = "Commercial Properties";
+      } else if (normPayload === "SEARCH_CAT_HOSPITALITY" || normInput === "2" || normInput.includes("hospitality") || normInput.includes("lodge") || normInput.includes("hotel") || normInput.includes("guest") || normInput.includes("b&b")) {
+        chosenCategory = "hospitality";
+        categoryLabel = "Hospitality & Stays";
+      } else if (normPayload === "SEARCH_CAT_STUDENT" || normInput === "4" || normInput.includes("student") || normInput.includes("hostel") || normInput.includes("boarding")) {
+        chosenCategory = "student";
+        categoryLabel = "Student Accommodation";
+      } else if (normPayload === "SEARCH_CAT_RESIDENTIAL" || normInput === "1" || normInput.includes("residential") || normInput.includes("room") || normInput.includes("cottage") || normInput.includes("flat") || normInput.includes("house")) {
+        chosenCategory = "residential";
+        categoryLabel = "Residential Rentals";
+      }
+
+      if (!chosenCategory) {
+        const retryMsg = "⚠️ Please tap *Choose Category* below to select the type of property you are looking for:";
+        queueSearchCategoryMenu(retryMsg);
+        await dispatchAll();
+        return { phone, action: "STEP_RETRY", step: "AWAITING_SEARCH_CATEGORY", replyText: retryMsg, outboundPayloads };
+      }
+
+      if (chosenCategory === "commercial") {
+        const nextData = { searchCategory: "commercial", categoryLabel };
+        db.prepare("UPDATE chatbot_sessions SET current_step = 'AWAITING_SEARCH_SUBTYPE', collected_data = ?, updated_at = CURRENT_TIMESTAMP WHERE phone_number = ?")
+          .run(JSON.stringify(nextData), phone);
+
+        const subMsg = "🏢 *Commercial Properties Selected*\n\nWhich type of commercial space are you searching for?\n\nTap *Choose Space Type* below to pick a specific subtype or view all commercial properties:";
+        queueSearchCommercialSubtypeMenu(subMsg);
+        await dispatchAll();
+        return { phone, action: "SEARCH_PROMPT_SUBTYPE", step: "AWAITING_SEARCH_SUBTYPE", replyText: subMsg, outboundPayloads };
+      }
+
+      const nextData = { searchCategory: chosenCategory, categoryLabel, searchPropertyType: "" };
+      db.prepare("UPDATE chatbot_sessions SET current_step = 'AWAITING_SEARCH_QUERY', collected_data = ?, updated_at = CURRENT_TIMESTAMP WHERE phone_number = ?")
+        .run(JSON.stringify(nextData), phone);
+
+      const locEx = chosenCategory === "hospitality"
+        ? "*Victoria Falls*, *Harare*, or *Bulawayo*"
+        : chosenCategory === "student"
+        ? "*Mt Pleasant*, *Bulawayo*, or *Gweru*"
+        : "*Avondale*, *Harare*, or *Belvedere*";
+      const locMsg = `✅ *Category:* ${categoryLabel}\n\n📍 Enter the *City, Town, or Suburb* you are looking in (e.g. ${locEx}), or tap *All Locations* below:`;
+      queuePayload(
+        createButtonMessage(
+          phone,
+          locMsg,
+          [
+            { id: "SEARCH_LOC_ALL", title: "🌍 All Locations" },
+            { id: "BTN_CANCEL", title: "❌ Cancel" }
+          ],
+          "Location Filter"
+        )
+      );
+      await dispatchAll();
+      return { phone, action: "SEARCH_PROMPT_LOCATION", step: "AWAITING_SEARCH_QUERY", replyText: locMsg, outboundPayloads };
+    }
+
+    // --- SEARCH STEP 1B: AWAITING_SEARCH_SUBTYPE (Commercial Subtype Filter) ---
+    if (currentStep === "AWAITING_SEARCH_SUBTYPE") {
+      const normPayload = (buttonPayload || "").toUpperCase().trim();
+      const normInput = lowerText.trim();
+
+      let subtype = "";
+      let subtypeLabel = "All Commercial Spaces";
+
+      if (normPayload === "SEARCH_SUBTYPE_ALL" || normInput === "1" || normInput === "all") {
+        subtype = "";
+        subtypeLabel = "All Commercial Properties";
+      } else if (normPayload === "SEARCH_SUBTYPE_SHOP" || normInput === "2" || normInput.includes("shop") || normInput.includes("retail")) {
+        subtype = "Shop";
+        subtypeLabel = "Retail Shops (Shop)";
+      } else if (normPayload === "SEARCH_SUBTYPE_COMMERCIAL" || normInput === "3" || normInput.includes("office") || normInput.includes("commercial")) {
+        subtype = "Commercial";
+        subtypeLabel = "Offices & Commercial Spaces";
+      } else if (normPayload === "SEARCH_SUBTYPE_WAREHOUSE" || normInput === "4" || normInput.includes("warehouse") || normInput.includes("storage")) {
+        subtype = "Warehouse";
+        subtypeLabel = "Warehouses";
+      } else if (normPayload === "SEARCH_SUBTYPE_TABLE" || normInput === "5" || normInput.includes("table") || normInput.includes("stall") || normInput.includes("booth") || normInput.includes("market")) {
+        subtype = "Table";
+        subtypeLabel = "Market Stalls / Tables";
+      } else {
+        const retryMsg = "⚠️ Please tap *Choose Space Type* to select the commercial property subtype:";
+        queueSearchCommercialSubtypeMenu(retryMsg);
+        await dispatchAll();
+        return { phone, action: "STEP_RETRY", step: "AWAITING_SEARCH_SUBTYPE", replyText: retryMsg, outboundPayloads };
+      }
+
+      data.searchCategory = "commercial";
+      data.searchPropertyType = subtype;
+      data.categoryLabel = subtypeLabel;
+      db.prepare("UPDATE chatbot_sessions SET current_step = 'AWAITING_SEARCH_QUERY', collected_data = ?, updated_at = CURRENT_TIMESTAMP WHERE phone_number = ?")
+        .run(JSON.stringify(data), phone);
+
+      const locMsg = `✅ *Commercial Filter:* ${subtypeLabel}\n\n📍 Enter the *City or Suburb* (e.g. *Harare*, *CBD*, *Bulawayo*), or tap *All Locations* below:`;
+      queuePayload(
+        createButtonMessage(
+          phone,
+          locMsg,
+          [
+            { id: "SEARCH_LOC_ALL", title: "🌍 All Locations" },
+            { id: "BTN_CANCEL", title: "❌ Cancel" }
+          ],
+          "Location Filter"
+        )
+      );
+      await dispatchAll();
+      return { phone, action: "SEARCH_PROMPT_LOCATION", step: "AWAITING_SEARCH_QUERY", replyText: locMsg, outboundPayloads };
+    }
+
+    // --- SEARCH STEP 2: AWAITING_SEARCH_QUERY ---
+    if (currentStep === "AWAITING_SEARCH_QUERY") {
+      const searchCategory = (data.searchCategory || "all") as any;
+      const searchPropertyType = data.searchPropertyType || undefined;
+      const categoryLabel = data.categoryLabel || "Properties";
+
+      db.prepare("DELETE FROM chatbot_sessions WHERE phone_number = ?").run(phone);
+
+      const isAllLoc = buttonPayload === "SEARCH_LOC_ALL" || lowerText === "all" || lowerText === "any";
+      const cleanQuery = isAllLoc ? "" : text.replace(/^(search|find|show|looking for)\s*/i, "").trim();
+
+      const filters: SearchFilters = cleanQuery
+        ? parseNaturalLanguageQuery(cleanQuery)
+        : { rawQuery: "all", category: searchCategory };
+
+      filters.category = searchCategory;
+      if (searchPropertyType) {
+        filters.propertyType = searchPropertyType;
+      }
+
+      const results = searchListings(db, filters, 5);
+      const locDisplay = cleanQuery || "All Locations";
+
+      if (results.length === 0) {
+        const noResultsMsg = `🏡 No active *${categoryLabel}* listings found in *"${locDisplay}"*.\n\nTap *New Search* to try another area or subtype, or *Post Property* to list for free.`;
+        queuePayload(
+          createButtonMessage(
+            phone,
+            noResultsMsg,
+            [
+              { id: "CMD_SEARCH_MENU", title: "🔍 New Search" },
+              { id: "CMD_START_LISTING", title: "🏡 Post Property" }
+            ],
+            "No Listings Found"
+          )
+        );
+        await dispatchAll();
+        return { phone, action: "SEARCH_RESULTS", searchResultsCount: 0, replyText: noResultsMsg, outboundPayloads };
+      }
+
+      const countMsg = `🏡 *Found ${results.length} active ${categoryLabel} listing${results.length === 1 ? "" : "s"}${cleanQuery ? ` in "${cleanQuery}"` : ""}:*`;
+      queuePayload(createTextMessage(phone, countMsg));
+      for (const listing of results) {
+        queuePayload(buildListingCard(listing, baseUrl, phone));
+      }
+      queuePayload(
+        createButtonMessage(
+          phone,
+          `👉 Visit *bunkby.com* for all listings, filters, and maps.`,
+          [
+            { id: "CMD_SEARCH_MENU", title: "🔍 New Search" },
+            { id: "CMD_START_LISTING", title: "🏡 Post Property" }
+          ],
+          "BunkBy Accommodation"
+        )
+      );
+      await dispatchAll();
+      return { phone, action: "SEARCH_RESULTS", searchResultsCount: results.length, outboundPayloads };
+    }
+
+    // --- LISTING STEP 1: AWAITING_CATEGORY ---
     if (currentStep === "AWAITING_CATEGORY") {
-      let category = "residential";
+      let category = "";
       const normPayload = (buttonPayload || "").toLowerCase();
       const normText = lowerText.trim();
 
-      if (normPayload === "cat_commercial" || normText === "3" || normText.includes("commercial") || normText.includes("shop") || normText.includes("office") || normText.includes("warehouse")) {
+      if (normPayload === "cat_commercial" || normText === "3" || normText.includes("commercial") || normText.includes("shop") || normText.includes("office") || normText.includes("warehouse") || normText.includes("stall") || normText.includes("table")) {
         category = "commercial";
         data.rent_cycle = "Month";
         data.tenant_type = "Professional";
@@ -258,14 +640,21 @@ async function processWhatsAppMessageInternal(
         category = "student";
         data.rent_cycle = "Semester";
         data.tenant_type = "Student";
-      } else if (normPayload === "cat_hospitality" || normText === "2" || normText.includes("hospitality") || normText.includes("lodge") || normText.includes("hotel") || normText.includes("guest house")) {
+      } else if (normPayload === "cat_hospitality" || normText === "2" || normText.includes("hospitality") || normText.includes("lodge") || normText.includes("hotel") || normText.includes("guesthouse") || normText.includes("guest house") || normText.includes("b&b")) {
         category = "hospitality";
         data.rent_cycle = "Night";
         data.tenant_type = "Guest";
-      } else {
+      } else if (normPayload === "cat_residential" || normText === "1" || normText.includes("residential") || normText.includes("room") || normText.includes("cottage") || normText.includes("flat") || normText.includes("house")) {
         category = "residential";
         data.rent_cycle = "Month";
         data.tenant_type = "General";
+      }
+
+      if (!category) {
+        const retryMsg = "⚠️ Please tap *Choose Category* below to pick your property category:";
+        queueListingCategoryMenu(retryMsg);
+        await dispatchAll();
+        return { phone, action: "STEP_RETRY", step: "AWAITING_CATEGORY", replyText: retryMsg, outboundPayloads };
       }
 
       data.category = category;
@@ -274,21 +663,21 @@ async function processWhatsAppMessageInternal(
 
       let propMsg = "";
       if (category === "commercial") {
-        propMsg = "🏢 *Commercial Space Type:*\n\nReply with the number:\n1️⃣ Commercial Space (Offices / General)\n2️⃣ Retail Shop / Storefront\n3️⃣ Warehouse / Industrial Storage\n4️⃣ Flea Market Table / Booth";
+        propMsg = "🏢 *Commercial Properties Selected*\n\n*Step 2/8: Choose Commercial Space Type*\nTap *Choose Space Type* below to pick:\n• Retail Shop\n• Offices / Commercial\n• Warehouse\n• Market Stall / Table";
       } else if (category === "student") {
-        propMsg = "🎓 *Student Accommodation Type:*\n\nReply with the number:\n1️⃣ Student Hostel\n2️⃣ Boarding House\n3️⃣ Single Student Room\n4️⃣ Shared Student Room";
+        propMsg = "🎓 *Student Accommodation Selected*\n\n*Step 2/8: Choose Student Space Type*\nTap *Choose Space Type* below:";
       } else if (category === "hospitality") {
-        propMsg = "🏨 *Hospitality Property Type:*\n\nReply with the number:\n1️⃣ Guest House\n2️⃣ Lodge\n3️⃣ Hotel\n4️⃣ Bed & Breakfast\n5️⃣ Short-Stay Apartment";
+        propMsg = "🏨 *Hospitality & Stays Selected*\n\n*Step 2/8: Choose Stay Type*\nTap *Choose Stay Type* below:";
       } else {
-        propMsg = "🏠 *Residential Property Type:*\n\nReply with the number:\n1️⃣ Single Room\n2️⃣ Cottage\n3️⃣ Bed-sitter\n4️⃣ 2-Room / Flat\n5️⃣ Full House";
+        propMsg = "🏠 *Residential Rentals Selected*\n\n*Step 2/8: Choose Property Type*\nTap *Select Property Type* below:";
       }
 
-      queuePayload(createTextMessage(phone, propMsg));
+      queuePropertyTypeMenu(category, propMsg);
       await dispatchAll();
-      return { phone, action: "ADVANCE_STEP", step: "AWAITING_PROPERTY_TYPE", outboundPayloads };
+      return { phone, action: "ADVANCE_STEP", step: "AWAITING_PROPERTY_TYPE", replyText: propMsg, outboundPayloads };
     }
 
-    // --- STEP 2: AWAITING_PROPERTY_TYPE ---
+    // --- LISTING STEP 2: AWAITING_PROPERTY_TYPE ---
     if (currentStep === "AWAITING_PROPERTY_TYPE") {
       let chosenType = "";
       const normPayload = (buttonPayload || "").toLowerCase().trim();
@@ -296,8 +685,8 @@ async function processWhatsAppMessageInternal(
 
       if (data.category === "commercial") {
         const commMap: Record<string, string> = {
-          "1": "Commercial",
-          "2": "Shop",
+          "1": "Shop",
+          "2": "Commercial",
           "3": "Warehouse",
           "4": "Table",
           "ctype_commercial": "Commercial",
@@ -307,12 +696,10 @@ async function processWhatsAppMessageInternal(
         };
         chosenType = commMap[normPayload] || commMap[normText] || "";
         if (!chosenType) {
-          if (normText.includes("shop") || normText.includes("retail")) chosenType = "Shop";
+          if (normText.includes("shop") || normText.includes("retail") || normText.includes("storefront")) chosenType = "Shop";
           else if (normText.includes("warehouse") || normText.includes("storage")) chosenType = "Warehouse";
-          else if (normText.includes("table") || normText.includes("booth")) chosenType = "Table";
+          else if (normText.includes("table") || normText.includes("booth") || normText.includes("stall") || normText.includes("market")) chosenType = "Table";
           else if (normText.includes("commercial") || normText.includes("office")) chosenType = "Commercial";
-          else if (text.trim().length >= 2) chosenType = text.trim();
-          else chosenType = "Commercial";
         }
       } else if (data.category === "student") {
         const studentMap: Record<string, string> = {
@@ -331,64 +718,89 @@ async function processWhatsAppMessageInternal(
           else if (normText.includes("boarding")) chosenType = "Boarding House";
           else if (normText.includes("shared")) chosenType = "Shared Student Room";
           else if (normText.includes("single")) chosenType = "Single Student Room";
-          else if (text.trim().length >= 2) chosenType = text.trim();
-          else chosenType = "Student Hostel";
         }
       } else if (data.category === "hospitality") {
         const hospMap: Record<string, string> = {
-          "1": "Guest House",
-          "2": "Lodge",
-          "3": "Hotel",
-          "4": "Bed & Breakfast",
-          "5": "Short-Stay Apartment",
-          "htype_guesthouse": "Guest House",
+          "1": "Guesthouse",
+          "2": "Lodge / Guesthouse",
+          "3": "Lodge",
+          "4": "Hotel",
+          "5": "Bed & Breakfast",
+          "htype_guesthouse": "Guesthouse",
+          "htype_lodge_gh": "Lodge / Guesthouse",
           "htype_lodge": "Lodge",
+          "htype_hotel": "Hotel",
           "htype_bnb": "Bed & Breakfast",
-          "guest house": "Guest House",
+          "guesthouse": "Guesthouse",
+          "guest house": "Guesthouse",
+          "lodge / guesthouse": "Lodge / Guesthouse",
           "lodge": "Lodge",
           "hotel": "Hotel",
           "bed & breakfast": "Bed & Breakfast",
-          "b&b": "Bed & Breakfast",
-          "short-stay apartment": "Short-Stay Apartment"
+          "b&b": "Bed & Breakfast"
         };
         chosenType = hospMap[normPayload] || hospMap[normText] || "";
         if (!chosenType) {
-          if (normText.includes("guest")) chosenType = "Guest House";
+          if (normText.includes("lodge / guesthouse")) chosenType = "Lodge / Guesthouse";
+          else if (normText.includes("guest")) chosenType = "Guesthouse";
           else if (normText.includes("lodge")) chosenType = "Lodge";
           else if (normText.includes("hotel")) chosenType = "Hotel";
           else if (normText.includes("b&b") || normText.includes("bed")) chosenType = "Bed & Breakfast";
-          else if (normText.includes("short") || normText.includes("apartment")) chosenType = "Short-Stay Apartment";
-          else if (text.trim().length >= 3) chosenType = text.trim();
-          else chosenType = "Guest House";
         }
       } else {
         const resMap: Record<string, string> = {
           "1": "Single Room",
           "2": "Cottage",
-          "3": "Bed-sitter",
-          "4": "2-Room / Flat",
-          "5": "Full House",
+          "3": "2 rooms",
+          "4": "3 rooms",
+          "5": "Full house",
+          "6": "Apartment / Flat",
+          "7": "Townhouse / Cluster",
+          "8": "Shared Space",
+          "9": "House Sale",
+          "rtype_room": "Single Room",
+          "rtype_cottage": "Cottage",
+          "rtype_2rooms": "2 rooms",
+          "rtype_3rooms": "3 rooms",
+          "rtype_house": "Full house",
+          "rtype_flat": "Apartment / Flat",
+          "rtype_townhouse": "Townhouse / Cluster",
+          "rtype_shared": "Shared Space",
+          "rtype_sale": "House Sale",
           "ptype_single": "Single Room",
           "ptype_cottage": "Cottage",
-          "ptype_bedsitter": "Bed-sitter",
-          "ptype_flat": "2-Room / Flat",
+          "ptype_flat": "Apartment / Flat",
           "single room": "Single Room",
           "cottage": "Cottage",
-          "bedsitter": "Bed-sitter",
-          "bed-sitter": "Bed-sitter",
-          "flat": "2-Room / Flat",
-          "apartment": "2-Room / Flat",
-          "full house": "Full House"
+          "2 rooms": "2 rooms",
+          "3 rooms": "3 rooms",
+          "flat": "Apartment / Flat",
+          "apartment": "Apartment / Flat",
+          "apartment / flat": "Apartment / Flat",
+          "townhouse / cluster": "Townhouse / Cluster",
+          "shared space": "Shared Space",
+          "house sale": "House Sale",
+          "full house": "Full house"
         };
         chosenType = resMap[normPayload] || resMap[normText] || "";
         if (!chosenType) {
           if (normText.includes("cottage")) chosenType = "Cottage";
-          else if (normText.includes("flat") || normText.includes("apartment")) chosenType = "2-Room / Flat";
-          else if (normText.includes("sitter") || normText.includes("bedsitter")) chosenType = "Bed-sitter";
-          else if (normText.includes("house")) chosenType = "Full House";
-          else if (text.trim().length >= 3) chosenType = text.trim();
-          else chosenType = "Single Room";
+          else if (normText.includes("2 room")) chosenType = "2 rooms";
+          else if (normText.includes("3 room")) chosenType = "3 rooms";
+          else if (normText.includes("townhouse") || normText.includes("cluster")) chosenType = "Townhouse / Cluster";
+          else if (normText.includes("flat") || normText.includes("apartment")) chosenType = "Apartment / Flat";
+          else if (normText.includes("shared")) chosenType = "Shared Space";
+          else if (normText.includes("sale")) chosenType = "House Sale";
+          else if (normText.includes("house")) chosenType = "Full house";
+          else if (normText.includes("single") || normText === "room") chosenType = "Single Room";
         }
+      }
+
+      if (!chosenType) {
+        const retryMsg = "⚠️ Please choose a property type from the list below:";
+        queuePropertyTypeMenu(data.category || "residential", retryMsg);
+        await dispatchAll();
+        return { phone, action: "STEP_RETRY", step: "AWAITING_PROPERTY_TYPE", replyText: retryMsg, outboundPayloads };
       }
 
       data.property_type = chosenType;
@@ -397,25 +809,39 @@ async function processWhatsAppMessageInternal(
 
       let titleEx = "Cozy Garden Cottage in Avondale";
       if (data.category === "commercial") {
-        titleEx = "Prime Retail Storefront in CBD First Street";
+        titleEx = chosenType === "Shop"
+          ? "Prime Retail Shop on First Street CBD"
+          : chosenType === "Warehouse"
+          ? "Spacious Industrial Warehouse in Msasa"
+          : chosenType === "Table"
+          ? "Busy Flea Market Table / Stall in Town"
+          : "Modern Office Suite in Avondale";
       } else if (data.category === "student") {
         titleEx = "Modern Student Hostel Single Room near Campus";
       } else if (data.category === "hospitality") {
         titleEx = "Sunset Safari Lodge Luxury Suite";
       }
 
-      const titleMsg = `📝 *Step 3/8: Property Title / Headline*\n\nGive your listing an attractive headline:\n*Example:* "${titleEx}"`;
-      queuePayload(createTextMessage(phone, titleMsg));
+      const titleMsg = `✅ Property Type: *${chosenType}*\n\n*Step 3/8: Property Title / Headline*\n\nGive your listing an attractive headline:\n*Example:* "${titleEx}"`;
+      queuePayload(
+        createButtonMessage(
+          phone,
+          titleMsg,
+          [{ id: "BTN_CANCEL", title: "❌ Cancel" }],
+          "Step 3/8"
+        )
+      );
       await dispatchAll();
-      return { phone, action: "ADVANCE_STEP", step: "AWAITING_TITLE", outboundPayloads };
+      return { phone, action: "ADVANCE_STEP", step: "AWAITING_TITLE", replyText: titleMsg, outboundPayloads };
     }
 
-    // --- STEP 3: AWAITING_TITLE ---
+    // --- LISTING STEP 3: AWAITING_TITLE ---
     if (currentStep === "AWAITING_TITLE") {
       if (!text || text.trim().length < 3) {
-        queuePayload(createTextMessage(phone, "⚠️ Please provide a clear headline (at least 3 characters).\n\n*Example:* 'Spacious Cottage in Avonlea with Solar'"));
+        const retryMsg = "⚠️ Please provide a clear headline (at least 3 characters).\n\n*Example:* 'Spacious Cottage in Avonlea with Solar'";
+        queuePayload(createButtonMessage(phone, retryMsg, [{ id: "BTN_CANCEL", title: "❌ Cancel" }]));
         await dispatchAll();
-        return { phone, action: "STEP_RETRY", step: "AWAITING_TITLE", outboundPayloads };
+        return { phone, action: "STEP_RETRY", step: "AWAITING_TITLE", replyText: retryMsg, outboundPayloads };
       }
       data.title = text.trim();
       if (data.category === "hospitality") {
@@ -425,91 +851,113 @@ async function processWhatsAppMessageInternal(
         .run(JSON.stringify(data), phone);
 
       const suburbMsg = `📍 *Step 4/8: Locality / Suburb*\n\nIn which suburb or neighborhood is the property situated?\n*Examples:* Avondale, Mt Pleasant, Belvedere, Victoria Falls, CBD`;
-      queuePayload(createTextMessage(phone, suburbMsg));
+      queuePayload(createButtonMessage(phone, suburbMsg, [{ id: "BTN_CANCEL", title: "❌ Cancel" }], "Step 4/8"));
       await dispatchAll();
-      return { phone, action: "ADVANCE_STEP", step: "AWAITING_SUBURB", outboundPayloads };
+      return { phone, action: "ADVANCE_STEP", step: "AWAITING_SUBURB", replyText: suburbMsg, outboundPayloads };
     }
 
-    // --- STEP 4: AWAITING_SUBURB ---
+    // --- LISTING STEP 4: AWAITING_SUBURB ---
     if (currentStep === "AWAITING_SUBURB") {
       if (!text || text.trim().length < 2) {
-        queuePayload(createTextMessage(phone, "⚠️ Please provide a valid suburb or area name."));
+        const retryMsg = "⚠️ Please provide a valid suburb or area name.";
+        queuePayload(createButtonMessage(phone, retryMsg, [{ id: "BTN_CANCEL", title: "❌ Cancel" }]));
         await dispatchAll();
-        return { phone, action: "STEP_RETRY", step: "AWAITING_SUBURB", outboundPayloads };
+        return { phone, action: "STEP_RETRY", step: "AWAITING_SUBURB", replyText: retryMsg, outboundPayloads };
       }
       data.suburb = text.trim();
       data.city = data.city || "Harare";
       db.prepare("UPDATE chatbot_sessions SET current_step = 'AWAITING_PRICE', collected_data = ?, updated_at = CURRENT_TIMESTAMP WHERE phone_number = ?")
         .run(JSON.stringify(data), phone);
 
-      const priceLabel = data.category === "hospitality" ? "Rate per night" : "Rent per month";
+      const priceLabel = data.category === "hospitality" ? "Rate per night" : data.category === "student" ? "Fee per semester/month" : "Rent per month";
       const priceMsg = `💵 *Step 5/8: ${priceLabel} (in USD)*\n\nEnter just the number (e.g. *120* or *350*):`;
-      queuePayload(createTextMessage(phone, priceMsg));
+      queuePayload(createButtonMessage(phone, priceMsg, [{ id: "BTN_CANCEL", title: "❌ Cancel" }], "Step 5/8"));
       await dispatchAll();
-      return { phone, action: "ADVANCE_STEP", step: "AWAITING_PRICE", outboundPayloads };
+      return { phone, action: "ADVANCE_STEP", step: "AWAITING_PRICE", replyText: priceMsg, outboundPayloads };
     }
 
-    // --- STEP 5: AWAITING_PRICE ---
+    // --- LISTING STEP 5: AWAITING_PRICE ---
     if (currentStep === "AWAITING_PRICE") {
       const parsedPrice = parseFloat(text.replace(/[^0-9.]/g, ""));
       if (isNaN(parsedPrice) || parsedPrice <= 0) {
-        queuePayload(createTextMessage(phone, "⚠️ Please enter a valid price (e.g. 150)."));
+        const retryMsg = "⚠️ Please enter a valid price in USD (e.g. 150).";
+        queuePayload(createButtonMessage(phone, retryMsg, [{ id: "BTN_CANCEL", title: "❌ Cancel" }]));
         await dispatchAll();
-        return { phone, action: "STEP_RETRY", step: "AWAITING_PRICE", outboundPayloads };
+        return { phone, action: "STEP_RETRY", step: "AWAITING_PRICE", replyText: retryMsg, outboundPayloads };
       }
       data.price = parsedPrice;
       db.prepare("UPDATE chatbot_sessions SET current_step = 'AWAITING_IMAGE', collected_data = ?, updated_at = CURRENT_TIMESTAMP WHERE phone_number = ?")
         .run(JSON.stringify(data), phone);
 
-      const imageMsg = `📸 *Step 6/8: Property Photo*\n\nSend a photograph of the property or room directly into this chat.\n\n_(Or reply *skip* if you do not have a photo right now)_`;
-      queuePayload(createTextMessage(phone, imageMsg));
+      const imageMsg = `📸 *Step 6/8: Property Photo*\n\nSend a photograph of the property directly into this chat, or tap *Skip Photo* below:`;
+      queuePayload(
+        createButtonMessage(
+          phone,
+          imageMsg,
+          [
+            { id: "BTN_SKIP_IMAGE", title: "⏭️ Skip Photo" },
+            { id: "BTN_CANCEL", title: "❌ Cancel" }
+          ],
+          "Step 6/8"
+        )
+      );
       await dispatchAll();
-      return { phone, action: "ADVANCE_STEP", step: "AWAITING_IMAGE", outboundPayloads };
+      return { phone, action: "ADVANCE_STEP", step: "AWAITING_IMAGE", replyText: imageMsg, outboundPayloads };
     }
 
-    // --- STEP 6: AWAITING_IMAGE ---
+    // --- LISTING STEP 6: AWAITING_IMAGE ---
     if (currentStep === "AWAITING_IMAGE") {
       let imageUrl = "";
       if (input.mediaId) {
         imageUrl = input.mediaId;
       } else if (text.trim().startsWith("http://") || text.trim().startsWith("https://")) {
         imageUrl = text.trim();
-      } else if (lowerText === "skip" || lowerText === "none") {
+      } else if (buttonPayload === "BTN_SKIP_IMAGE" || lowerText === "skip" || lowerText === "none") {
         imageUrl = "";
       }
       data.image_url = imageUrl;
       db.prepare("UPDATE chatbot_sessions SET current_step = 'AWAITING_LANDMARK', collected_data = ?, updated_at = CURRENT_TIMESTAMP WHERE phone_number = ?")
         .run(JSON.stringify(data), phone);
 
-      const landmarkMsg = `📍 *Step 7/8: Nearest Landmark / Key Feature*\n\nWhat is nearby to help people identify the location?\n*Examples:* Near Shopping Centre, Opposite Secondary School, Near UZ Campus`;
-      queuePayload(createTextMessage(phone, landmarkMsg));
+      const landmarkMsg = `📍 *Step 7/8: Nearest Landmark / Key Feature*\n\nWhat is nearby to help people identify the location?\n*Examples:* Near Shopping Centre, Opposite School, Next to Main Road`;
+      queuePayload(
+        createButtonMessage(
+          phone,
+          landmarkMsg,
+          [
+            { id: "LM_NONE", title: "⏭️ None / Skip" },
+            { id: "BTN_CANCEL", title: "❌ Cancel" }
+          ],
+          "Step 7/8"
+        )
+      );
       await dispatchAll();
-      return { phone, action: "ADVANCE_STEP", step: "AWAITING_LANDMARK", outboundPayloads };
+      return { phone, action: "ADVANCE_STEP", step: "AWAITING_LANDMARK", replyText: landmarkMsg, outboundPayloads };
     }
 
-    // --- STEP 7: AWAITING_LANDMARK ---
+    // --- LISTING STEP 7: AWAITING_LANDMARK ---
     if (currentStep === "AWAITING_LANDMARK") {
-      data.landmark = text.trim();
+      data.landmark = (buttonPayload === "LM_NONE" || lowerText === "skip" || lowerText === "none") ? "" : text.trim();
       data.amenities = data.amenities || ["Borehole", "Solar Power Backup"];
       db.prepare("UPDATE chatbot_sessions SET current_step = 'AWAITING_CONFIRMATION', collected_data = ?, updated_at = CURRENT_TIMESTAMP WHERE phone_number = ?")
         .run(JSON.stringify(data), phone);
 
-      const catLabel = data.category === "commercial" 
-        ? "Commercial Property" 
-        : data.category === "student" 
-        ? "Student Accommodation" 
-        : data.category === "hospitality" 
-        ? "Hospitality & Stay" 
-        : "Residential Rental";
+      const catLabel = data.category === "commercial"
+        ? "Commercial Properties"
+        : data.category === "student"
+        ? "Student Accommodation"
+        : data.category === "hospitality"
+        ? "Hospitality & Stays"
+        : "Residential Rentals";
 
       const summaryMsg = `📋 *Step 8/8: Confirm Your Listing*\n\n` +
         `• *Category:* ${catLabel}\n` +
         `• *Type:* ${data.property_type}\n` +
         `• *Headline:* ${data.title}\n` +
         `• *Suburb:* ${data.suburb}\n` +
-        `• *Price:* $${data.price} / ${data.category === "hospitality" ? "Night" : "Month"}\n` +
+        `• *Price:* $${data.price} / ${data.rent_cycle || (data.category === "hospitality" ? "Night" : "Month")}\n` +
         `• *Contact:* ${phone}\n\n` +
-        `Ready to publish? Tap *Publish Listing* or reply *1*!`;
+        `Ready to publish? Tap *Publish Live* or *Cancel* below:`;
 
       queuePayload(
         createButtonMessage(
@@ -517,16 +965,16 @@ async function processWhatsAppMessageInternal(
           summaryMsg,
           [
             { id: "BTN_CONFIRM_PUBLISH", title: "🚀 Publish Live" },
-            { id: "CMD_CANCEL", title: "❌ Cancel" }
+            { id: "BTN_CANCEL", title: "❌ Cancel" }
           ],
           "Publish to BunkBy"
         )
       );
       await dispatchAll();
-      return { phone, action: "ADVANCE_STEP", step: "AWAITING_CONFIRMATION", outboundPayloads };
+      return { phone, action: "ADVANCE_STEP", step: "AWAITING_CONFIRMATION", replyText: summaryMsg, outboundPayloads };
     }
 
-    // --- STEP 8: AWAITING_CONFIRMATION -> PUBLISH ---
+    // --- LISTING STEP 8: AWAITING_CONFIRMATION -> PUBLISH ---
     if (currentStep === "AWAITING_CONFIRMATION") {
       if (
         buttonPayload === "BTN_CONFIRM_PUBLISH" ||
@@ -535,8 +983,9 @@ async function processWhatsAppMessageInternal(
         buttonPayload === "PUBLISH_LISTING" ||
         lowerText === "publish listing" ||
         lowerText.includes("publish listing") ||
+        lowerText === "publish live" ||
         lowerText === "publish" ||
-        lowerText.includes("publish") ||
+        (lowerText.includes("publish") && !lowerText.includes("cancel")) ||
         lowerText === "yes" ||
         lowerText === "confirm" ||
         text === "1"
@@ -566,7 +1015,7 @@ async function processWhatsAppMessageInternal(
           const expiry = isPremium ? new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString() : null;
 
           const resolvedCategory = data.category || (
-            ["Lodge / Guesthouse", "Hotel", "Lodge", "Guesthouse", "Bed & Breakfast"].includes(data.property_type)
+            ["Lodge / Guesthouse", "Hotel", "Lodge", "Guesthouse", "Guest House", "Bed & Breakfast"].includes(data.property_type)
               ? "hospitality"
               : ["Commercial", "Shop", "Warehouse", "Table", "Office"].includes(data.property_type)
               ? "commercial"
@@ -586,7 +1035,7 @@ async function processWhatsAppMessageInternal(
             Number(data.deposit || 0),
             data.property_type || "Single Room",
             data.tenant_type || (resolvedCategory === "commercial" ? "Professional" : resolvedCategory === "student" ? "Student" : resolvedCategory === "hospitality" ? "Guest" : "General"),
-            data.rent_cycle || (resolvedCategory === "hospitality" ? "Night" : "Month"),
+            data.rent_cycle || (resolvedCategory === "hospitality" ? "Night" : resolvedCategory === "student" ? "Semester" : "Month"),
             data.contact_phone || phone,
             JSON.stringify(data.amenities || ["Borehole", "Solar Power Backup"]),
             resolvedCategory,
@@ -604,7 +1053,7 @@ async function processWhatsAppMessageInternal(
 
         const successMsg = `🎉 *CONGRATULATIONS! Your listing is now LIVE on BunkBy!* (Listing #${newId})\n\n` +
           `🌐 *Live URL:* ${liveUrl}\n\n` +
-          `Tenants and visitors across Zimbabwe will now see your accommodation on the website and via WhatsApp chatbot!\n\n` +
+          `Tenants and visitors across Zimbabwe will now see your property on the website and via WhatsApp chatbot!\n\n` +
           `Type *list* to add another property or *search* to find stays.`;
 
         queuePayload(
@@ -628,7 +1077,119 @@ async function processWhatsAppMessageInternal(
           outboundPayloads
         };
       }
+
+      const retryConfirmMsg = "⚠️ Please tap *Publish Live* to publish your listing, or tap *Cancel* to discard and return to the main menu.";
+      queuePayload(
+        createButtonMessage(
+          phone,
+          retryConfirmMsg,
+          [
+            { id: "BTN_CONFIRM_PUBLISH", title: "🚀 Publish Live" },
+            { id: "BTN_CANCEL", title: "❌ Cancel" }
+          ]
+        )
+      );
+      await dispatchAll();
+      return { phone, action: "STEP_RETRY", step: "AWAITING_CONFIRMATION", replyText: retryConfirmMsg, outboundPayloads };
     }
+  }
+
+  // =========================================================================
+  // MY LISTINGS / DELETE MANAGEMENT (No active session)
+  // =========================================================================
+  if (
+    !session && (
+      buttonPayload === "CMD_MY_LISTINGS" ||
+      buttonPayload?.startsWith("DEL_PROMPT_") ||
+      buttonPayload?.startsWith("DEL_CONFIRM_") ||
+      lowerText === "my listings" ||
+      lowerText.startsWith("delete ")
+    )
+  ) {
+    const confirmMatch = buttonPayload?.match(/^DEL_CONFIRM_(\d+)$/);
+    const promptMatch = buttonPayload?.match(/^DEL_PROMPT_(\d+)$/);
+    const textDelMatch = lowerText.match(/^delete\s+(\d+)$/);
+
+    if (confirmMatch) {
+      const delId = Number(confirmMatch[1]);
+      db.prepare("UPDATE listings SET verification_status = 'Delisted' WHERE id = ? AND (landlord_id = ? OR contact_phone = ?)")
+        .run(delId, phoneId, phone);
+      const delMsg = `🗑️ *Listing #${delId} has been removed from BunkBy.*`;
+      queuePayload(
+        createButtonMessage(
+          phone,
+          delMsg,
+          [
+            { id: "CMD_MY_LISTINGS", title: "📋 My Listings" },
+            { id: "CMD_START_LISTING", title: "🏡 Post Property" },
+            { id: "CMD_SEARCH_MENU", title: "🔍 Search Stays" }
+          ]
+        )
+      );
+      await dispatchAll();
+      return { phone, action: "LISTING_DELETED", replyText: delMsg, outboundPayloads };
+    }
+
+    if (promptMatch || textDelMatch) {
+      const targetId = Number(promptMatch ? promptMatch[1] : textDelMatch![1]);
+      const target = db.prepare("SELECT id, title, suburb FROM listings WHERE id = ? AND verification_status != 'Delisted' AND (landlord_id = ? OR contact_phone = ?)")
+        .get(targetId, phoneId, phone) as any;
+      if (!target) {
+        const notFoundMsg = `⚠️ Listing #${targetId} was not found under your phone number.`;
+        queuePayload(createTextMessage(phone, notFoundMsg));
+        await dispatchAll();
+        return { phone, action: "DELETE_NOT_FOUND", replyText: notFoundMsg, outboundPayloads };
+      }
+      const confirmPrompt = `⚠️ *Confirm Deletion of Listing #${target.id}*\n\n"${target.title}" in ${target.suburb}\n\nAre you sure?`;
+      queuePayload(
+        createButtonMessage(
+          phone,
+          confirmPrompt,
+          [
+            { id: `DEL_CONFIRM_${target.id}`, title: "🗑️ Yes, Delete" },
+            { id: "CMD_MY_LISTINGS", title: "❌ Cancel / Keep" }
+          ]
+        )
+      );
+      await dispatchAll();
+      return { phone, action: "DELETE_CONFIRMATION_PROMPT", replyText: confirmPrompt, outboundPayloads };
+    }
+
+    const items = db.prepare("SELECT id, title, suburb, price, rent_cycle FROM listings WHERE verification_status != 'Delisted' AND (landlord_id = ? OR contact_phone = ?) ORDER BY id DESC LIMIT 10")
+      .all(phoneId, phone) as any[];
+    if (items.length === 0) {
+      const emptyMsg = "📋 *You currently have no active listings on BunkBy.*\n\nWould you like to post a property?";
+      queuePayload(
+        createButtonMessage(
+          phone,
+          emptyMsg,
+          [
+            { id: "CMD_START_LISTING", title: "🏡 Post Property" },
+            { id: "CMD_SEARCH_MENU", title: "🔍 Search Stays" }
+          ]
+        )
+      );
+      await dispatchAll();
+      return { phone, action: "NO_MY_LISTINGS", replyText: emptyMsg, outboundPayloads };
+    }
+
+    let listSummary = `📋 *Your Active BunkBy Listings (${items.length}):*\n\n`;
+    for (const item of items) {
+      listSummary += `• *#${item.id}*: ${item.title} (${item.suburb}) - $${item.price}/${item.rent_cycle || "Month"}\n`;
+    }
+    listSummary += `\nReply *delete [id]* to remove a listing, or tap below:`;
+    queuePayload(
+      createButtonMessage(
+        phone,
+        listSummary,
+        [
+          { id: `DEL_PROMPT_${items[0].id}`, title: `🗑️ Delete #${items[0].id}` },
+          { id: "CMD_START_LISTING", title: "🏡 Add Listing" }
+        ]
+      )
+    );
+    await dispatchAll();
+    return { phone, action: "MY_LISTINGS_LISTED", replyText: listSummary, outboundPayloads };
   }
 
   // =========================================================================
@@ -644,19 +1205,54 @@ async function processWhatsAppMessageInternal(
       lowerText.includes("cottage") ||
       lowerText.includes("lodge") ||
       lowerText.includes("apartment") ||
+      lowerText.includes("shop") ||
+      lowerText.includes("warehouse") ||
+      lowerText.includes("office") ||
+      lowerText.includes("stall") ||
+      lowerText.includes("table") ||
+      lowerText.includes("commercial") ||
+      lowerText.includes("hostel") ||
       lowerText.includes("in ") ||
       lowerText.includes("under ") ||
       buttonPayload.startsWith("SEARCH_") ||
-      buttonPayload === "CMD_SEARCH_MENU"
+      buttonPayload === "CMD_SEARCH_MENU" ||
+      buttonPayload === "CMD_SEARCH"
     );
 
   if (isSearchIntent) {
-    // If user clicked search button with no query
-    if (buttonPayload === "CMD_SEARCH_MENU" || text === "search") {
-      const searchPrompt = "🔍 *How to Search BunkBy Stays:*\n\nType whatever you're looking for in plain English!\n\n*Examples:*\n• *rooms in Avondale under $250*\n• *cottage in Belvedere*\n• *lodges in Victoria Falls*\n• *shops in Harare CBD*\n• *student rooms near UZ with wifi and solar*\n• *guesthouse in Harare under $100*";
-      queuePayload(createTextMessage(phone, searchPrompt));
+    // Open guided search 4-category list menu when user taps Search or types "search"
+    if (buttonPayload === "CMD_SEARCH_MENU" || buttonPayload === "CMD_SEARCH" || lowerText === "search") {
+      db.prepare(`
+        INSERT INTO chatbot_sessions (phone_number, current_step, collected_data, updated_at)
+        VALUES (?, 'AWAITING_SEARCH_CATEGORY', '{}', CURRENT_TIMESTAMP)
+        ON CONFLICT(phone_number) DO UPDATE SET
+          current_step = 'AWAITING_SEARCH_CATEGORY',
+          collected_data = '{}',
+          updated_at = CURRENT_TIMESTAMP
+      `).run(phone);
+
+      const searchIntro = "🔍 *Search BunkBy Properties & Accommodation*\n\nTap *Choose Category* below to browse by category (including specific commercial subtypes), or type a query like *\"shops in Harare\"* or *\"rooms in Avondale under $250\"*.";
+      queueSearchCategoryMenu(searchIntro);
       await dispatchAll();
-      return { phone, action: "SEARCH_HELP", replyText: searchPrompt, outboundPayloads };
+      return { phone, action: "SEARCH_PROMPT_CATEGORY", step: "AWAITING_SEARCH_CATEGORY", replyText: searchIntro, outboundPayloads };
+    }
+
+    // Direct shortcut into Commercial Subtype Search
+    if (buttonPayload === "SEARCH_CAT_COMMERCIAL") {
+      const nextData = { searchCategory: "commercial", categoryLabel: "Commercial Properties" };
+      db.prepare(`
+        INSERT INTO chatbot_sessions (phone_number, current_step, collected_data, updated_at)
+        VALUES (?, 'AWAITING_SEARCH_SUBTYPE', ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(phone_number) DO UPDATE SET
+          current_step = 'AWAITING_SEARCH_SUBTYPE',
+          collected_data = excluded.collected_data,
+          updated_at = CURRENT_TIMESTAMP
+      `).run(phone, JSON.stringify(nextData));
+
+      const subMsg = "🏢 *Commercial Properties Selected*\n\nWhich commercial subtype are you looking for?";
+      queueSearchCommercialSubtypeMenu(subMsg);
+      await dispatchAll();
+      return { phone, action: "SEARCH_PROMPT_SUBTYPE", step: "AWAITING_SEARCH_SUBTYPE", replyText: subMsg, outboundPayloads };
     }
 
     // Clean search text
@@ -674,7 +1270,7 @@ async function processWhatsAppMessageInternal(
         `💡 *Suggestions:*\n` +
         `• Try searching nearby suburbs like *Avonlea*, *Belvedere*, *Avenues*, or *Mt Pleasant*.\n` +
         `• Adjust your price filter (e.g. *under $200*).\n` +
-        `• Switch between *residential*, *commercial*, or *hospitality*.\n\n` +
+        `• Switch between *residential*, *commercial*, *hospitality*, or *student*.\n\n` +
         `Are you a landlord or property owner in this area? Tap below to list for free!`;
 
       queuePayload(
@@ -735,7 +1331,7 @@ async function processWhatsAppMessageInternal(
   // DEFAULT / WELCOME MENU
   // =========================================================================
   const welcomeMsg = `👋 *Welcome to BunkBy!*\n\n` +
-    `Your independent, agent-free platform connecting you directly with verified landlords and hosts for *residential rentals, commercial properties, and hospitality stays* without agency fees.\n\n` +
+    `Your independent, agent-free platform connecting you directly with verified landlords and hosts for *residential rentals, commercial properties, hospitality stays, and student accommodation* without agency fees.\n\n` +
     `What would you like to do today?`;
 
   queuePayload(
@@ -743,8 +1339,9 @@ async function processWhatsAppMessageInternal(
       phone,
       welcomeMsg,
       [
-        { id: "CMD_SEARCH_MENU", title: "🔍 Find Stays" },
-        { id: "CMD_START_LISTING", title: "🏡 Post a Listing" }
+        { id: "CMD_SEARCH_MENU", title: "🔍 Search Stays" },
+        { id: "CMD_START_LISTING", title: "🏡 Post a Listing" },
+        { id: "CMD_MY_LISTINGS", title: "📋 My Listings" }
       ],
       "BunkBy Zimbabwe",
       "Property & Accommodation Marketplace"
