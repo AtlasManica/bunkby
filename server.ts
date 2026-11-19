@@ -1198,8 +1198,8 @@ async function startServer() {
     res.sendFile(path.join(process.cwd(), "admin.html"));
   });
 
-  // Serve public static assets
-  app.use(express.static(path.join(process.cwd(), "public")));
+  // Serve public static assets with fast browser caching
+  app.use(express.static(path.join(process.cwd(), "public"), { maxAge: "1d" }));
 
   if (process.env.NODE_ENV !== "production") {
     // Dev Mode - integrate Vite
@@ -1239,9 +1239,19 @@ async function startServer() {
     app.use(vite.middlewares);
     console.log("Vite dev middleware loaded onto Express server.");
   } else {
-    // Production Mode - serve built client assets
+    // Production Mode - serve built client assets with long immutable cache for hashed bundles
     const distPath = path.join(process.cwd(), "dist");
-    app.use(express.static(distPath, { index: false }));
+    app.use(
+      express.static(distPath, {
+        index: false,
+        maxAge: "7d",
+        setHeaders: (res, filePath) => {
+          if (filePath.includes(`${path.sep}assets${path.sep}`)) {
+            res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+          }
+        },
+      })
+    );
 
     app.get(
       [

@@ -73,19 +73,21 @@ export function injectSeoIntoHtml(baseHtml: string, seo: SeoPagePayload): string
   }
 
   // Inject crawler-readable semantic HTML inside <div id="root">...</div>
-  // Note: React's createRoot(document.getElementById("root")).render(...) cleanly replaces this node's contents on mount.
+  // Wrapped in #seo-ssr-snapshot so JS-enabled browsers hide it synchronously before first paint (zero flash),
+  // while non-JS crawlers receive the full semantic HTML content. React's createRoot(...).render(...) replaces #root cleanly on mount.
+  const wrappedSsrHtml = `<div id="seo-ssr-snapshot">${seo.ssrHtml}</div>`;
   const markerPattern = /<!--\s*SSR_ROOT_START\s*-->[\s\S]*?<!--\s*SSR_ROOT_END\s*-->/i;
   if (markerPattern.test(html)) {
     html = html.replace(
       markerPattern,
-      `<!-- SSR_ROOT_START -->${seo.ssrHtml}<!-- SSR_ROOT_END -->`
+      `<!-- SSR_ROOT_START -->${wrappedSsrHtml}<!-- SSR_ROOT_END -->`
     );
   } else {
     const rootDivPattern = /<div\s+id=["']root["']\s*>[\s\S]*?<\/div>\s*(?=<script|<\/body>)/i;
     if (rootDivPattern.test(html)) {
       html = html.replace(
         rootDivPattern,
-        `<div id="root"><!-- SSR_ROOT_START -->${seo.ssrHtml}<!-- SSR_ROOT_END --></div>\n    `
+        `<div id="root"><!-- SSR_ROOT_START -->${wrappedSsrHtml}<!-- SSR_ROOT_END --></div>\n    `
       );
     }
   }

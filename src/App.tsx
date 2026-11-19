@@ -133,15 +133,23 @@ const BUNKBY_WHATSAPP_E164 = "263789783200";
 const getBunkByWhatsAppUrl = (message: string) =>
   `https://wa.me/${BUNKBY_WHATSAPP_E164}?text=${encodeURIComponent(message)}`;
 
-// BunkBy Orange Stacked Squares Logo Component (Official branding asset public/bunkbylogo.png)
+// BunkBy Orange Stacked Squares Logo Component (optimized WebP asset with PNG/SVG fallback)
 const BunkByLogo = ({ className = "w-10 h-10" }: { className?: string }) => (
   <div className={`${className} bg-white rounded-xl overflow-hidden p-0.5 border border-white/20 shadow-xs flex items-center justify-center shrink-0 select-none`}>
     <img 
-      src="/bunkbylogo.png" 
+      src="/bunkbylogo-nav.webp" 
       alt="BunkBy Logo" 
+      decoding="sync"
+      fetchPriority="high"
       className="w-full h-full object-contain"
       onError={(e) => {
-        (e.currentTarget as HTMLImageElement).src = "/bunkby-logo.svg";
+        const img = e.currentTarget as HTMLImageElement;
+        if (!img.dataset.fallbackStage) {
+          img.dataset.fallbackStage = "png";
+          img.src = "/bunkbylogo.png";
+        } else {
+          img.src = "/bunkby-logo.svg";
+        }
       }}
     />
   </div>
@@ -163,9 +171,18 @@ export default function App() {
   const [allLandlords, setAllLandlords] = useState<any[]>([]);
 
   useEffect(() => {
-    // Fetch directly from server DB
+    // Fetch directly from server DB (reusing early <head> prefetch when available)
     const loadListings = async () => {
       try {
+        const preloaded = (window as any).__bunkbyListingsReq;
+        if (preloaded) {
+          (window as any).__bunkbyListingsReq = null;
+          const prefetchedData = await preloaded;
+          if (prefetchedData && Array.isArray(prefetchedData.listings)) {
+            setListings(prefetchedData.listings);
+            return;
+          }
+        }
         const res = await fetch("/api/listings");
         if (res.ok) {
           const data = await res.json();
@@ -1425,20 +1442,30 @@ export default function App() {
         {currentPath === "/" && activeTab === "browse" && (
           <div className="space-y-6">
             
-            {/* Hero Card with User Uploaded hero-background.png */}
+            {/* Hero Card with optimized preloaded hero-bg.webp */}
             <section 
               id="hero-banner" 
-              className="bg-[#080f18] rounded-2xl sm:rounded-3xl text-white p-4 sm:p-7 md:p-10 text-center relative overflow-hidden shadow-xl sm:shadow-2xl border border-slate-800/80 bg-cover bg-center"
-              style={{ backgroundImage: `url('/assets/Midnight Tribal Geometry with Copper Accents.png')` }}
+              className="bg-[#080f18] rounded-2xl sm:rounded-3xl text-white p-4 sm:p-7 md:p-10 text-center relative overflow-hidden shadow-xl sm:shadow-2xl border border-slate-800/80"
+              style={{
+                background:
+                  "radial-gradient(circle at 14% 18%, rgba(255,122,0,0.18), transparent 36%), radial-gradient(circle at 86% 84%, rgba(255,122,0,0.16), transparent 38%), #080f18",
+              }}
             >
-              {/* User Uploaded Hero Background Image */}
+              {/* Preloaded Hero Background Image (60KB WebP for instant paint) */}
               <img
-                src="/assets/Midnight Tribal Geometry with Copper Accents.png"
+                src="/hero-bg.webp"
                 alt="BunkBy Hero Background"
+                loading="eager"
+                decoding="sync"
+                fetchPriority="high"
                 className="absolute inset-0 w-full h-full object-cover pointer-events-none select-none"
                 referrerPolicy="no-referrer"
                 onError={(e) => {
-                  (e.currentTarget as HTMLImageElement).src = "/hero-background.png";
+                  const img = e.currentTarget as HTMLImageElement;
+                  if (!img.dataset.fallbackTried) {
+                    img.dataset.fallbackTried = "1";
+                    img.src = "/hero-background.png";
+                  }
                 }}
               />
 
