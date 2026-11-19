@@ -8,19 +8,12 @@ import {
   Home,
   Hotel,
   GraduationCap,
-  MapPin,
-  MessageSquare,
   Search,
   ShieldCheck,
-  Sparkles,
 } from "lucide-react";
 import {
   CATEGORY_DEFINITIONS,
-  FEATURED_CITY_SLUGS,
   WHATSAPP_FAQ_ITEMS,
-  WHATSAPP_NUMBER_DISPLAY,
-  findCityBySlugOrName,
-  getWhatsAppLink,
 } from "../../shared/seoData";
 
 interface WhatsAppLandingPageProps {
@@ -28,9 +21,6 @@ interface WhatsAppLandingPageProps {
 }
 
 export const WhatsAppLandingPage: React.FC<WhatsAppLandingPageProps> = ({ onNavigate }) => {
-  const featuredCities = FEATURED_CITY_SLUGS.map((slug) => findCityBySlugOrName(slug)).filter(
-    (c): c is NonNullable<typeof c> => Boolean(c)
-  );
 
   const handleLinkClick = (e: React.MouseEvent, path: string) => {
     if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
@@ -41,26 +31,22 @@ export const WhatsAppLandingPage: React.FC<WhatsAppLandingPageProps> = ({ onNavi
   return (
     <div className="space-y-6">
       {/* Breadcrumb Navigation */}
-      <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-xs text-slate-500 font-medium">
+      <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-xs sm:text-sm font-medium">
         <a
           href="/"
           onClick={(e) => handleLinkClick(e, "/")}
-          className="hover:text-[#052659] transition-colors flex items-center gap-1"
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 border border-slate-200 text-[#052659] font-bold transition-colors shadow-2xs"
         >
-          <ArrowLeft className="w-3.5 h-3.5 text-[#FF7A00]" />
-          <span>BunkBy Home</span>
+          <ArrowLeft className="w-4 h-4 text-[#FF7A00] stroke-[2.5]" />
+          <span>Home</span>
         </a>
         <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
-        <span className="text-[#052659] font-bold">WhatsApp Assistant</span>
+        <span className="text-slate-600 font-semibold">WhatsApp Guide</span>
       </nav>
 
-      {/* Hero / Primary CTA */}
+      {/* Hero Header */}
       <section className="bg-[#052659] text-white rounded-2xl sm:rounded-3xl p-6 sm:p-8 md:p-10 shadow-lg border border-[#052659]">
-        <div className="max-w-3xl space-y-4">
-          <div className="inline-flex items-center gap-2 bg-white/10 border border-white/15 px-3 py-1 rounded-full text-xs font-mono font-bold text-[#FF7A00]">
-            <span>OFFICIAL BUNKBY WHATSAPP ASSISTANT</span>
-          </div>
-
+        <div className="max-w-3xl space-y-3 sm:space-y-4">
           <h1 className="text-2xl sm:text-4xl font-display font-black tracking-tight leading-tight">
             Find and List Accommodation on WhatsApp in Zimbabwe
           </h1>
@@ -68,37 +54,6 @@ export const WhatsAppLandingPage: React.FC<WhatsAppLandingPageProps> = ({ onNavi
           <p className="text-sm sm:text-base text-slate-200 leading-relaxed">
             Use BunkBy&apos;s official WhatsApp Business service to search available rooms, cottages, flats, houses, student accommodation, guesthouses, lodges, and commercial properties—or publish your own property listing directly via chat with zero agent commissions.
           </p>
-
-          <div className="flex flex-wrap items-center gap-3 pt-2">
-            <a
-              href={getWhatsAppLink("Hi BunkBy! I would like to find accommodation.")}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="bg-[#15803d] hover:bg-[#166534] text-white font-bold px-5 py-3 rounded-xl shadow-md transition-colors inline-flex items-center gap-2 text-sm"
-            >
-              <MessageSquare className="w-4 h-4 shrink-0" />
-              <span>Chat with BunkBy on WhatsApp</span>
-            </a>
-
-            <a
-              href={getWhatsAppLink("Hi BunkBy! I would like to list my property.")}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="bg-[#FF7A00] hover:bg-[#e66e00] text-white font-bold px-5 py-3 rounded-xl shadow-md transition-colors inline-flex items-center gap-2 text-sm"
-            >
-              <Sparkles className="w-4 h-4 shrink-0" />
-              <span>List a Property on WhatsApp</span>
-            </a>
-
-            <a
-              href={getWhatsAppLink()}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="bg-white/10 hover:bg-white/20 text-white font-mono font-bold px-4 py-3 rounded-xl border border-white/20 text-xs sm:text-sm"
-            >
-              {WHATSAPP_NUMBER_DISPLAY}
-            </a>
-          </div>
         </div>
       </section>
 
@@ -197,18 +152,16 @@ export const WhatsAppLandingPage: React.FC<WhatsAppLandingPageProps> = ({ onNavi
             { def: CATEGORY_DEFINITIONS.commercial, Icon: Building2 },
             { def: CATEGORY_DEFINITIONS.student, Icon: GraduationCap },
           ].map(({ def, Icon }) => (
-            <a
+            <div
               key={def.slug}
-              href={`/categories/${def.slug}`}
-              onClick={(e) => handleLinkClick(e, `/categories/${def.slug}`)}
-              className="p-4 rounded-xl border border-slate-200 hover:border-[#052659] bg-slate-50/70 hover:bg-slate-50 transition-all space-y-1.5 group"
+              className="p-4 rounded-xl border border-slate-200 bg-slate-50/70 space-y-1.5"
             >
               <div className="flex items-center gap-2 text-[#052659] font-bold text-sm">
                 <Icon className="w-4 h-4 text-[#FF7A00] shrink-0" />
-                <span className="group-hover:underline">{def.name}</span>
+                <span>{def.name}</span>
               </div>
               <p className="text-xs text-slate-600 line-clamp-2">{def.intro}</p>
-            </a>
+            </div>
           ))}
         </div>
       </section>
@@ -230,31 +183,19 @@ export const WhatsAppLandingPage: React.FC<WhatsAppLandingPageProps> = ({ onNavi
             </div>
           ))}
         </div>
-      </section>
 
-      {/* Explore Zimbabwe Cities */}
-      <section className="bg-white rounded-2xl p-6 border border-slate-200 shadow-xs space-y-3">
-        <div className="flex items-center gap-2">
-          <MapPin className="w-4 h-4 text-[#FF7A00]" />
-          <h2 className="text-base font-display font-bold text-[#052659]">
-            Browse Available Properties by Zimbabwe City
-          </h2>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {featuredCities.map((city) => (
-            <a
-              key={city.slug}
-              href={`/locations/${city.slug}`}
-              onClick={(e) => handleLinkClick(e, `/locations/${city.slug}`)}
-              className="text-xs font-semibold text-[#052659] bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-lg transition-colors"
-            >
-              {city.name}
-            </a>
-          ))}
-        </div>
-        <div className="pt-2 flex items-center gap-2 text-xs text-slate-500">
-          <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-          <span>Operated in Zimbabwe by Atlas Manica Group. Always inspect properties in person before paying deposits.</span>
+        <div className="pt-2 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100">
+          <div className="flex items-center gap-2 text-xs text-slate-500">
+            <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>Operated in Zimbabwe by Atlas Manica Group. Always inspect properties in person before paying deposits.</span>
+          </div>
+          <a
+            href="/"
+            onClick={(e) => handleLinkClick(e, "/")}
+            className="text-xs font-bold text-[#052659] hover:underline shrink-0"
+          >
+            Search Properties on BunkBy &rarr;
+          </a>
         </div>
       </section>
     </div>

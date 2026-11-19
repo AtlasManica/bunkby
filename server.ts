@@ -14,19 +14,10 @@ import {
   buildHomeSeo,
   buildWhatsAppSeo,
   buildPrivacySeo,
-  buildLocationSeo,
-  buildCategorySeo,
   buildListingSeo,
   buildSitemapXml,
   normalizeListingRow,
   isListingAvailable,
-  findCityBySlugOrName,
-  findSuburbInCity,
-  matchesSuburbName,
-  toSlug,
-  CATEGORY_DEFINITIONS,
-  MarketplaceCategoryKey,
-  getListingCategoryKey,
   SeoPagePayload,
 } from "./shared/seoData";
 import { injectSeoIntoHtml, isCrawlerUserAgent } from "./shared/seoHtml";
@@ -1152,32 +1143,6 @@ function resolveExpressSeoPayload(req: express.Request): SeoPagePayload | null {
     const id = decodeURIComponent(listingMatch[1]);
     return buildListingSeo(querySqliteSingleListing(id), id);
   }
-  const catMatch = pathname.match(/^\/categories\/([^/]+)\/?$/);
-  if (catMatch) {
-    const slug = toSlug(decodeURIComponent(catMatch[1])) as MarketplaceCategoryKey;
-    const catDef = CATEGORY_DEFINITIONS[slug] || null;
-    if (!catDef) return buildCategorySeo(null, []);
-    const active = querySqliteActiveListings().filter((l) => getListingCategoryKey(l) === catDef.key);
-    return buildCategorySeo(catDef, active);
-  }
-  const suburbMatch = pathname.match(/^\/locations\/([^/]+)\/([^/]+)\/?$/);
-  if (suburbMatch) {
-    const city = findCityBySlugOrName(decodeURIComponent(suburbMatch[1]));
-    if (!city) return buildLocationSeo(null, null, [], true);
-    const suburb = findSuburbInCity(city, decodeURIComponent(suburbMatch[2]));
-    if (!suburb) return buildLocationSeo(city, null, [], true);
-    const active = querySqliteActiveListings().filter(
-      (l) => toSlug(l.city) === city.slug && matchesSuburbName(l.suburb, suburb)
-    );
-    return buildLocationSeo(city, suburb, active, false);
-  }
-  const cityMatch = pathname.match(/^\/locations\/([^/]+)\/?$/);
-  if (cityMatch) {
-    const city = findCityBySlugOrName(decodeURIComponent(cityMatch[1]));
-    if (!city) return buildLocationSeo(null, null, []);
-    const active = querySqliteActiveListings().filter((l) => toSlug(l.city) === city.slug);
-    return buildLocationSeo(city, null, active, false);
-  }
   return null;
 }
 
@@ -1215,9 +1180,6 @@ async function startServer() {
         "/whatsapp",
         "/privacy-policy",
         "/listing/:id",
-        "/locations/:city",
-        "/locations/:city/:suburb",
-        "/categories/:category",
       ],
       async (req, res, next) => {
         try {
@@ -1264,9 +1226,6 @@ async function startServer() {
         "/whatsapp",
         "/privacy-policy",
         "/listing/:id",
-        "/locations/:city",
-        "/locations/:city/:suburb",
-        "/categories/:category",
       ],
       (req, res) => {
         const seo = resolveExpressSeoPayload(req) || buildHomeSeo(querySqliteActiveListings());

@@ -169,19 +169,10 @@ export const ListingDetailPage: React.FC<ListingDetailPageProps> = ({
           <strong>{listing.title}</strong> ({listing.city}, {listing.suburb}) is no longer accepting enquiries on BunkBy.
         </p>
         <div className="flex flex-wrap justify-center gap-3 pt-2">
-          {cityDef && (
-            <a
-              href={`/locations/${cityDef.slug}`}
-              onClick={(e) => handleLinkClick(e, `/locations/${cityDef.slug}`)}
-              className="px-5 py-2.5 rounded-xl bg-[#052659] text-white text-xs font-bold"
-            >
-              Browse Active Listings in {cityDef.name}
-            </a>
-          )}
           <a
             href="/"
             onClick={(e) => handleLinkClick(e, "/")}
-            className="px-5 py-2.5 rounded-xl bg-slate-100 text-slate-700 text-xs font-bold"
+            className="px-5 py-2.5 rounded-xl bg-[#052659] text-white text-xs font-bold"
           >
             Back to BunkBy Home
           </a>
@@ -224,35 +215,17 @@ export const ListingDetailPage: React.FC<ListingDetailPageProps> = ({
           <span>Home</span>
         </a>
         <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
-        <a
-          href={`/categories/${catDef.slug}`}
-          onClick={(e) => handleLinkClick(e, `/categories/${catDef.slug}`)}
-          className="hover:text-[#052659]"
-        >
-          {catDef.name}
-        </a>
+        <span>{catDef.name}</span>
         {cityDef && (
           <>
             <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
-            <a
-              href={`/locations/${cityDef.slug}`}
-              onClick={(e) => handleLinkClick(e, `/locations/${cityDef.slug}`)}
-              className="hover:text-[#052659]"
-            >
-              {cityDef.name}
-            </a>
+            <span>{cityDef.name}</span>
           </>
         )}
         {cityDef && suburbDef && (
           <>
             <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
-            <a
-              href={`/locations/${cityDef.slug}/${suburbDef.slug}`}
-              onClick={(e) => handleLinkClick(e, `/locations/${cityDef.slug}/${suburbDef.slug}`)}
-              className="hover:text-[#052659]"
-            >
-              {suburbDef.name}
-            </a>
+            <span>{suburbDef.name}</span>
           </>
         )}
         <ChevronRight className="w-3.5 h-3.5 text-slate-400" />

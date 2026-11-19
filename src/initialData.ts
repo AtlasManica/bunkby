@@ -4,6 +4,7 @@
  */
 
 import { RoomListing, PropertyType } from "./types";
+import { ALL_CATALOG_CITY_NAMES } from "../shared/seoData";
 
 export const DEFAULT_ROOM_IMAGES = [
   "https://images.unsplash.com/photo-1522771739844-6a9f6d5f14af?auto=format&fit=crop&w=600&q=80", // master bedroom cozy
@@ -15,7 +16,7 @@ export const DEFAULT_ROOM_IMAGES = [
 
 export const INITIAL_ROOMS: RoomListing[] = [];
 
-export const ALL_ZIM_CITIES = ["Harare", "Bulawayo", "Chitungwiza", "Mutare", "Gweru", "Victoria Falls", "Kadoma", "Kwekwe", "Chinhoyi", "Masvingo", "Marondera", "Bindura", "Kariba", "Nyanga", "Chivhu", "Norton", "Epworth"];
+export const ALL_ZIM_CITIES = ALL_CATALOG_CITY_NAMES;
 
 export const RESIDENTIAL_AMENITIES = [
   "Borehole",

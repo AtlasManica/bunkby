@@ -31,7 +31,7 @@ export const PrivacyPolicy: React.FC<PrivacyPolicyProps> = ({ onBackToHome }) =>
     canonicalTag.setAttribute("href", "https://bunkby.com/privacy-policy");
 
     return () => {
-      document.title = "BunkBy – Zimbabwe Property Marketplace & Global Lodges, Hotels, Commercial & Rentals";
+      document.title = "BunkBy – Zimbabwe Property & Accommodation Marketplace | Web & WhatsApp";
       if (metaDesc && prevDesc) {
         metaDesc.setAttribute("content", prevDesc);
       }
@@ -138,7 +138,7 @@ export const PrivacyPolicy: React.FC<PrivacyPolicyProps> = ({ onBackToHome }) =>
             <p>Information gathered through BunkBy is processed for the following purposes:</p>
             <ul className="list-disc pl-5 space-y-2 text-slate-600">
               <li>
-                <strong className="text-slate-900">Facilitating Direct Connections:</strong> Allowing property seekers to discover rooms, flats, cottages, or lodges and contact verified landlords directly.
+                <strong className="text-slate-900">Facilitating Direct Connections:</strong> Allowing property seekers to discover rooms, flats, cottages, lodges, student housing, or commercial spaces and contact landlords and hosts directly.
               </li>
               <li>
                 <strong className="text-slate-900">Listing Administration:</strong> Enabling property owners to post, update, activate, and manage accommodation adverts.
@@ -244,7 +244,7 @@ export const PrivacyPolicy: React.FC<PrivacyPolicyProps> = ({ onBackToHome }) =>
                 <strong className="text-slate-900">Landlord Self-Service Renewal & Delisting:</strong> Landlords and property hosts retain 24/7 full self-service control. When a room or space is occupied, hosts can mark the property as <em>Rented / Delisted</em> or permanently delete it at any time directly from their landlord dashboard or via the automated WhatsApp bot (by sending <em>"my listings"</em> or <em>"delete"</em>). Delisted properties are immediately removed from public searches.
               </li>
               <li>
-                <strong className="text-slate-900">Tenant Real-Time Availability Check:</strong> Prospective renters and guests can tap <em>"Ask Host: Is this still available?"</em> on any property card to initiate direct communication with the host via WhatsApp, verifying occupancy status in real time with zero agent fees.
+                <strong className="text-slate-900">Tenant Direct Availability Check:</strong> Prospective renters and guests can tap <em>&quot;Ask Host: Is this still available?&quot;</em> on any property card to initiate direct communication with the host via WhatsApp, confirming occupancy status directly with zero agent fees.
               </li>
               <li>
                 <strong className="text-slate-900">Expired & Archived Listings:</strong> Listings that reach the conclusion of their 30-day active period without host renewal are automatically transitioned out of the public browse directory into an inactive archive state. Property data is permanently removed upon an explicit deletion request from the host.

@@ -3,6 +3,65 @@
  * Compatible with Cloudflare Pages Functions (Web Standards), Express (Node.js), and React SPA.
  */
 
+import {
+  ALL_CATALOG_CITY_NAMES,
+  CATALOG_SEARCH_ENTRIES,
+  CatalogLocationEntry,
+  CityDefinition,
+  FEATURED_CITY_SLUGS,
+  FEATURED_HARARE_SUBURB_SLUGS,
+  FEATURED_MAJOR_CITY_SLUGS,
+  FEATURED_TOURISM_SLUGS,
+  LOCATION_CITIES,
+  LocationMatchCounts,
+  LocationType,
+  ProvinceDefinition,
+  SuburbDefinition,
+  ZIMBABWE_PROVINCES,
+  computeLocationCounts,
+  findCityBySlugOrName,
+  findProvinceBySlugOrName,
+  findSuburbInCity,
+  formatLocationTypeLabel,
+  getCitiesInProvince,
+  getSuburbNamesForCity,
+  isCatalogListingAvailable,
+  matchesSuburbName,
+  resolveListingLocation,
+  searchLocationsCatalogue,
+  toSlug,
+} from "./locationCatalog";
+
+export {
+  ALL_CATALOG_CITY_NAMES,
+  CATALOG_SEARCH_ENTRIES,
+  FEATURED_CITY_SLUGS,
+  FEATURED_HARARE_SUBURB_SLUGS,
+  FEATURED_MAJOR_CITY_SLUGS,
+  FEATURED_TOURISM_SLUGS,
+  LOCATION_CITIES,
+  ZIMBABWE_PROVINCES,
+  computeLocationCounts,
+  findCityBySlugOrName,
+  findProvinceBySlugOrName,
+  findSuburbInCity,
+  formatLocationTypeLabel,
+  getCitiesInProvince,
+  getSuburbNamesForCity,
+  matchesSuburbName,
+  resolveListingLocation,
+  searchLocationsCatalogue,
+  toSlug,
+};
+export type {
+  CatalogLocationEntry,
+  CityDefinition,
+  LocationMatchCounts,
+  LocationType,
+  ProvinceDefinition,
+  SuburbDefinition,
+};
+
 export const SITE_URL = "https://bunkby.com";
 export const SITE_NAME = "BunkBy";
 export const OPERATOR_NAME = "Atlas Manica Group";
@@ -36,7 +95,7 @@ export const CATEGORY_DEFINITIONS: Record<MarketplaceCategoryKey, CategoryDefini
     headline: "Residential Rooms, Cottages, Flats & Houses in Zimbabwe",
     metaTitle: "Residential Rentals in Zimbabwe – Rooms, Cottages & Houses | BunkBy",
     metaDescription:
-      "Browse available rooms, cottages, apartments, flats, townhouses, and full houses across Zimbabwe on BunkBy with transparent pricing and direct landlord contact.",
+      "Browse available rooms, cottages, apartments, flats, townhouses, and full houses across Zimbabwe on BunkBy with direct landlord contact.",
     intro:
       "Discover residential rental accommodation across Zimbabwe including single rooms, bedsits, self-contained cottages, apartments, flats, townhouses, and full houses listed directly by landlords with zero agent commissions.",
     propertyTypes: [
@@ -61,7 +120,7 @@ export const CATEGORY_DEFINITIONS: Record<MarketplaceCategoryKey, CategoryDefini
     metaDescription:
       "Find lodges, guesthouses, hotels, and bed & breakfast stays across Harare, Victoria Falls, Bulawayo, Mutare, Kariba, and Nyanga with direct host WhatsApp inquiries.",
     intro:
-      "Explore hospitality accommodation across Zimbabwe including lodges, boutique guesthouses, hotels, and bed & breakfasts with transparent nightly rates and direct booking inquiries.",
+      "Explore lodges, guesthouses, hotels, and short stays across Zimbabwe with listed nightly rates and direct WhatsApp inquiries to hosts.",
     propertyTypes: [
       "Lodge / Guesthouse",
       "Lodge",
@@ -104,336 +163,7 @@ export const CATEGORY_DEFINITIONS: Record<MarketplaceCategoryKey, CategoryDefini
   },
 };
 
-export interface SuburbDefinition {
-  name: string;
-  slug: string;
-  aliases: string[];
-  description?: string;
-}
-
-export interface CityDefinition {
-  name: string;
-  slug: string;
-  provinceOrRegion: string;
-  intro: string;
-  highlights: string;
-  suburbs: SuburbDefinition[];
-}
-
-export function toSlug(input: string): string {
-  return String(input || "")
-    .trim()
-    .toLowerCase()
-    .replace(/&/g, "and")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-}
-
-function makeSuburb(name: string, aliases: string[] = [], description?: string): SuburbDefinition {
-  const slug = toSlug(name);
-  const allAliases = Array.from(new Set([name, ...aliases]));
-  return { name, slug, aliases: allAliases, description };
-}
-
-export const LOCATION_CITIES: CityDefinition[] = [
-  {
-    name: "Harare",
-    slug: "harare",
-    provinceOrRegion: "Harare Metropolitan Province",
-    intro:
-      "Harare is Zimbabwe's capital and largest property market, spanning high-demand residential suburbs, university precincts, CBD commercial hubs, and guest lodges.",
-    highlights:
-      "Browse available rooms, cottages, flats, student boarding houses, guesthouses, retail shops, and office spaces across Harare neighborhoods.",
-    suburbs: [
-      makeSuburb("Mount Pleasant", ["Mount Pleasant", "Mt Pleasant"], "Residential and university precinct near the University of Zimbabwe."),
-      makeSuburb("Borrowdale", ["Borrowdale", "Borrowdale Brooke"], "Northern residential and commercial corridor in Harare."),
-      makeSuburb("Avondale", ["Avondale", "Avondale West"], "Central-north residential, apartment, retail, and hospitality hub."),
-      makeSuburb("Eastlea", ["Eastlea"], "Accessible central suburb for cottages, flats, offices, and guesthouses."),
-      makeSuburb("Greendale", ["Greendale"], "Eastern residential and cottage rental neighborhood in Harare."),
-      makeSuburb("Avonlea", ["Avonlea"], "Northwestern Harare suburb popular for rooms and cottages."),
-      makeSuburb("Belvedere", ["Belvedere"], "Central-west suburb convenient for students and professionals."),
-      makeSuburb("Avenues", ["Avenues", "The Avenues"], "Inner-city apartment, bedsit, office, and hospitality district."),
-      makeSuburb("CBD", ["CBD", "Harare CBD"], "Central business district for retail shops, offices, and market tables."),
-      makeSuburb("Highlands", ["Highlands"], "Established northern suburb with houses, cottages, and offices."),
-      makeSuburb("Mabelreign", ["Mabelreign"], "Western residential suburb with family homes, rooms, and cottages."),
-      makeSuburb("Marlborough", ["Marlborough"], "Northwestern residential area in Harare."),
-      makeSuburb("Hatfield", ["Hatfield"], "Southern residential suburb near Harare Airport Road."),
-      makeSuburb("Msasa", ["Msasa"], "Industrial and commercial warehouse district in eastern Harare."),
-      makeSuburb("Waterfalls", ["Waterfalls"], "Southern residential area with affordable rooms and cottages."),
-      makeSuburb("Westgate", ["Westgate"], "Northwestern residential and retail node."),
-      makeSuburb("Chisipite", ["Chisipite"], "Northeastern residential and suburban shopping area."),
-      makeSuburb("Milton Park", ["Milton Park"], "Central residential and office conversion district."),
-      makeSuburb("Braeside", ["Braeside"], "Southeastern residential neighborhood near the city center."),
-      makeSuburb("Madokero", ["Madokero"], "Growing western residential estate."),
-      makeSuburb("Highfield", ["Highfield"], "Established high-density residential and trading suburb."),
-      makeSuburb("Budiriro", ["Budiriro"], "Southwestern residential suburb in Harare."),
-      makeSuburb("Glen View", ["Glen View"], "Southern residential and small-business neighborhood."),
-      makeSuburb("Mbare", ["Mbare"], "Historic southern trading, market, and residential district."),
-    ],
-  },
-  {
-    name: "Bulawayo",
-    slug: "bulawayo",
-    provinceOrRegion: "Bulawayo Metropolitan Province",
-    intro:
-      "Bulawayo is Zimbabwe's second-largest city, offering residential rooms and cottages, student housing near NUST, commercial premises, and guesthouses.",
-    highlights:
-      "Explore active accommodation and commercial property listings across Bulawayo suburbs directly on BunkBy or via WhatsApp.",
-    suburbs: [
-      makeSuburb("Kumalo", ["Kumalo", "Khumalo"]),
-      makeSuburb("Hillside", ["Hillside"]),
-      makeSuburb("Suburbs", ["Suburbs"]),
-      makeSuburb("Bradfield", ["Bradfield"]),
-      makeSuburb("Famona", ["Famona"]),
-      makeSuburb("Burnside", ["Burnside"]),
-      makeSuburb("Morningside", ["Morningside"]),
-      makeSuburb("Matsheumhlope", ["Matsheumhlope"]),
-      makeSuburb("Selborne Park", ["Selborne Park"]),
-      makeSuburb("Cowdray Park", ["Cowdray Park"]),
-      makeSuburb("Luveve", ["Luveve"]),
-      makeSuburb("Nkulumane", ["Nkulumane"]),
-      makeSuburb("Sizinda", ["Sizinda"]),
-      makeSuburb("Belmont", ["Belmont"]),
-    ],
-  },
-  {
-    name: "Mutare",
-    slug: "mutare",
-    provinceOrRegion: "Manicaland Province",
-    intro:
-      "Mutare is the gateway to Zimbabwe's Eastern Highlands, combining residential rentals, university housing, commercial trading spaces, and mountain-view lodges.",
-    highlights:
-      "Search available Mutare rooms, cottages, guesthouses, and business spaces directly with property advertisers.",
-    suburbs: [
-      makeSuburb("Murambi", ["Murambi"]),
-      makeSuburb("Palmerstone", ["Palmerstone"]),
-      makeSuburb("Chikanga", ["Chikanga"]),
-      makeSuburb("Dangamvura", ["Dangamvura"]),
-      makeSuburb("Hobhouse", ["Hobhouse"]),
-      makeSuburb("Fairbridge Park", ["Fairbridge Park"]),
-      makeSuburb("Yeovil", ["Yeovil"]),
-      makeSuburb("Darlington", ["Darlington"]),
-    ],
-  },
-  {
-    name: "Gweru",
-    slug: "gweru",
-    provinceOrRegion: "Midlands Province",
-    intro:
-      "Gweru serves the Midlands region with student accommodation near Midlands State University (MSU), residential cottages, commercial premises, and hospitality stays.",
-    highlights:
-      "Find verified rentals and student accommodation in Senga, Southdowns, Daylesford, Lundi Park, and across Gweru.",
-    suburbs: [
-      makeSuburb("Senga", ["Senga"]),
-      makeSuburb("Southdowns", ["Southdowns"]),
-      makeSuburb("Daylesford", ["Daylesford"]),
-      makeSuburb("Lundi Park", ["Lundi Park"]),
-      makeSuburb("Mkoba", ["Mkoba"]),
-      makeSuburb("Riverside", ["Riverside"]),
-      makeSuburb("Athlone", ["Athlone"]),
-      makeSuburb("Harben Park", ["Harben Park"]),
-    ],
-  },
-  {
-    name: "Masvingo",
-    slug: "masvingo",
-    provinceOrRegion: "Masvingo Province",
-    intro:
-      "Masvingo offers residential rentals, student accommodation, guesthouses, lodges near Great Zimbabwe, and commercial spaces across town neighborhoods.",
-    highlights:
-      "Browse active listings in Rhodene, Target Kopje, Rujeko, Mucheke, Eastvale, and greater Masvingo.",
-    suburbs: [
-      makeSuburb("Rhodene", ["Rhodene"]),
-      makeSuburb("Target Kopje", ["Target Kopje"]),
-      makeSuburb("Rujeko", ["Rujeko"]),
-      makeSuburb("Mucheke", ["Mucheke"]),
-      makeSuburb("Eastvale", ["Eastvale"]),
-      makeSuburb("Clovelly", ["Clovelly"]),
-    ],
-  },
-  {
-    name: "Chitungwiza",
-    slug: "chitungwiza",
-    provinceOrRegion: "Harare Metropolitan Province",
-    intro:
-      "Chitungwiza is one of Zimbabwe's largest urban communities, with strong demand for single rooms, family cottages, full houses, and local retail shops.",
-    highlights:
-      "Discover residential rooms, cottages, and commercial spaces across Chitungwiza directly from landlords.",
-    suburbs: [
-      makeSuburb("Zengeza", ["Zengeza"]),
-      makeSuburb("Seke", ["Seke"]),
-      makeSuburb("St Marys", ["St Marys", "St Mary's"]),
-      makeSuburb("Makoni", ["Makoni"]),
-    ],
-  },
-  {
-    name: "Victoria Falls",
-    slug: "victoria-falls",
-    provinceOrRegion: "Matabeleland North Province",
-    intro:
-      "Victoria Falls is Zimbabwe's premier tourism destination, featuring lodges, hotels, guesthouses, staff rooms, residential cottages, and tourism-district commercial spaces.",
-    highlights:
-      "Explore hospitality stays, lodges, and residential listings in Victoria Falls with direct WhatsApp contact.",
-    suburbs: [
-      makeSuburb("Chinotimba", ["Chinotimba"]),
-      makeSuburb("Mkhosana", ["Mkhosana"]),
-      makeSuburb("Aerodrome", ["Aerodrome"]),
-      makeSuburb("Low Density", ["Low Density"]),
-    ],
-  },
-  {
-    name: "Chinhoyi",
-    slug: "chinhoyi",
-    provinceOrRegion: "Mashonaland West Province",
-    intro:
-      "Chinhoyi hosts residential housing, student rooms serving Chinhoyi University of Technology (CUT), commercial spaces, and regional lodges.",
-    highlights: "Find rooms, student accommodation, and commercial spaces in Chinhoyi.",
-    suburbs: [
-      makeSuburb("Coldstream", ["Coldstream"]),
-      makeSuburb("Orange Grove", ["Orange Grove"]),
-      makeSuburb("Ruvimbo", ["Ruvimbo"]),
-      makeSuburb("Chikonohono", ["Chikonohono"]),
-    ],
-  },
-  {
-    name: "Kadoma",
-    slug: "kadoma",
-    provinceOrRegion: "Mashonaland West Province",
-    intro: "Kadoma provides residential rentals, cottages, lodges, and retail spaces along the Harare–Bulawayo corridor.",
-    highlights: "Browse available rooms, cottages, and commercial spaces in Kadoma.",
-    suburbs: [
-      makeSuburb("Rimuka", ["Rimuka"]),
-      makeSuburb("Waverley", ["Waverley", "Waverly"]),
-      makeSuburb("Mornington", ["Mornington"]),
-      makeSuburb("Westview", ["Westview"]),
-    ],
-  },
-  {
-    name: "Kwekwe",
-    slug: "kwekwe",
-    provinceOrRegion: "Midlands Province",
-    intro: "Kwekwe connects Midlands industry with residential rentals, guesthouses, and commercial properties.",
-    highlights: "Discover active rentals and business spaces across Kwekwe.",
-    suburbs: [
-      makeSuburb("Mbizo", ["Mbizo"]),
-      makeSuburb("Amaveni", ["Amaveni"]),
-      makeSuburb("Msasa Park", ["Msasa Park"]),
-      makeSuburb("Fitchlea", ["Fitchlea"]),
-    ],
-  },
-  {
-    name: "Marondera",
-    slug: "marondera",
-    provinceOrRegion: "Mashonaland East Province",
-    intro: "Marondera offers family houses, cottages, boarding rooms, lodges, and commercial premises east of Harare.",
-    highlights: "Browse active property listings in Marondera.",
-    suburbs: [
-      makeSuburb("Rujeko", ["Rujeko"]),
-      makeSuburb("Dombotombo", ["Dombotombo"]),
-      makeSuburb("Cherutombo", ["Cherutombo"]),
-      makeSuburb("Winston Park", ["Winston Park"]),
-    ],
-  },
-  {
-    name: "Bindura",
-    slug: "bindura",
-    provinceOrRegion: "Mashonaland Central Province",
-    intro: "Bindura serves Mashonaland Central with residential rooms, student housing near BUSE, and commercial shops.",
-    highlights: "Search available listings across Bindura suburbs.",
-    suburbs: [
-      makeSuburb("Chipadze", ["Chipadze"]),
-      makeSuburb("Aerodrome", ["Aerodrome"]),
-      makeSuburb("Chiwaridzo", ["Chiwaridzo"]),
-    ],
-  },
-  {
-    name: "Kariba",
-    slug: "kariba",
-    provinceOrRegion: "Mashonaland West Province",
-    intro: "Kariba features lakeside lodges, guesthouses, holiday stays, and residential rentals on Lake Kariba.",
-    highlights: "Explore hospitality stays and rentals in Kariba.",
-    suburbs: [
-      makeSuburb("Nyamhunga", ["Nyamhunga"]),
-      makeSuburb("Mahombekombe", ["Mahombekombe"]),
-      makeSuburb("Heights", ["Heights"]),
-    ],
-  },
-  {
-    name: "Nyanga",
-    slug: "nyanga",
-    provinceOrRegion: "Manicaland Province",
-    intro: "Nyanga offers highland lodges, guesthouses, cottages, and mountain retreats in Zimbabwe's Eastern Highlands.",
-    highlights: "Browse lodges, guesthouses, and rentals in Nyanga.",
-    suburbs: [
-      makeSuburb("Juliasdale", ["Juliasdale"]),
-      makeSuburb("Troutbeck", ["Troutbeck"]),
-      makeSuburb("Nyamhuka", ["Nyamhuka"]),
-    ],
-  },
-  {
-    name: "Norton",
-    slug: "norton",
-    provinceOrRegion: "Mashonaland West Province",
-    intro: "Norton provides commuter residential rentals, cottages, and commercial spaces west of Harare.",
-    highlights: "Find rooms and houses in Norton.",
-    suburbs: [makeSuburb("Katanga", ["Katanga"]), makeSuburb("Knowe", ["Knowe"])],
-  },
-  {
-    name: "Epworth",
-    slug: "epworth",
-    provinceOrRegion: "Harare Metropolitan Province",
-    intro: "Epworth offers residential rooms and small commercial trading spaces near southeastern Harare.",
-    highlights: "Browse available rooms and properties in Epworth.",
-    suburbs: [],
-  },
-  {
-    name: "Chivhu",
-    slug: "chivhu",
-    provinceOrRegion: "Mashonaland East Province",
-    intro: "Chivhu provides residential rooms, guesthouses, and highway-corridor commercial spaces.",
-    highlights: "Find available listings in Chivhu.",
-    suburbs: [makeSuburb("CBD", ["CBD"]), makeSuburb("Northwood", ["Northwood"])],
-  },
-];
-
-export const FEATURED_CITY_SLUGS = [
-  "harare",
-  "bulawayo",
-  "mutare",
-  "gweru",
-  "masvingo",
-  "chitungwiza",
-  "victoria-falls",
-];
-
-export function findCityBySlugOrName(cityParam: string): CityDefinition | null {
-  const targetSlug = toSlug(cityParam);
-  return (
-    LOCATION_CITIES.find(
-      (c) => c.slug === targetSlug || toSlug(c.name) === targetSlug
-    ) || null
-  );
-}
-
-export function findSuburbInCity(city: CityDefinition, suburbParam: string): SuburbDefinition | null {
-  const targetSlug = toSlug(suburbParam);
-  return (
-    city.suburbs.find(
-      (s) =>
-        s.slug === targetSlug ||
-        s.aliases.some((alias) => toSlug(alias) === targetSlug)
-    ) || null
-  );
-}
-
-export function matchesSuburbName(listingSuburb: string, suburb: SuburbDefinition): boolean {
-  const cleanListing = toSlug(listingSuburb);
-  if (!cleanListing) return false;
-  return (
-    cleanListing === suburb.slug ||
-    suburb.aliases.some((alias) => toSlug(alias) === cleanListing)
-  );
-}
+// Location catalogue types, data, and helpers are centralised in ./locationCatalog.ts and re-exported above.
 
 export function normalizeListingRow(row: any): any {
   if (!row) return null;
@@ -519,20 +249,7 @@ export function normalizeListingRow(row: any): any {
 }
 
 export function isListingAvailable(listing: any, nowMs: number = Date.now()): boolean {
-  if (!listing) return false;
-  const rawStatus = String(listing.status || listing.verification_status || "Active").trim();
-  if (rawStatus !== "Active" && rawStatus !== "verified") {
-    return false;
-  }
-  const isPremium = Boolean(listing.isPremium ?? listing.is_premium);
-  const expiryDate = listing.expiryDate || listing.expiry_date;
-  if (isPremium && expiryDate) {
-    const expMs = Date.parse(String(expiryDate));
-    if (!Number.isNaN(expMs) && expMs < nowMs) {
-      return false;
-    }
-  }
-  return true;
+  return isCatalogListingAvailable(listing, nowMs);
 }
 
 export function getPublicListingImageUrl(listing: any, origin: string = SITE_URL): string {
@@ -645,33 +362,12 @@ export function buildHomeSeo(activeListings: any[]): SeoPagePayload {
   const canonicalUrl = `${SITE_URL}/`;
   const recent = activeListings.slice(0, 12);
 
-  const cityLinks = FEATURED_CITY_SLUGS.map((slug) => findCityBySlugOrName(slug))
-    .filter((c): c is CityDefinition => Boolean(c))
-    .map(
-      (c) =>
-        `<a href="/locations/${c.slug}" style="margin-right:12px;color:#052659;">${escapeHtml(c.name)}</a>`
-    )
-    .join("");
-
-  const categoryLinks = Object.values(CATEGORY_DEFINITIONS)
-    .map(
-      (cat) =>
-        `<a href="/categories/${cat.slug}" style="margin-right:12px;color:#052659;">${escapeHtml(cat.name)}</a>`
-    )
-    .join("");
-
   const ssrHtml = `<main style="font-family:sans-serif;max-width:960px;margin:24px auto;padding:20px;background:#fff;color:#1e293b;border-radius:12px;">
     <header style="margin-bottom:20px;border-bottom:1px solid #e2e8f0;padding-bottom:14px;">
       <p style="font-size:12px;text-transform:uppercase;color:#FF7A00;font-weight:bold;margin:0 0 6px;">${SITE_NAME} Zimbabwe &middot; Operated by ${OPERATOR_NAME}</p>
       <h1 style="color:#052659;font-size:28px;margin:0 0 8px;">Find Stays, Commercial Spaces &amp; Rentals in Zimbabwe</h1>
-      <p style="font-size:15px;line-height:1.6;margin:0;">BunkBy is an agent-free property and accommodation marketplace across Zimbabwe for rooms, houses, cottages, flats, student accommodation, guesthouses, lodges, and commercial spaces—available on the web and on WhatsApp at <a href="${WHATSAPP_BASE_URL}">${WHATSAPP_NUMBER_DISPLAY}</a>.</p>
+      <p style="font-size:15px;line-height:1.6;margin:0;">BunkBy is an agent-free property and accommodation marketplace across Zimbabwe for rooms, houses, cottages, flats, student accommodation, guesthouses, lodges, and commercial spaces—available on the web and on WhatsApp at <a href="${WHATSAPP_BASE_URL}">${WHATSAPP_NUMBER_DISPLAY}</a> (<a href="/whatsapp" style="color:#15803d;font-weight:bold;">WhatsApp Guide</a>).</p>
     </header>
-    <section style="margin-bottom:20px;">
-      <h2 style="font-size:18px;color:#052659;">Browse by Category &amp; WhatsApp Assistant</h2>
-      <p style="font-size:14px;line-height:1.8;">${categoryLinks} <a href="/whatsapp" style="color:#15803d;font-weight:bold;">WhatsApp Property Assistant</a></p>
-      <h2 style="font-size:18px;color:#052659;margin-top:14px;">Popular Zimbabwe Cities</h2>
-      <p style="font-size:14px;line-height:1.8;">${cityLinks}</p>
-    </section>
     ${
       recent.length > 0
         ? `<section><h2 style="font-size:18px;color:#052659;">Active Property Listings in Zimbabwe</h2>${recent
@@ -680,7 +376,7 @@ export function buildHomeSeo(activeListings: any[]): SeoPagePayload {
         : ""
     }
     <footer style="margin-top:24px;padding-top:14px;border-top:1px solid #e2e8f0;font-size:13px;color:#475569;">
-      <a href="/whatsapp">WhatsApp Assistant</a> &middot; <a href="/privacy-policy">Privacy Policy</a>
+      <a href="/privacy-policy">Privacy Policy</a> &middot; Powered by Zen Accommodation
     </footer>
   </main>`;
 
@@ -855,211 +551,6 @@ export function buildPrivacySeo(): SeoPagePayload {
   };
 }
 
-export function buildLocationSeo(
-  city: CityDefinition | null,
-  suburb: SuburbDefinition | null,
-  matchingActiveListings: any[],
-  isUnknownSuburb: boolean = false
-): SeoPagePayload {
-  if (!city || isUnknownSuburb) {
-    return {
-      httpStatus: 404,
-      title: "Location Not Found | BunkBy Zimbabwe",
-      description: "The requested Zimbabwe location page could not be found on BunkBy.",
-      canonicalUrl: `${SITE_URL}/locations`,
-      robots: "noindex, nofollow",
-      ogType: "website",
-      ogTitle: "Location Not Found | BunkBy Zimbabwe",
-      ogDescription: "Explore active accommodation and commercial properties across Zimbabwe on BunkBy.",
-      ogImage: `${SITE_URL}/og-image.png`,
-      jsonLd: null,
-      ssrHtml: `<main style="font-family:sans-serif;max-width:850px;margin:24px auto;padding:24px;background:#fff;color:#1e293b;border-radius:12px;">
-        <h1 style="color:#052659;">Location Not Found</h1>
-        <p>The requested city or suburb page was not found. Browse available properties across Zimbabwe on <a href="/">BunkBy</a>.</p>
-      </main>`,
-    };
-  }
-
-  const isSuburb = Boolean(suburb);
-  const placeName = suburb ? `${suburb.name}, ${city.name}` : city.name;
-  const canonicalUrl = suburb
-    ? `${SITE_URL}/locations/${city.slug}/${suburb.slug}`
-    : `${SITE_URL}/locations/${city.slug}`;
-
-  // Anti-thin-page policy:
-  // Index city hub pages and suburbs that have >= 1 active available listing.
-  // Empty suburb pages get noindex, follow until active inventory arrives.
-  const shouldIndex = !isSuburb || matchingActiveListings.length > 0;
-  const robots = shouldIndex ? "index, follow, max-image-preview:large" : "noindex, follow";
-
-  const title = suburb
-    ? `Accommodation, Rooms & Properties in ${suburb.name}, ${city.name} | BunkBy`
-    : `Accommodation, Rentals & Commercial Spaces in ${city.name}, Zimbabwe | BunkBy`;
-
-  const description = suburb
-    ? `Find available rooms, cottages, houses, student accommodation, guesthouses, and commercial properties in ${suburb.name}, ${city.name} on BunkBy or WhatsApp (${WHATSAPP_NUMBER_DISPLAY}) with zero agent fees.`
-    : `Discover available rooms, cottages, houses, student accommodation, lodges, and commercial properties in ${city.name}, Zimbabwe on BunkBy or via WhatsApp (${WHATSAPP_NUMBER_DISPLAY}).`;
-
-  const breadcrumbItems = [
-    { "@type": "ListItem", position: 1, name: "Home", item: `${SITE_URL}/` },
-    { "@type": "ListItem", position: 2, name: city.name, item: `${SITE_URL}/locations/${city.slug}` },
-  ];
-  if (suburb) {
-    breadcrumbItems.push({ "@type": "ListItem", position: 3, name: suburb.name, item: canonicalUrl });
-  }
-
-  const itemListElements = matchingActiveListings.slice(0, 20).map((item, idx) => ({
-    "@type": "ListItem",
-    position: idx + 1,
-    url: `${SITE_URL}/listing/${encodeURIComponent(String(item.id))}`,
-    name: item.title,
-  }));
-
-  const jsonLd: Record<string, any> = {
-    "@context": "https://schema.org",
-    "@graph": [
-      {
-        "@type": "CollectionPage",
-        "@id": canonicalUrl,
-        url: canonicalUrl,
-        name: title,
-        description,
-        inLanguage: "en-ZW",
-      },
-      {
-        "@type": "BreadcrumbList",
-        itemListElement: breadcrumbItems,
-      },
-      ...(itemListElements.length > 0
-        ? [
-            {
-              "@type": "ItemList",
-              name: `Active properties in ${placeName}`,
-              numberOfItems: itemListElements.length,
-              itemListElement: itemListElements,
-            },
-          ]
-        : []),
-    ],
-  };
-
-  const nearbySuburbsHtml = city.suburbs
-    .filter((s) => !suburb || s.slug !== suburb.slug)
-    .slice(0, 12)
-    .map((s) => `<a href="/locations/${city.slug}/${s.slug}" style="margin-right:10px;">${escapeHtml(s.name)}</a>`)
-    .join("");
-
-  const ssrHtml = `<main style="font-family:sans-serif;max-width:960px;margin:24px auto;padding:24px;background:#fff;color:#1e293b;border-radius:12px;">
-    <nav aria-label="Breadcrumb" style="font-size:13px;margin-bottom:14px;">
-      <a href="/">BunkBy Home</a> &rsaquo; <a href="/locations/${city.slug}">${escapeHtml(city.name)}</a>${
-        suburb ? ` &rsaquo; <span>${escapeHtml(suburb.name)}</span>` : ""
-      }
-    </nav>
-    <h1 style="color:#052659;font-size:28px;margin:0 0 10px;">Properties &amp; Accommodation in ${escapeHtml(placeName)}</h1>
-    <p style="font-size:15px;line-height:1.6;">${escapeHtml(
-      suburb?.description || city.intro
-    )} ${escapeHtml(city.highlights)}</p>
-    <p style="margin:14px 0;"><a href="${getWhatsAppLink(
-      `Hi BunkBy! I am looking for accommodation in ${placeName}.`
-    )}" style="color:#15803d;font-weight:bold;">Search ${escapeHtml(placeName)} on WhatsApp (${WHATSAPP_NUMBER_DISPLAY})</a></p>
-    <section style="margin-top:20px;">
-      <h2 style="color:#052659;font-size:20px;">Available Listings (${matchingActiveListings.length})</h2>
-      ${
-        matchingActiveListings.length > 0
-          ? matchingActiveListings.map(buildListingCardSsrHtml).join("")
-          : `<p>There are currently no active listings in ${escapeHtml(
-              placeName
-            )}. <a href="/locations/${city.slug}">Browse all active listings in ${escapeHtml(city.name)}</a> or chat with BunkBy on WhatsApp.</p>`
-      }
-    </section>
-    ${
-      nearbySuburbsHtml
-        ? `<section style="margin-top:20px;"><h2 style="color:#052659;font-size:17px;">Explore Suburbs in ${escapeHtml(
-            city.name
-          )}</h2><p style="font-size:14px;line-height:1.8;">${nearbySuburbsHtml}</p></section>`
-        : ""
-    }
-  </main>`;
-
-  return {
-    httpStatus: 200,
-    title,
-    description,
-    canonicalUrl,
-    robots,
-    ogType: "website",
-    ogTitle: title,
-    ogDescription: description,
-    ogImage: `${SITE_URL}/og-image.png`,
-    jsonLd,
-    ssrHtml,
-  };
-}
-
-export function buildCategorySeo(
-  category: CategoryDefinition | null,
-  matchingActiveListings: any[]
-): SeoPagePayload {
-  if (!category) {
-    return {
-      httpStatus: 404,
-      title: "Category Not Found | BunkBy Zimbabwe",
-      description: "The requested BunkBy property category could not be found.",
-      canonicalUrl: SITE_URL,
-      robots: "noindex, nofollow",
-      ogType: "website",
-      ogTitle: "Category Not Found | BunkBy Zimbabwe",
-      ogDescription: "Browse properties across Zimbabwe on BunkBy.",
-      ogImage: `${SITE_URL}/og-image.png`,
-      jsonLd: null,
-      ssrHtml: `<main style="font-family:sans-serif;max-width:850px;margin:24px auto;padding:24px;background:#fff;color:#1e293b;border-radius:12px;"><h1>Category Not Found</h1><p><a href="/">Return to BunkBy</a></p></main>`,
-    };
-  }
-
-  const canonicalUrl = `${SITE_URL}/categories/${category.slug}`;
-  return {
-    httpStatus: 200,
-    title: category.metaTitle,
-    description: category.metaDescription,
-    canonicalUrl,
-    robots: "index, follow, max-image-preview:large",
-    ogType: "website",
-    ogTitle: category.metaTitle,
-    ogDescription: category.metaDescription,
-    ogImage: `${SITE_URL}/og-image.png`,
-    jsonLd: {
-      "@context": "https://schema.org",
-      "@graph": [
-        {
-          "@type": "CollectionPage",
-          "@id": canonicalUrl,
-          url: canonicalUrl,
-          name: category.metaTitle,
-          description: category.metaDescription,
-          inLanguage: "en-ZW",
-        },
-        {
-          "@type": "BreadcrumbList",
-          itemListElement: [
-            { "@type": "ListItem", position: 1, name: "Home", item: `${SITE_URL}/` },
-            { "@type": "ListItem", position: 2, name: category.name, item: canonicalUrl },
-          ],
-        },
-      ],
-    },
-    ssrHtml: `<main style="font-family:sans-serif;max-width:960px;margin:24px auto;padding:24px;background:#fff;color:#1e293b;border-radius:12px;">
-      <nav aria-label="Breadcrumb" style="font-size:13px;margin-bottom:14px;"><a href="/">BunkBy Home</a> &rsaquo; <span>${escapeHtml(category.name)}</span></nav>
-      <h1 style="color:#052659;">${escapeHtml(category.headline)}</h1>
-      <p>${escapeHtml(category.intro)}</p>
-      <section>${
-        matchingActiveListings.length > 0
-          ? matchingActiveListings.map(buildListingCardSsrHtml).join("")
-          : `<p>No active ${escapeHtml(category.name.toLowerCase())} listings right now. <a href="/">Browse all properties</a>.</p>`
-      }</section>
-    </main>`,
-  };
-}
-
 export function buildListingSeo(rawListing: any | null, idParam: string): SeoPagePayload {
   const cleanId = String(idParam || "").trim();
   if (!rawListing) {
@@ -1090,7 +581,6 @@ export function buildListingSeo(rawListing: any | null, idParam: string): SeoPag
   const available = isListingAvailable(listing);
 
   if (!available) {
-    const cityHref = cityDef ? `/locations/${cityDef.slug}` : "/";
     return {
       httpStatus: 410,
       title: `Listing No Longer Available – ${listing.city || "Zimbabwe"} | BunkBy`,
@@ -1105,7 +595,7 @@ export function buildListingSeo(rawListing: any | null, idParam: string): SeoPag
       ssrHtml: `<main style="font-family:sans-serif;max-width:850px;margin:24px auto;padding:24px;background:#fff;color:#1e293b;border-radius:12px;">
         <h1 style="color:#052659;">This Listing Is No Longer Available</h1>
         <p>The listing <strong>${escapeHtml(listing.title)}</strong> in ${escapeHtml(locationLabel)} is currently marked as <strong>${escapeHtml(listing.status)}</strong>.</p>
-        <p><a href="${escapeHtml(cityHref)}">Browse available properties in ${escapeHtml(listing.city || "Zimbabwe")}</a> &middot; <a href="/">BunkBy Home</a></p>
+        <p><a href="/">Search available properties on BunkBy</a></p>
       </main>`,
     };
   }
@@ -1123,30 +613,13 @@ export function buildListingSeo(rawListing: any | null, idParam: string): SeoPag
 
   const breadcrumbItems: Array<Record<string, any>> = [
     { "@type": "ListItem", position: 1, name: "Home", item: `${SITE_URL}/` },
-    { "@type": "ListItem", position: 2, name: catDef.name, item: `${SITE_URL}/categories/${catDef.slug}` },
-  ];
-  if (cityDef) {
-    breadcrumbItems.push({
+    {
       "@type": "ListItem",
-      position: breadcrumbItems.length + 1,
-      name: cityDef.name,
-      item: `${SITE_URL}/locations/${cityDef.slug}`,
-    });
-    if (suburbDef) {
-      breadcrumbItems.push({
-        "@type": "ListItem",
-        position: breadcrumbItems.length + 1,
-        name: suburbDef.name,
-        item: `${SITE_URL}/locations/${cityDef.slug}/${suburbDef.slug}`,
-      });
-    }
-  }
-  breadcrumbItems.push({
-    "@type": "ListItem",
-    position: breadcrumbItems.length + 1,
-    name: listing.title,
-    item: canonicalUrl,
-  });
+      position: 2,
+      name: listing.title,
+      item: canonicalUrl,
+    },
+  ];
 
   const schemaType = catKey === "hospitality" ? ["LodgingBusiness", "RealEstateListing"] : "RealEstateListing";
   const listingSchema: Record<string, any> = {
@@ -1188,12 +661,10 @@ export function buildListingSeo(rawListing: any | null, idParam: string): SeoPag
 
   const ssrHtml = `<main style="font-family:sans-serif;max-width:900px;margin:24px auto;padding:24px;background:#fff;color:#1e293b;border-radius:12px;">
     <nav aria-label="Breadcrumb" style="font-size:13px;margin-bottom:14px;">
-      <a href="/">Home</a> &rsaquo; <a href="/categories/${catDef.slug}">${escapeHtml(catDef.name)}</a>${
-    cityDef ? ` &rsaquo; <a href="/locations/${cityDef.slug}">${escapeHtml(cityDef.name)}</a>` : ""
+      <a href="/">Home</a> &rsaquo; <span>${escapeHtml(catDef.name)}</span>${
+    cityDef ? ` &rsaquo; <span>${escapeHtml(cityDef.name)}</span>` : ""
   }${
-    cityDef && suburbDef
-      ? ` &rsaquo; <a href="/locations/${cityDef.slug}/${suburbDef.slug}">${escapeHtml(suburbDef.name)}</a>`
-      : ""
+    cityDef && suburbDef ? ` &rsaquo; <span>${escapeHtml(suburbDef.name)}</span>` : ""
   } &rsaquo; <span>${escapeHtml(listing.title)}</span>
     </nav>
     <article>
@@ -1256,32 +727,12 @@ export function buildSitemapXml(rawListings: any[], fallbackDate?: string): stri
   addUrl(`${SITE_URL}/whatsapp`, today, "weekly", "0.9");
   addUrl(`${SITE_URL}/privacy-policy`, today, "monthly", "0.5");
 
-  // Public category pages
-  for (const cat of Object.values(CATEGORY_DEFINITIONS)) {
-    addUrl(`${SITE_URL}/categories/${cat.slug}`, today, "daily", "0.8");
-  }
-
-  // Filter strictly to active, non-expired listings
+  // Active, non-expired listing detail pages
   const availableListings = rawListings
     .map(normalizeListingRow)
     .filter((l) => l && isListingAvailable(l));
 
-  // Featured Zimbabwe city hubs (always indexed)
-  for (const slug of FEATURED_CITY_SLUGS) {
-    addUrl(`${SITE_URL}/locations/${slug}`, today, "daily", "0.85");
-  }
-
-  // Track cities & suburbs with active inventory so empty thin suburbs are excluded
   for (const listing of availableListings) {
-    const cityDef = findCityBySlugOrName(listing.city);
-    if (cityDef) {
-      addUrl(`${SITE_URL}/locations/${cityDef.slug}`, today, "daily", "0.85");
-      const suburbDef = findSuburbInCity(cityDef, listing.suburb);
-      if (suburbDef) {
-        addUrl(`${SITE_URL}/locations/${cityDef.slug}/${suburbDef.slug}`, today, "daily", "0.75");
-      }
-    }
-
     const rawDate = String(listing.createdAt || "").trim();
     const parsedMs = rawDate ? Date.parse(rawDate) : NaN;
     const lastmod = !Number.isNaN(parsedMs) ? new Date(parsedMs).toISOString().slice(0, 10) : today;

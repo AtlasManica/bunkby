@@ -25,23 +25,21 @@ export function getPrimaryListingPhoto(room: any): string {
 }
 import PrivacyPolicy from "./PrivacyPolicy";
 import { WhatsAppLandingPage } from "./components/WhatsAppLandingPage";
-import { LocationPage } from "./components/LocationPage";
-import { CategoryPage } from "./components/CategoryPage";
 import { ListingDetailPage } from "./components/ListingDetailPage";
 import { applyClientSeo } from "./utils/seoClient";
 import {
-  CATEGORY_DEFINITIONS,
-  FEATURED_CITY_SLUGS,
-  MarketplaceCategoryKey,
-  buildCategorySeo,
+  CatalogLocationEntry,
   buildHomeSeo,
-  buildLocationSeo,
   buildWhatsAppSeo,
   findCityBySlugOrName,
+  findProvinceBySlugOrName,
   findSuburbInCity,
-  getListingCategoryKey,
+  formatLocationTypeLabel,
+  getSuburbNamesForCity,
   isListingAvailable,
   matchesSuburbName,
+  resolveListingLocation,
+  searchLocationsCatalogue,
   toSlug,
 } from "../shared/seoData";
 /**
@@ -49,7 +47,7 @@ import {
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   GraduationCap, 
   Building, 
@@ -155,9 +153,17 @@ const BunkByLogo = ({ className = "w-10 h-10" }: { className?: string }) => (
   </div>
 );
 
+const normalizeRoutePath = (rawPath: string) => {
+  if (rawPath === "/whatsapp" || rawPath === "/privacy-policy") return rawPath;
+  if (/^\/listing\/[^/]+\/?$/.test(rawPath)) return rawPath;
+  return "/";
+};
+
 export default function App() {
   // Current active tab of the app
-  const [currentPath, setCurrentPath] = useState<string>(() => typeof window !== "undefined" ? window.location.pathname : "/");
+  const [currentPath, setCurrentPath] = useState<string>(() =>
+    typeof window !== "undefined" ? normalizeRoutePath(window.location.pathname) : "/"
+  );
   const [activeTab, setActiveTab] = useState<"browse" | "landlord" | "account" | "help">("browse");
 
   // Room Listings State (hydrated instantaneously from sessionStorage cache when available)
@@ -242,6 +248,12 @@ export default function App() {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedCity, setSelectedCity] = useState("");
   const [selectedSuburb, setSelectedSuburb] = useState("");
+  const [selectedProvinceSlug, setSelectedProvinceSlug] = useState("");
+  const [customLocationQuery, setCustomLocationQuery] = useState("");
+  const [locationInput, setLocationInput] = useState("");
+  const [isLocationDropdownOpen, setIsLocationDropdownOpen] = useState(false);
+  const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(-1);
+  const locationBoxRef = useRef<HTMLDivElement | null>(null);
   const [selectedAmenity, setSelectedAmenity] = useState("");
   const [selectedTenantType, setSelectedTenantType] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<"all" | "residential" | "hospitality" | "commercial" | "student">("all");
@@ -251,6 +263,88 @@ export default function App() {
   const [sortBy, setSortBy] = useState<"newest" | "price_asc" | "price_desc" | "leads">("newest");
   const [showMobileFilters, setShowMobileFilters] = useState(false);
   const [pendingDirectListingId, setPendingDirectListingId] = useState<string | null>(null);
+
+  const locationSuggestions = useMemo(() => {
+    const q = locationInput.trim();
+    if (!q) return [];
+    return searchLocationsCatalogue(q, 8);
+  }, [locationInput]);
+
+  useEffect(() => {
+    const handleOutsideClick = (event: MouseEvent) => {
+      if (locationBoxRef.current && !locationBoxRef.current.contains(event.target as Node)) {
+        setIsLocationDropdownOpen(false);
+        setActiveSuggestionIndex(-1);
+      }
+    };
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => document.removeEventListener("mousedown", handleOutsideClick);
+  }, []);
+
+  const selectCatalogLocation = (entry: CatalogLocationEntry) => {
+    if (entry.locationType === "province") {
+      setSelectedProvinceSlug(entry.slug);
+      setSelectedCity("");
+      setSelectedSuburb("");
+      setCustomLocationQuery("");
+      setLocationInput(`${entry.name} Province`);
+    } else if (entry.locationType === "suburb") {
+      const parentName = entry.parentName || "";
+      setSelectedProvinceSlug("");
+      setSelectedCity(parentName);
+      setSelectedSuburb(entry.name);
+      setCustomLocationQuery("");
+      setLocationInput(parentName ? `${entry.name}, ${parentName}` : entry.name);
+    } else {
+      setSelectedProvinceSlug("");
+      setSelectedCity(entry.name);
+      setSelectedSuburb("");
+      setCustomLocationQuery("");
+      setLocationInput(entry.name);
+    }
+    setIsLocationDropdownOpen(false);
+    setActiveSuggestionIndex(-1);
+  };
+
+  const committedLocationLabel = useMemo(() => {
+    if (selectedSuburb && selectedCity) return `${selectedSuburb}, ${selectedCity}`;
+    if (selectedSuburb) return selectedSuburb;
+    if (selectedCity) return selectedCity;
+    if (selectedProvinceSlug) {
+      const prov = findProvinceBySlugOrName(selectedProvinceSlug);
+      return prov ? `${prov.name} Province` : selectedProvinceSlug;
+    }
+    return customLocationQuery;
+  }, [selectedSuburb, selectedCity, selectedProvinceSlug, customLocationQuery]);
+
+  const commitLocationSearchInput = () => {
+    const trimmed = locationInput.trim();
+    if (!trimmed) {
+      setSelectedCity("");
+      setSelectedSuburb("");
+      setSelectedProvinceSlug("");
+      setCustomLocationQuery("");
+      setIsLocationDropdownOpen(false);
+      return;
+    }
+    if (
+      committedLocationLabel &&
+      trimmed.toLowerCase() === committedLocationLabel.toLowerCase()
+    ) {
+      setIsLocationDropdownOpen(false);
+      return;
+    }
+    const matches = searchLocationsCatalogue(trimmed, 5);
+    if (matches.length > 0) {
+      selectCatalogLocation(matches[0]);
+      return;
+    }
+    setSelectedProvinceSlug("");
+    setSelectedCity("");
+    setSelectedSuburb("");
+    setCustomLocationQuery(trimmed);
+    setIsLocationDropdownOpen(false);
+  };
 
   // Accommodation Detail Modal State
   const [selectedListingDetail, setSelectedListingDetail] = useState<RoomListing | null>(null);
@@ -355,12 +449,13 @@ export default function App() {
   // Listen to browser forward/backward navigation across SPA & SEO routes
   useEffect(() => {
     const handlePopState = () => {
-      setCurrentPath(window.location.pathname);
+      const normalized = normalizeRoutePath(window.location.pathname);
+      setCurrentPath(normalized);
       const params = new URLSearchParams(window.location.search);
       const tab = params.get("tab");
       if (tab && ["browse", "landlord", "account", "help"].includes(tab)) {
         setActiveTab(tab as any);
-      } else if (window.location.pathname === "/") {
+      } else if (normalized === "/") {
         setActiveTab("browse");
       }
     };
@@ -370,16 +465,23 @@ export default function App() {
 
   const navigateTo = (path: string, tab?: "browse" | "landlord" | "account" | "help") => {
     try {
-      if (path !== "/") {
-        window.history.pushState(null, "", path);
-        setCurrentPath(path);
-        window.scrollTo({ top: 0, behavior: "smooth" });
-      } else {
-        const targetTab = tab || "browse";
+      if (path === "/" || path.startsWith("/?")) {
+        let targetTab = tab || "browse";
+        if (path.startsWith("/?")) {
+          const params = new URLSearchParams(path.slice(1));
+          const qTab = params.get("tab");
+          if (qTab && ["browse", "landlord", "account", "help"].includes(qTab)) {
+            targetTab = qTab as "browse" | "landlord" | "account" | "help";
+          }
+        }
         setActiveTab(targetTab);
         setCurrentPath("/");
         const search = targetTab !== "browse" ? `?tab=${targetTab}` : "";
         window.history.pushState(null, "", `/${search}`);
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      } else {
+        window.history.pushState(null, "", path);
+        setCurrentPath(path);
         window.scrollTo({ top: 0, behavior: "smooth" });
       }
     } catch (_) {}
@@ -392,6 +494,7 @@ export default function App() {
       const q = params.get("q");
       const city = params.get("city");
       const suburb = params.get("suburb");
+      const province = params.get("province");
       const cat = params.get("cat");
       const propType = params.get("type");
       const amenity = params.get("amenity");
@@ -403,8 +506,19 @@ export default function App() {
       const listingId = params.get("listing");
 
       if (q) setSearchTerm(q);
-      if (city) setSelectedCity(city);
-      if (suburb) setSelectedSuburb(suburb);
+      if (province) {
+        const provDef = findProvinceBySlugOrName(province);
+        if (provDef) {
+          setSelectedProvinceSlug(provDef.slug);
+          setLocationInput(`${provDef.name} Province`);
+        }
+      } else {
+        if (city) setSelectedCity(city);
+        if (suburb) setSelectedSuburb(suburb);
+        if (suburb && city) setLocationInput(`${suburb}, ${city}`);
+        else if (city) setLocationInput(city);
+        else if (suburb) setLocationInput(suburb);
+      }
       if (cat && ["all", "residential", "hospitality", "commercial", "student"].includes(cat)) setSelectedCategory(cat as any);
       if (propType) setSelectedPropertyType(propType);
       if (amenity) setSelectedAmenity(amenity);
@@ -436,6 +550,7 @@ export default function App() {
     try {
       const params = new URLSearchParams();
       if (searchTerm) params.set("q", searchTerm);
+      if (selectedProvinceSlug) params.set("province", selectedProvinceSlug);
       if (selectedCity) params.set("city", selectedCity);
       if (selectedSuburb) params.set("suburb", selectedSuburb);
       if (selectedCategory !== "all") params.set("cat", selectedCategory);
@@ -453,7 +568,7 @@ export default function App() {
       window.history.replaceState(null, "", newUrl);
     } catch (_) {}
   }, [
-    currentPath, searchTerm, selectedCity, selectedSuburb, selectedCategory,
+    currentPath, searchTerm, selectedProvinceSlug, selectedCity, selectedSuburb, selectedCategory,
     selectedPropertyType, selectedAmenity, selectedTenantType,
     minPrice, maxPrice, sortBy, activeTab, selectedListingDetail
   ]);
@@ -467,44 +582,6 @@ export default function App() {
 
     if (currentPath === "/whatsapp") {
       applyClientSeo(buildWhatsAppSeo());
-      return;
-    }
-
-    const catMatch = currentPath.match(/^\/categories\/([^/]+)\/?$/);
-    if (catMatch) {
-      const slug = toSlug(decodeURIComponent(catMatch[1])) as MarketplaceCategoryKey;
-      const catDef = CATEGORY_DEFINITIONS[slug] || null;
-      const filtered = catDef ? active.filter((l) => getListingCategoryKey(l) === catDef.key) : [];
-      applyClientSeo(buildCategorySeo(catDef, filtered));
-      return;
-    }
-
-    const suburbMatch = currentPath.match(/^\/locations\/([^/]+)\/([^/]+)\/?$/);
-    if (suburbMatch) {
-      const city = findCityBySlugOrName(decodeURIComponent(suburbMatch[1]));
-      if (!city) {
-        applyClientSeo(buildLocationSeo(null, null, [], true));
-        return;
-      }
-      const suburb = findSuburbInCity(city, decodeURIComponent(suburbMatch[2]));
-      if (!suburb) {
-        applyClientSeo(buildLocationSeo(city, null, [], true));
-        return;
-      }
-      const filtered = active.filter((l) => toSlug(l.city) === city.slug && matchesSuburbName(l.suburb, suburb));
-      applyClientSeo(buildLocationSeo(city, suburb, filtered, false));
-      return;
-    }
-
-    const cityMatch = currentPath.match(/^\/locations\/([^/]+)\/?$/);
-    if (cityMatch) {
-      const city = findCityBySlugOrName(decodeURIComponent(cityMatch[1]));
-      if (!city) {
-        applyClientSeo(buildLocationSeo(null, null, []));
-        return;
-      }
-      const filtered = active.filter((l) => toSlug(l.city) === city.slug);
-      applyClientSeo(buildLocationSeo(city, null, filtered, false));
       return;
     }
 
@@ -1148,14 +1225,48 @@ export default function App() {
       return false;
     }
 
-    // City Filter
-    if (selectedCity && room.city.toLowerCase() !== selectedCity.toLowerCase()) {
-      return false;
+    // Location Filters (Province, City/Town/Destination, Suburb, or Custom Free-Text Place)
+    const needsLocationResolution = Boolean(selectedProvinceSlug || selectedCity || selectedSuburb);
+    const resolvedRoomLocation = needsLocationResolution ? resolveListingLocation(room) : null;
+
+    if (selectedProvinceSlug && resolvedRoomLocation) {
+      if (resolvedRoomLocation.provinceSlug !== selectedProvinceSlug) {
+        return false;
+      }
     }
 
-    // Suburb filter
-    if (selectedSuburb && room.suburb.toLowerCase() !== selectedSuburb.toLowerCase()) {
-      return false;
+    const targetCity = selectedCity ? findCityBySlugOrName(selectedCity) : null;
+    if (selectedCity && resolvedRoomLocation) {
+      if (targetCity) {
+        if (resolvedRoomLocation.city) {
+          if (resolvedRoomLocation.city.slug !== targetCity.slug) return false;
+        } else if (toSlug(room.city) !== targetCity.slug) {
+          return false;
+        }
+      } else if (room.city.toLowerCase() !== selectedCity.toLowerCase()) {
+        return false;
+      }
+    }
+
+    if (selectedSuburb && resolvedRoomLocation) {
+      const suburbDef = targetCity ? findSuburbInCity(targetCity, selectedSuburb) : null;
+      if (suburbDef) {
+        const matchedSub =
+          resolvedRoomLocation.suburb?.slug === suburbDef.slug ||
+          matchesSuburbName(room.suburb, suburbDef);
+        if (!matchedSub) return false;
+      } else if (room.suburb.toLowerCase() !== selectedSuburb.toLowerCase()) {
+        return false;
+      }
+    }
+
+    if (customLocationQuery) {
+      const locQ = customLocationQuery.toLowerCase();
+      const matchesCustomLoc =
+        room.city.toLowerCase().includes(locQ) ||
+        room.suburb.toLowerCase().includes(locQ) ||
+        room.landmark.toLowerCase().includes(locQ);
+      if (!matchesCustomLoc) return false;
     }
 
     // Amenity filter (at least contains selected)
@@ -1196,6 +1307,11 @@ export default function App() {
     setSearchTerm("");
     setSelectedCity("");
     setSelectedSuburb("");
+    setSelectedProvinceSlug("");
+    setCustomLocationQuery("");
+    setLocationInput("");
+    setIsLocationDropdownOpen(false);
+    setActiveSuggestionIndex(-1);
     setSelectedAmenity("");
     setSelectedTenantType("");
     setSelectedCategory("all");
@@ -1206,29 +1322,8 @@ export default function App() {
     showToast("🧹 All filters cleared!");
   };
 
-  // Get suburbs of the selected city or general default list
-  const getSuburbsForCity = () => {
-    if (selectedCity === "Harare") {
-      return ["Avonlea", "Mount Pleasant", "Avenues", "Belvedere", "Hatfield", "Mabelreign", "Borrowdale"];
-    } else if (selectedCity === "Bulawayo") {
-      return ["Hillside", "Suburbs", "Kumalo", "Sizinda", "Cowdray Park", "Bradfield"];
-    } else if (selectedCity === "Gweru") {
-      return ["Senga", "Riverside", "Mkoba", "Daylesford"];
-    } else if (selectedCity === "Mutare") {
-      return ["Murambi", "Chikanga", "Hobhouse", "Palmerstone"];
-    } else if (selectedCity === "Kadoma") {
-      return ["Rimuka", "Waverly", "Innsfree", "Westview", "Mornington"];
-    } else if (selectedCity === "Kariba") {
-      return ["Nyamhunga", "Mahombekombe", "Heights", "Baobab", "Breezes"];
-    } else if (selectedCity === "Nyanga") {
-      return ["Juliasdale", "Troutbeck", "Village", "Rochdale", "Clairvaux", "Nyamhuka"];
-    } else if (selectedCity === "Bindura") {
-      return ["Chipadze", "Chiwaridzo", "Atherstone", "Brockley"];
-    } else if (selectedCity === "Chivhu") {
-      return ["CBD", "Northwood", "Enkeldoorn", "Gaza"];
-    }
-    return ["Avonlea", "Senga", "Hillside", "Murambi", "Rimuka", "Heights", "Chipadze"];
-  };
+  // Get suburbs of the selected city from centralised Zimbabwe location catalog
+  const getSuburbsForCity = () => getSuburbNamesForCity(selectedCity);
 
   if (currentPath === "/privacy-policy") {
     return <PrivacyPolicy onBackToHome={() => navigateTo("/", "browse")} />;
@@ -1386,7 +1481,7 @@ export default function App() {
       {/* Application Body Content */}
       <main className="flex-grow max-w-7xl w-full mx-auto px-3 sm:px-5 lg:px-8 py-3.5 sm:py-6">
 
-        {/* DEDICATED SEO ROUTES: /whatsapp, /listing/:id, /locations/:city(/:suburb), /categories/:category */}
+        {/* DEDICATED ROUTES: /whatsapp and /listing/:id */}
         {(() => {
           if (currentPath === "/whatsapp") {
             return <WhatsAppLandingPage onNavigate={(p) => navigateTo(p)} />;
@@ -1409,57 +1504,6 @@ export default function App() {
             );
           }
 
-          const suburbMatch = currentPath.match(/^\/locations\/([^/]+)\/([^/]+)\/?$/);
-          if (suburbMatch) {
-            const city = findCityBySlugOrName(decodeURIComponent(suburbMatch[1]));
-            const suburb = city ? findSuburbInCity(city, decodeURIComponent(suburbMatch[2])) : null;
-            return (
-              <LocationPage
-                city={city}
-                suburb={suburb}
-                isUnknownSuburb={!city || !suburb}
-                allListings={listings}
-                isLoading={isLoading}
-                onNavigate={(p) => navigateTo(p)}
-                onContactLandlord={handleContactLandlord}
-                getPrimaryPhoto={getPrimaryListingPhoto}
-              />
-            );
-          }
-
-          const cityMatch = currentPath.match(/^\/locations\/([^/]+)\/?$/);
-          if (cityMatch) {
-            const city = findCityBySlugOrName(decodeURIComponent(cityMatch[1]));
-            return (
-              <LocationPage
-                city={city}
-                suburb={null}
-                isUnknownSuburb={!city}
-                allListings={listings}
-                isLoading={isLoading}
-                onNavigate={(p) => navigateTo(p)}
-                onContactLandlord={handleContactLandlord}
-                getPrimaryPhoto={getPrimaryListingPhoto}
-              />
-            );
-          }
-
-          const catMatch = currentPath.match(/^\/categories\/([^/]+)\/?$/);
-          if (catMatch) {
-            const slug = toSlug(decodeURIComponent(catMatch[1])) as MarketplaceCategoryKey;
-            const catDef = CATEGORY_DEFINITIONS[slug] || null;
-            return (
-              <CategoryPage
-                category={catDef}
-                allListings={listings}
-                isLoading={isLoading}
-                onNavigate={(p) => navigateTo(p)}
-                onContactLandlord={handleContactLandlord}
-                getPrimaryPhoto={getPrimaryListingPhoto}
-              />
-            );
-          }
-
           return null;
         })()}
 
@@ -1470,29 +1514,31 @@ export default function App() {
             {/* Hero Card with optimized preloaded hero-bg.webp */}
             <section 
               id="hero-banner" 
-              className="bg-[#080f18] rounded-2xl sm:rounded-3xl text-white p-4 sm:p-7 md:p-10 text-center relative overflow-hidden shadow-xl sm:shadow-2xl border border-slate-800/80"
+              className="bg-[#080f18] rounded-2xl sm:rounded-3xl text-white p-4 sm:p-7 md:p-10 text-center relative shadow-xl sm:shadow-2xl border border-slate-800/80"
               style={{
                 background:
                   "radial-gradient(circle at 14% 18%, rgba(255,122,0,0.18), transparent 36%), radial-gradient(circle at 86% 84%, rgba(255,122,0,0.16), transparent 38%), #080f18",
               }}
             >
               {/* Preloaded Hero Background Image (60KB WebP for instant paint) */}
-              <img
-                src="/hero-bg.webp"
-                alt="BunkBy Hero Background"
-                loading="eager"
-                decoding="sync"
-                fetchPriority="high"
-                className="absolute inset-0 w-full h-full object-cover pointer-events-none select-none"
-                referrerPolicy="no-referrer"
-                onError={(e) => {
-                  const img = e.currentTarget as HTMLImageElement;
-                  if (!img.dataset.fallbackTried) {
-                    img.dataset.fallbackTried = "1";
-                    img.src = "/hero-background.png";
-                  }
-                }}
-              />
+              <div className="absolute inset-0 rounded-2xl sm:rounded-3xl overflow-hidden pointer-events-none select-none">
+                <img
+                  src="/hero-bg.webp"
+                  alt="BunkBy Hero Background"
+                  loading="eager"
+                  decoding="sync"
+                  fetchPriority="high"
+                  className="w-full h-full object-cover"
+                  referrerPolicy="no-referrer"
+                  onError={(e) => {
+                    const img = e.currentTarget as HTMLImageElement;
+                    if (!img.dataset.fallbackTried) {
+                      img.dataset.fallbackTried = "1";
+                      img.src = "/hero-background.png";
+                    }
+                  }}
+                />
+              </div>
 
               <div className="relative z-10 max-w-3xl mx-auto space-y-3 sm:space-y-4">
                 <h1 className="text-xl sm:text-3xl md:text-5xl font-display font-black tracking-tight text-white leading-tight drop-shadow-md">
@@ -1500,10 +1546,10 @@ export default function App() {
                 </h1>
 
                 <p className="text-xs sm:text-sm md:text-base text-slate-200 font-medium max-w-2xl mx-auto leading-relaxed drop-shadow-sm line-clamp-2 sm:line-clamp-none">
-                  Book world-class safari lodges, boutique guesthouses & hotels, discover prime commercial retail shops & offices, or rent verified cottages & rooms with 100% transparent pricing and direct WhatsApp contact.
+                  Explore residential rentals, student accommodation, lodges, guesthouses, and commercial spaces across Zimbabwe—with listed pricing and direct WhatsApp connection to property owners and hosts.
                 </p>
 
-                <div className="pt-1 flex flex-wrap gap-2 sm:gap-3 justify-center items-center">
+                <div className="pt-1 grid grid-cols-2 gap-2 sm:gap-3 max-w-md mx-auto w-full">
                   <button 
                     onClick={() => {
                       if (!userProfile) {
@@ -1514,10 +1560,10 @@ export default function App() {
                         setIsCreateModalOpen(true);
                       }
                     }}
-                    className="bg-[#FF7A00] hover:bg-[#e66e00] text-white font-black px-3.5 sm:px-5 py-2 sm:py-2.5 rounded-xl shadow-lg shadow-orange-500/30 transition-all text-xs sm:text-sm flex items-center gap-1.5 cursor-pointer min-h-[40px] whitespace-nowrap"
+                    className="w-full justify-center bg-[#FF7A00] hover:bg-[#e66e00] text-white font-black px-2.5 sm:px-4 py-2 sm:py-2.5 rounded-xl shadow-lg shadow-orange-500/30 transition-all text-[11px] sm:text-sm flex items-center gap-1.5 cursor-pointer min-h-[38px] sm:min-h-[42px] whitespace-nowrap"
                   >
                     <Plus className="w-3.5 h-3.5 shrink-0 stroke-[3]" />
-                    <span>List Accommodation (Free)</span>
+                    <span>Create Listings</span>
                   </button>
 
                   <a
@@ -1525,10 +1571,10 @@ export default function App() {
                     href={getBunkByWhatsAppUrl("Hi BunkBy! I would like to find accommodation.")}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="group bg-white hover:bg-[#FF7900] text-[#052659] hover:text-white border border-slate-200 hover:border-[#FF7900] font-bold px-3.5 sm:px-5 py-2 sm:py-2.5 rounded-xl shadow-md transition-all text-xs sm:text-sm inline-flex items-center justify-center gap-2 min-h-[40px] whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF7900]"
+                    className="w-full justify-center group bg-white hover:bg-[#FF7900] text-[#052659] hover:text-white border border-slate-200 hover:border-[#FF7900] font-bold px-2.5 sm:px-4 py-2 sm:py-2.5 rounded-xl shadow-md transition-all text-[11px] sm:text-sm inline-flex items-center gap-1.5 min-h-[38px] sm:min-h-[42px] whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF7900]"
                   >
-                    <WhatsAppIcon className="w-4 h-4 text-[#25D366] group-hover:text-white transition-colors shrink-0" />
-                    <span>Find Accommodation on WhatsApp</span>
+                    <WhatsAppIcon className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#25D366] group-hover:text-white transition-colors shrink-0" />
+                    <span>Find on WhatsApp</span>
                   </a>
                 </div>
 
@@ -1630,7 +1676,21 @@ export default function App() {
               </div>
 
               {/* Dynamic Filter Search Form Container - Compact on mobile */}
-              <div className="mt-4 sm:mt-5 bg-white text-slate-800 rounded-2xl p-3 sm:p-4 shadow-xl border border-slate-200 max-w-3xl mx-auto text-left relative z-10 flex flex-col sm:flex-row gap-2.5 sm:gap-3 items-stretch sm:items-end">
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (isLocationDropdownOpen && activeSuggestionIndex >= 0 && locationSuggestions[activeSuggestionIndex]) {
+                    selectCatalogLocation(locationSuggestions[activeSuggestionIndex]);
+                  } else {
+                    commitLocationSearchInput();
+                  }
+                  const resultsEl = document.getElementById("results-anchor");
+                  if (resultsEl) {
+                    resultsEl.scrollIntoView({ behavior: "smooth", block: "start" });
+                  }
+                }}
+                className="mt-4 sm:mt-5 bg-white text-slate-800 rounded-2xl p-3 sm:p-4 shadow-xl border border-slate-200 max-w-3xl mx-auto text-left relative z-30 flex flex-col sm:flex-row gap-2.5 sm:gap-3 items-stretch sm:items-end"
+              >
                 {/* Search Text field */}
                 <div className="flex-1 space-y-1">
                   <label className="text-[11px] font-semibold text-slate-500 font-mono flex items-center gap-1 uppercase">
@@ -1647,8 +1707,9 @@ export default function App() {
                     />
                     {searchTerm && (
                       <button 
+                        type="button"
                         onClick={() => setSearchTerm("")}
-                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
                         aria-label="Clear search"
                       >
                         <X className="w-3.5 h-3.5 shrink-0" />
@@ -1657,22 +1718,130 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Town/City selector */}
-                <div className="sm:w-44 space-y-1">
-                  <label className="text-[11px] font-semibold text-slate-500 font-mono uppercase">Town / City</label>
-                  <select 
-                    value={selectedCity}
-                    onChange={(e) => {
-                      setSelectedCity(e.target.value);
-                      setSelectedSuburb("");
-                    }}
-                    className="w-full py-2 px-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 bg-slate-50 text-xs sm:text-sm font-medium focus:border-[#052659] transition-all cursor-pointer"
-                  >
-                    <option value="">All Cities</option>
-                    {ALL_ZIM_CITIES.map(c => (
-                      <option key={c} value={c}>{c}</option>
-                    ))}
-                  </select>
+                {/* Zimbabwe Location Autocomplete Input (Provinces, Cities, Towns, Destinations, Suburbs) */}
+                <div ref={locationBoxRef} className="sm:w-64 space-y-1 relative">
+                  <label htmlFor="location-search-input" className="text-[11px] font-semibold text-slate-500 font-mono flex items-center gap-1 uppercase">
+                    <MapPin className="w-3 h-3 text-[#FF7A00]" />
+                    <span>Location (Zimbabwe)</span>
+                  </label>
+                  <div className="relative">
+                    <input
+                      id="location-search-input"
+                      type="text"
+                      autoComplete="off"
+                      placeholder="City, town, suburb or destination..."
+                      value={locationInput}
+                      onFocus={() => {
+                        if (locationInput.trim()) setIsLocationDropdownOpen(true);
+                      }}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setLocationInput(val);
+                        setIsLocationDropdownOpen(Boolean(val.trim()));
+                        setActiveSuggestionIndex(-1);
+                        if (!val.trim()) {
+                          setSelectedCity("");
+                          setSelectedSuburb("");
+                          setSelectedProvinceSlug("");
+                          setCustomLocationQuery("");
+                        }
+                      }}
+                      onKeyDown={(e) => {
+                        if (!isLocationDropdownOpen || locationSuggestions.length === 0) return;
+                        if (e.key === "ArrowDown") {
+                          e.preventDefault();
+                          setActiveSuggestionIndex((prev) =>
+                            prev < locationSuggestions.length - 1 ? prev + 1 : 0
+                          );
+                        } else if (e.key === "ArrowUp") {
+                          e.preventDefault();
+                          setActiveSuggestionIndex((prev) =>
+                            prev > 0 ? prev - 1 : locationSuggestions.length - 1
+                          );
+                        } else if (e.key === "Escape") {
+                          setIsLocationDropdownOpen(false);
+                          setActiveSuggestionIndex(-1);
+                        } else if (e.key === "Enter" && activeSuggestionIndex >= 0) {
+                          e.preventDefault();
+                          selectCatalogLocation(locationSuggestions[activeSuggestionIndex]);
+                        }
+                      }}
+                      role="combobox"
+                      aria-expanded={isLocationDropdownOpen && locationSuggestions.length > 0}
+                      aria-autocomplete="list"
+                      aria-controls="location-autocomplete-list"
+                      className="w-full pl-3 pr-8 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-[#052659]/10 focus:border-[#052659] bg-slate-50 text-xs sm:text-sm font-medium transition-all"
+                    />
+                    {locationInput && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setLocationInput("");
+                          setSelectedCity("");
+                          setSelectedSuburb("");
+                          setSelectedProvinceSlug("");
+                          setCustomLocationQuery("");
+                          setIsLocationDropdownOpen(false);
+                          setActiveSuggestionIndex(-1);
+                        }}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                        aria-label="Clear location"
+                      >
+                        <X className="w-3.5 h-3.5 shrink-0" />
+                      </button>
+                    )}
+                  </div>
+
+                  {isLocationDropdownOpen && locationInput.trim() !== "" && (
+                    <div
+                      id="location-autocomplete-list"
+                      role="listbox"
+                      className="absolute left-0 right-0 top-full mt-1.5 bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden divide-y divide-slate-100 max-h-64 overflow-y-auto z-50"
+                    >
+                      {locationSuggestions.length === 0 ? (
+                        <div className="px-3 py-2.5 text-xs text-slate-500">
+                          No matching location found—press Search to filter by &ldquo;{locationInput.trim()}&rdquo;.
+                        </div>
+                      ) : (
+                        locationSuggestions.map((entry, idx) => {
+                          const isHighlighted = idx === activeSuggestionIndex;
+                          const typeLabel = formatLocationTypeLabel(entry.locationType);
+                          const subtitle =
+                            entry.locationType === "province"
+                              ? "Zimbabwe Province"
+                              : entry.locationType === "suburb" && entry.parentName
+                              ? `${typeLabel} · ${entry.parentName}, ${entry.province}`
+                              : `${typeLabel} · ${entry.province}`;
+
+                          return (
+                            <button
+                              key={entry.id}
+                              type="button"
+                              role="option"
+                              aria-selected={isHighlighted}
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                selectCatalogLocation(entry);
+                              }}
+                              className={`w-full text-left px-3 py-2 transition-colors flex items-center justify-between gap-2 cursor-pointer ${
+                                isHighlighted ? "bg-slate-100" : "hover:bg-slate-50"
+                              }`}
+                            >
+                              <div className="min-w-0">
+                                <div className="text-xs font-bold text-[#052659] truncate">
+                                  {entry.name}
+                                  {entry.locationType === "suburb" && entry.parentName
+                                    ? `, ${entry.parentName}`
+                                    : ""}
+                                </div>
+                                <div className="text-[10.5px] text-slate-500 truncate">{subtitle}</div>
+                              </div>
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {/* Filter toggle button on mobile & search button on desktop */}
@@ -1690,12 +1859,15 @@ export default function App() {
                     <span>Filters {(selectedSuburb || selectedPropertyType || selectedAmenity || selectedTenantType || minPrice !== "" || maxPrice !== "") ? "• Active" : ""}</span>
                   </button>
 
-                  <button className="flex-1 sm:flex-none sm:w-28 bg-[#052659] hover:bg-[#021024] text-white py-2 px-3.5 rounded-xl font-bold transition-all text-xs sm:text-sm flex items-center justify-center gap-1.5 shadow-md cursor-pointer min-h-[38px]">
+                  <button
+                    type="submit"
+                    className="flex-1 sm:flex-none sm:w-28 bg-[#052659] hover:bg-[#021024] text-white py-2 px-3.5 rounded-xl font-bold transition-all text-xs sm:text-sm flex items-center justify-center gap-1.5 shadow-md cursor-pointer min-h-[38px]"
+                  >
                     <Search className="w-3.5 h-3.5 shrink-0" />
                     <span>Search</span>
                   </button>
                 </div>
-              </div>
+              </form>
             </section>
 
 
@@ -1711,7 +1883,17 @@ export default function App() {
                     <label className="text-[10px] font-mono text-slate-400 font-semibold uppercase">Suburb</label>
                     <select
                       value={selectedSuburb}
-                      onChange={(e) => setSelectedSuburb(e.target.value)}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setSelectedSuburb(val);
+                        setSelectedProvinceSlug("");
+                        setCustomLocationQuery("");
+                        if (val) {
+                          setLocationInput(selectedCity ? `${val}, ${selectedCity}` : val);
+                        } else {
+                          setLocationInput(selectedCity || "");
+                        }
+                      }}
                       className="w-full text-xs font-semibold py-1.5 px-2 rounded-lg border border-slate-200 bg-slate-50 cursor-pointer focus:outline-none"
                     >
                       <option value="">Any Suburb</option>
@@ -1797,7 +1979,7 @@ export default function App() {
 
                 {/* Clearance Actions & Sort Controls */}
                 <div className="flex flex-wrap items-center justify-between sm:justify-end gap-2.5 w-full lg:w-auto shrink-0 pt-2 lg:pt-0 border-t lg:border-t-0 border-slate-100">
-                  {(searchTerm || selectedCity || selectedSuburb || selectedAmenity || selectedPropertyType || selectedTenantType || selectedCategory !== "all" || minPrice !== "" || maxPrice !== "" || sortBy !== "newest") && (
+                  {(searchTerm || selectedCity || selectedSuburb || selectedProvinceSlug || customLocationQuery || selectedAmenity || selectedPropertyType || selectedTenantType || selectedCategory !== "all" || minPrice !== "" || maxPrice !== "" || sortBy !== "newest") && (
                     <button 
                       onClick={clearAllFilters}
                       className="text-xs text-orange-500 font-bold hover:underline flex items-center gap-1 bg-orange-50 px-2.5 py-1 rounded-lg transition-all cursor-pointer"
@@ -1826,47 +2008,56 @@ export default function App() {
               </div>
             </div>
 
-            {/* Compact WhatsApp Discovery & Acquisition Promo Strip */}
+            {/* Compact Single-Strip WhatsApp Discovery Card */}
             <section
               id="whatsapp-promo-section"
               aria-label="BunkBy on WhatsApp"
-              className="bg-white rounded-xl sm:rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-xs"
+              className="bg-white rounded-xl sm:rounded-2xl p-3 sm:p-4 border border-slate-200 shadow-xs"
             >
-              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                <div className="space-y-1.5 max-w-2xl">
-                  <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
-                    <h2 className="text-base sm:text-lg font-display font-bold text-[#021024]">
+              <div className="flex flex-row items-center justify-between gap-2.5 sm:gap-4">
+                <div className="min-w-0 flex-1 space-y-0.5 sm:space-y-1">
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                    <h2 className="text-xs sm:text-base font-display font-bold text-[#021024] leading-snug">
                       Find Your Next Place on WhatsApp
                     </h2>
                     <a
                       href={getBunkByWhatsAppUrl("Hi BunkBy! I would like to find accommodation.")}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-xs font-mono font-semibold text-emerald-700 hover:text-emerald-800 underline underline-offset-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#15803d] rounded-xs"
+                      className="text-[11px] sm:text-xs font-mono font-semibold text-emerald-700 hover:text-emerald-800 underline underline-offset-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#15803d] rounded-xs whitespace-nowrap"
                       title={`Chat with BunkBy on WhatsApp (${BUNKBY_WHATSAPP_DISPLAY})`}
                     >
                       {BUNKBY_WHATSAPP_DISPLAY}
                     </a>
                   </div>
-                  <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
-                    Looking for a room, cottage, guesthouse, lodge or commercial space? Chat with BunkBy on WhatsApp to discover available properties. You can also submit your own property listing directly through WhatsApp.
+                  <p className="text-[11px] sm:text-xs text-slate-600 leading-snug">
+                    Search rooms, cottages, stays or commercial spaces, or post a listing directly on WhatsApp. See our{" "}
+                    <a
+                      id="promo-whatsapp-guide-link"
+                      href="/whatsapp"
+                      onClick={(e) => {
+                        if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+                        e.preventDefault();
+                        navigateTo("/whatsapp");
+                      }}
+                      className="text-[#15803d] hover:text-[#166534] font-semibold underline underline-offset-2 transition-colors"
+                    >
+                      WhatsApp guide
+                    </a>
+                    .
                   </p>
                 </div>
 
-                <div className="flex items-center shrink-0">
-                  <a
-                    id="promo-whatsapp-cta"
-                    href={getBunkByWhatsAppUrl("Hi BunkBy! I would like to find accommodation.")}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="bg-[#15803d] hover:bg-[#166534] text-white font-bold text-xs sm:text-sm px-4 py-2.5 rounded-xl shadow-xs transition-colors inline-flex items-center justify-center gap-2 min-h-[42px] whitespace-nowrap shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#052659]"
-                  >
-                    <span className="w-5 h-5 rounded-full bg-[#25D366] flex items-center justify-center shrink-0">
-                      <WhatsAppIcon className="w-3.5 h-3.5 text-white shrink-0" />
-                    </span>
-                    <span>Chat on WhatsApp</span>
-                  </a>
-                </div>
+                <a
+                  id="promo-whatsapp-cta"
+                  href={getBunkByWhatsAppUrl("Hi BunkBy! I would like to find accommodation.")}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="bg-[#15803d] hover:bg-[#166534] text-white font-bold text-[10px] sm:text-xs px-2 sm:px-3.5 py-1.5 sm:py-2 rounded-lg sm:rounded-xl shadow-xs transition-colors inline-flex items-center justify-center gap-1 sm:gap-1.5 min-h-[32px] sm:min-h-[38px] whitespace-nowrap shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#052659]"
+                >
+                  <WhatsAppIcon className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-white shrink-0" />
+                  <span>Chat on WhatsApp</span>
+                </a>
               </div>
             </section>
 
@@ -1884,6 +2075,7 @@ export default function App() {
             </div>
 
             {/* Rooms Cards Directory list - Compact, Responsive Grid */}
+            <div id="results-anchor" className="scroll-mt-20">
             {isLoading ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5 sm:gap-5 lg:gap-6" aria-busy="true">
                 {[0, 1, 2, 3, 4, 5].map((idx) => (
@@ -1902,16 +2094,34 @@ export default function App() {
                 <div className="w-12 h-12 sm:w-16 sm:h-16 bg-slate-100 rounded-full flex items-center justify-center mx-auto text-slate-400">
                   <SlidersHorizontal className="w-6 h-6 sm:w-8 sm:h-8" />
                 </div>
-                <h3 className="text-base sm:text-lg font-bold text-slate-800 font-display">No Listings Found</h3>
+                <h3 className="text-base sm:text-lg font-bold text-slate-800 font-display">
+                  {committedLocationLabel
+                    ? `No Active Properties in ${committedLocationLabel}`
+                    : "No Listings Found"}
+                </h3>
                 <p className="text-xs sm:text-sm text-slate-500">
-                  No listings matched your criteria. Try widening your search or clearing filters. Landlords can list rooms instantly for free!
+                  {committedLocationLabel
+                    ? `No active properties are currently listed in ${committedLocationLabel} matching your search criteria. Try searching another location, clearing filters, or checking availability on WhatsApp.`
+                    : "No listings matched your criteria. Try widening your search or clearing filters. Landlords can list rooms instantly for free!"}
                 </p>
-                <button
-                  onClick={clearAllFilters}
-                  className="bg-orange-50 text-orange-600 hover:bg-orange-100 text-xs font-bold px-4 py-2 rounded-xl transition-colors cursor-pointer"
-                >
-                  Clear Filters
-                </button>
+                <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+                  <button
+                    onClick={clearAllFilters}
+                    className="bg-orange-50 text-orange-600 hover:bg-orange-100 text-xs font-bold px-4 py-2 rounded-xl transition-colors cursor-pointer"
+                  >
+                    Clear Filters
+                  </button>
+                  {committedLocationLabel && (
+                    <a
+                      href={getBunkByWhatsAppUrl(`Hi BunkBy! I am looking for accommodation in ${committedLocationLabel}.`)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="bg-[#15803d] hover:bg-[#166534] text-white text-xs font-bold px-4 py-2 rounded-xl transition-colors"
+                    >
+                      Search on WhatsApp
+                    </a>
+                  )}
+                </div>
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5 sm:gap-5 lg:gap-6" id="rooms-grid">
@@ -2104,113 +2314,18 @@ export default function App() {
                 })}
               </div>
             )}
+            </div>
 
             {/* Highlighted BunkBy Promo Section - Responsive & Compact */}
             <section className="bg-orange-500/5 rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 border border-orange-500/10">
               <div className="max-w-2xl space-y-1.5">
-                <span className="text-[10px] sm:text-xs font-mono font-bold text-orange-600 tracking-wider uppercase block">Free Traffic Generation</span>
+                <span className="text-[10px] sm:text-xs font-mono font-bold text-orange-600 tracking-wider uppercase block">For Landlords &amp; Property Owners</span>
                 <h2 className="text-lg sm:text-2xl font-display font-bold text-slate-900">
                   Landlord: Why List With BunkBy?
                 </h2>
                 <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
-                  Harness our exponentially growing massive tenant traffic! Specify the tenant type you seek, and easily delist with a single tap once your room gets occupied.
+                  List your vacant rooms, cottages, student housing, lodges, or commercial spaces directly on BunkBy and WhatsApp. Connect with property seekers without agent commissions, and mark your listing as occupied anytime once filled.
                 </p>
-              </div>
-            </section>
-
-            {/* Crawlable Zimbabwe Cities, Suburbs & Category Directory for Search & AI Discovery */}
-            <section aria-label="Explore Zimbabwe Property Locations and Categories" className="bg-white rounded-2xl p-5 sm:p-6 border border-slate-200 shadow-xs space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                <div>
-                  <h2 className="text-base sm:text-lg font-display font-bold text-[#052659]">
-                    Explore Zimbabwe Property Locations &amp; Categories
-                  </h2>
-                  <p className="text-xs text-slate-600">
-                    BunkBy (operated by Atlas Manica Group) connects seekers directly with hosts for rooms, houses, cottages, flats, student accommodation, guesthouses, lodges, and commercial properties online or on WhatsApp ({BUNKBY_WHATSAPP_DISPLAY}).
-                  </p>
-                </div>
-                <a
-                  href="/whatsapp"
-                  onClick={(e) => {
-                    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-                    e.preventDefault();
-                    navigateTo("/whatsapp");
-                  }}
-                  className="text-xs font-bold text-[#15803d] hover:underline whitespace-nowrap shrink-0"
-                >
-                  WhatsApp Guide &rarr;
-                </a>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-1 text-xs">
-                <div className="space-y-1.5">
-                  <h3 className="font-mono font-bold text-slate-500 uppercase text-[10px]">Major Cities</h3>
-                  <div className="flex flex-wrap gap-1.5">
-                    {FEATURED_CITY_SLUGS.map((slug) => {
-                      const city = findCityBySlugOrName(slug);
-                      if (!city) return null;
-                      return (
-                        <a
-                          key={city.slug}
-                          href={`/locations/${city.slug}`}
-                          onClick={(e) => {
-                            if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-                            e.preventDefault();
-                            navigateTo(`/locations/${city.slug}`);
-                          }}
-                          className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-[#052659] font-semibold transition-colors"
-                        >
-                          {city.name}
-                        </a>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                <div className="space-y-1.5">
-                  <h3 className="font-mono font-bold text-slate-500 uppercase text-[10px]">Popular Harare Suburbs</h3>
-                  <div className="flex flex-wrap gap-1.5">
-                    {["mount-pleasant", "borrowdale", "avondale", "eastlea", "greendale", "avonlea", "belvedere", "cbd"].map((subSlug) => {
-                      const harare = findCityBySlugOrName("harare");
-                      const sub = harare ? findSuburbInCity(harare, subSlug) : null;
-                      if (!sub) return null;
-                      return (
-                        <a
-                          key={sub.slug}
-                          href={`/locations/harare/${sub.slug}`}
-                          onClick={(e) => {
-                            if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-                            e.preventDefault();
-                            navigateTo(`/locations/harare/${sub.slug}`);
-                          }}
-                          className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium transition-colors"
-                        >
-                          {sub.name}
-                        </a>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                <div className="space-y-1.5">
-                  <h3 className="font-mono font-bold text-slate-500 uppercase text-[10px]">Marketplace Categories</h3>
-                  <div className="flex flex-wrap gap-1.5">
-                    {Object.values(CATEGORY_DEFINITIONS).map((cat) => (
-                      <a
-                        key={cat.slug}
-                        href={`/categories/${cat.slug}`}
-                        onClick={(e) => {
-                          if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-                          e.preventDefault();
-                          navigateTo(`/categories/${cat.slug}`);
-                        }}
-                        className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-[#052659] font-semibold transition-colors"
-                      >
-                        {cat.name}
-                      </a>
-                    ))}
-                  </div>
-                </div>
               </div>
             </section>
           </div>
@@ -2362,7 +2477,7 @@ export default function App() {
                   </div>
                   <h2 className="text-2.5xl font-display font-black text-white">My Landlord Listings</h2>
                   <p className="text-sm text-[#E2E8F0] font-medium max-w-xl">
-                    Inspect lead analytics, edit room specifications, or quickly delist/delete properties as soon as a tenant checks in. BunkBy protects landlords free of agency fees.
+                    Update your property details, view inquiry activity, or mark listings as occupied anytime once rented. Connect directly with prospective tenants and guests without agency commissions.
                   </p>
                 </div>
 
@@ -2405,7 +2520,7 @@ export default function App() {
                     </div>
                     <h4 className="text-lg font-bold text-slate-800">You haven't created any BunkBy listings yet</h4>
                     <p className="text-sm text-slate-500">
-                      Tap 'Create a Listing' to publish your property. High tenant traffic yields direct contacts via WhatsApp and phone call!
+                      Tap &apos;Create a Listing&apos; to publish your property so prospective tenants and guests can reach you directly via WhatsApp or phone call.
                     </p>
                     <button 
                       onClick={() => {
@@ -2509,7 +2624,7 @@ export default function App() {
                               <div className="bg-slate-50 rounded-xl p-2.5 flex items-center justify-between text-xs font-semibold">
                                 <span className="text-slate-500 flex items-center gap-1">
                                   <TrendingUp className="w-3.5 h-3.5 text-orange-500" />
-                                  <span>Traffic Generated</span>
+                                  <span>Direct Inquiries</span>
                                 </span>
                                 <span className="text-orange-500 font-bold bg-orange-50 rounded px-2 py-0.5">{room.leadsCount || 0} Leads</span>
                               </div>
@@ -2620,15 +2735,15 @@ export default function App() {
               <div className="bg-white rounded-3xl p-6 border border-slate-200">
                 <h3 className="text-base font-bold text-slate-900 mb-3 flex items-center gap-1.5 font-display">
                   <CheckCircle className="w-5 h-5 text-orange-500" />
-                  <span>Listing Lifecycle & Freshness Guarantee</span>
+                  <span>Listing Lifecycle &amp; Availability Updates</span>
                 </h3>
                 <p className="text-sm text-slate-500 leading-relaxed mb-4">
-                  To guarantee BunkBy retains high-integrity, fresh, and accurate inventory, all published listings remain active for <strong>30 days</strong>. Landlords can manage, renew, mark as rented, or delist properties anytime with a single tap either in their dashboard or directly in WhatsApp.
+                  To keep active listings current, published properties remain active for <strong>30 days</strong>. Landlords and hosts can renew, mark as occupied, or remove a listing anytime from this dashboard or directly in WhatsApp.
                 </p>
                 <div className="bg-amber-50/60 rounded-xl p-3.5 border border-amber-200 font-mono text-xs">
-                  <p className="font-bold text-slate-800 mb-1">⚡ Smart Tenant Inquiry Feature:</p>
+                  <p className="font-bold text-slate-800 mb-1">⚡ Direct Availability Check:</p>
                   <div className="bg-white p-2.5 rounded-lg border border-slate-200 text-slate-700 text-xs font-sans leading-relaxed">
-                    Prospective tenants viewing older listings can tap <strong>"Ask Host: Is this still available?"</strong> on WhatsApp. This allows instant occupancy verification directly between tenant and landlord with zero agent fees or spam.
+                    Property seekers can tap <strong>&quot;Ask Host: Is this still available?&quot;</strong> on WhatsApp to confirm availability directly with the property owner or host.
                   </div>
                 </div>
               </div>
@@ -2831,7 +2946,7 @@ export default function App() {
                 {verificationStatus === "approved" ? (
                   <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-4 space-y-2">
                     <p className="text-xs text-emerald-800 font-medium leading-relaxed">
-                      Congratulations! Your credentials have successfully cleared auditing. Your listed properties now bear our golden <strong>Verified Host Badge</strong>, ranking first in local tenant searches and driving maximized WhatsApp interest.
+                      Your verified landlord status has been approved. Your published listings display a <strong>Verified Host Badge</strong> to help property seekers identify confirmed advertisers.
                     </p>
                   </div>
                 ) : verificationStatus === "pending" ? (
@@ -2999,7 +3114,7 @@ export default function App() {
                   
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-6">
                     <div className="bg-white p-3 rounded-xl border border-orange-100 text-center">
-                      <span className="text-[9px] font-mono text-slate-400 uppercase block">Global Active listings</span>
+                      <span className="text-[9px] font-mono text-slate-400 uppercase block">Active Listings</span>
                       <span className="text-lg font-black text-slate-950">{listings.length} Listings</span>
                     </div>
                     <div className="bg-white p-3 rounded-xl border border-orange-100 text-center">
@@ -3138,7 +3253,7 @@ export default function App() {
             {/* Help Header */}
             <div className="border-b border-slate-200 pb-4">
               <h2 className="text-2.5xl font-display font-black text-slate-950">Help & FAQ Center</h2>
-              <p className="text-sm text-slate-500">Everything you need to know about listing rooms, tenant targeting, and our direct WhatsApp chatbot.</p>
+              <p className="text-sm text-slate-500">Everything you need to know about browsing properties, listing spaces across Zimbabwe, and using the BunkBy WhatsApp assistant.</p>
             </div>
 
             {/* FAQ Item List */}
@@ -3147,14 +3262,14 @@ export default function App() {
               <div className="bg-white rounded-2xl p-4 border border-slate-200 space-y-2">
                 <h4 className="font-bold text-sky-700 text-sm">🏡 What is BunkBy?</h4>
                 <p className="text-xs text-slate-500 leading-relaxed">
-                  BunkBy is a free platform for landlords to advertise vacant rooms, guesthouses, student hostel beds, or cottages directly to seekers in Zimbabwe. Local listings stay active without the high agency commissions that plague modern renting.
+                  BunkBy is a Zimbabwean property and accommodation marketplace connecting seekers directly with landlords, hosts, and commercial property owners across residential rentals, hospitality stays, student accommodation, and commercial spaces—without estate agent commissions.
                 </p>
               </div>
 
               <div className="bg-white rounded-2xl p-4 border border-slate-200 space-y-2">
-                <h4 className="font-bold text-sky-700 text-sm">💬 How does the WhatsApp chatbot integration help listings succeed?</h4>
+                <h4 className="font-bold text-sky-700 text-sm">💬 How does the BunkBy WhatsApp assistant work?</h4>
                 <p className="text-xs text-slate-500 leading-relaxed">
-                  The success of BunkBy is built entirely on accessibility. Knowing that a large portion of local dwellers rely on WhatsApp data bundles, seekers can search, view listings, and get real-time matching rooms sent directly onto their WhatsApp screens with absolutely zero website log overheads! Landlords list properties in seconds by chatting with our agent bot.
+                  Property seekers can search matching properties by city, suburb, category, or budget directly inside WhatsApp without leaving their chat app. Property owners and hosts can also submit and manage listings step by step on WhatsApp via +263 78 978 3200.
                 </p>
               </div>
 
@@ -3172,9 +3287,9 @@ export default function App() {
                 </p>
               </div>
               <div className="bg-white rounded-2xl p-4 border border-slate-200 space-y-2">
-                <h4 className="font-bold text-sky-700 text-sm">💸 If it is totally free, how does BunkBy sustain itself?</h4>
+                <h4 className="font-bold text-sky-700 text-sm">💸 How does BunkBy sustain itself?</h4>
                 <p className="text-xs text-slate-500 leading-relaxed">
-                  Our current goal is purely focused on building high local traffic! In the future, BunkBy intends to introduce paid 30-day premium advertisement programs for commercials listing large guest houses, commercial lounges, or massive boarding complexes while securing normal house owners and student cottage listings completely free forever.
+                  BunkBy offers free standard property listings for residential, student, hospitality, and commercial advertisers, alongside optional paid 30-day featured placements for businesses and property providers seeking extra visibility.
                 </p>
               </div>
 
@@ -3186,51 +3301,44 @@ export default function App() {
       </main>
 
       {/* FOOTER */}
-      <footer className="bg-[#021024] text-white pt-6 sm:pt-8 border-t border-[#052659] mt-auto select-none shrink-0 text-center sm:text-left">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-6 sm:pb-8 flex flex-col sm:flex-row items-center sm:items-start justify-between gap-6 sm:gap-12">
+      <footer className="bg-[#021024] text-white pt-5 sm:pt-7 border-t border-[#052659] mt-auto select-none shrink-0 text-left">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-5 sm:pb-7 flex flex-row items-start sm:items-center justify-between gap-4 sm:gap-12">
           
-          {/* Brand Info (Left / Start) */}
-          <div className="max-w-md text-center sm:text-left flex flex-col justify-between">
-            <div className="flex items-center gap-2 justify-center sm:justify-start h-8">
+          {/* Brand Info (Left) */}
+          <div className="max-w-md min-w-0 flex-1">
+            <div className="flex items-center gap-2 h-8">
               <BunkByLogo className="w-7 h-7 shrink-0" />
               <span className="text-xl font-display font-black uppercase tracking-tight text-white leading-none">
                 Bunk<span className="text-[#FF7A00]">By</span>
               </span>
             </div>
-            <p className="text-[11px] text-[#E2E8F0] font-normal leading-relaxed mt-3">
-              Zimbabwe's agent-free property and accommodation marketplace for rooms, cottages, flats, guesthouses, lodges, student accommodation, and commercial properties with direct WhatsApp connection.
+            <p className="text-[11px] text-[#E2E8F0] font-normal leading-relaxed mt-2.5">
+              A Zimbabwean property and accommodation marketplace connecting seekers directly with landlords, hosts, and commercial property owners across residential rentals, hospitality stays, student accommodation, and commercial spaces—online and on WhatsApp.
             </p>
+          </div>
+
+          {/* Privacy Policy Link (Right side of upper navy band) */}
+          <div className="shrink-0 pt-1 sm:pt-0">
+            <a
+              href="/privacy-policy"
+              onClick={(e) => { e.preventDefault(); navigateTo("/privacy-policy"); }}
+              className="text-xs text-slate-300 hover:text-white underline underline-offset-2 transition-colors cursor-pointer whitespace-nowrap font-semibold"
+              id="footer-privacy-policy-link"
+            >
+              Privacy Policy
+            </a>
           </div>
 
         </div>
 
-        {/* ATLASMANICA BRANDING CREDIT AS USER EXPLICITLY REQUESTED */}
-        <div className="bg-[#052659] py-3.5 sm:py-5 border-t border-[#052659]/50 text-center sm:text-left">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
-            <div className="text-[11px] text-slate-300 font-normal">
-              <p>© 2026 BunkBy. BunkBy is an accommodation marketplace operated by ATLAS MANICA GROUP LTD.</p>
-              <div className="pt-1.5 text-[11px] text-slate-300 flex flex-wrap items-center justify-center sm:justify-start gap-3">
-                <a 
-                  href="/whatsapp"
-                  onClick={(e) => { e.preventDefault(); navigateTo("/whatsapp"); }}
-                  className="hover:text-white underline underline-offset-2 transition-colors cursor-pointer"
-                  id="footer-whatsapp-guide-link"
-                >
-                  WhatsApp Assistant
-                </a>
-                <span className="text-slate-500">•</span>
-                <a 
-                  href="/privacy-policy" 
-                  onClick={(e) => { e.preventDefault(); navigateTo("/privacy-policy"); }}
-                  className="hover:text-white underline underline-offset-2 transition-colors cursor-pointer"
-                  id="footer-privacy-policy-link"
-                >
-                  Privacy Policy
-                </a>
-              </div>
-            </div>
-            <div className="text-[10px] text-[#FF7A00] font-bold tracking-wider font-mono">
-              ZIMBABWE'S AGENT-FREE ACCOMMODATION MARKETPLACE
+        {/* Bottom Copyright & Zen Accommodation Strip */}
+        <div className="bg-[#052659] py-3 sm:py-4 border-t border-[#052659]/50 text-center sm:text-left">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-1.5 sm:gap-4">
+            <p className="text-[11px] text-slate-300 font-normal">
+              © 2026 BunkBy. BunkBy is an accommodation marketplace operated by ATLAS MANICA GROUP LTD.
+            </p>
+            <div className="text-[10px] sm:text-[11px] text-[#FF7A00] font-bold tracking-wider font-mono whitespace-nowrap">
+              Powered by Zen Accommodation
             </div>
           </div>
         </div>
@@ -4028,7 +4136,7 @@ export default function App() {
               </div>
 
               <p className="text-[10px] text-center text-slate-400">
-                ⭐ Upon approval, your premium ad remains 100% active and searchable in Zimbabwe's feed for 30 calendar days.
+                ⭐ Upon approval, your featured listing remains active and searchable in the BunkBy directory for 30 calendar days.
               </p>
             </motion.div>
           </div>
