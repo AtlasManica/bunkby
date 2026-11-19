@@ -1,9 +1,12 @@
 import type { Database } from "better-sqlite3";
 import {
+  SEARCH_PAGE_SIZE,
   parseIncomingWhatsAppWebhook,
   parseNaturalLanguageQuery,
-  searchListings,
-  buildListingCard,
+  searchListingsPaginated,
+  encodeSearchPaginationId,
+  parseSearchPaginationId,
+  buildConciseSearchCard,
   createTextMessage,
   createButtonMessage,
   createListMessage,
@@ -19,6 +22,7 @@ export interface BotProcessResult {
   replyText?: string;
   outboundPayloads: WhatsAppMessagePayload[];
   searchResultsCount?: number;
+  totalMatching?: number;
   createdListingId?: number | string;
   step?: string;
   deliveryResults?: Array<{
@@ -30,7 +34,7 @@ export interface BotProcessResult {
 }
 
 /**
- * Ensures chatbot_sessions table exists in the database
+ * Ensures chatbot_sessions and whatsapp_search_state tables exist in the database
  */
 export function ensureChatbotTable(db: Database) {
   db.prepare(`
@@ -38,6 +42,22 @@ export function ensureChatbotTable(db: Database) {
       phone_number TEXT PRIMARY KEY,
       current_step TEXT NOT NULL,
       collected_data TEXT,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `).run();
+
+  db.prepare(`
+    CREATE TABLE IF NOT EXISTS whatsapp_search_state (
+      phone_number TEXT PRIMARY KEY,
+      search_key TEXT NOT NULL,
+      filters_json TEXT,
+      total_matching INTEGER DEFAULT 0,
+      dispatched_count INTEGER DEFAULT 0,
+      cursor_is_premium INTEGER DEFAULT 0,
+      cursor_created_at TEXT,
+      cursor_id INTEGER,
+      seen_ids TEXT,
+      last_page_payload TEXT,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `).run();
@@ -159,6 +179,7 @@ async function processWhatsAppMessageInternal(
     if (session) {
       db.prepare("DELETE FROM chatbot_sessions WHERE phone_number = ?").run(phone);
     }
+    db.prepare("DELETE FROM whatsapp_search_state WHERE phone_number = ?").run(phone);
     const cancelMsg = "🚫 *Your current session has been cancelled.* No listing was published.\n\nWhat would you like to do next?";
     queuePayload(
       createButtonMessage(
@@ -180,6 +201,242 @@ async function processWhatsAppMessageInternal(
       outboundPayloads
     };
   }
+
+  // Helper: Execute scalable paginated search (5 listings per page) & persist per-user cursor/seen state
+  const executeAndSendSearchPage = async (opts: {
+    filters: SearchFilters;
+    displayQuery: string;
+    categoryLabel?: string;
+    requestedOffset: number;
+    pagePayloadId?: string;
+  }): Promise<BotProcessResult> => {
+    const cleanQ = (opts.displayQuery || "").trim();
+    const catToken = opts.filters.category && opts.filters.category !== "all" ? opts.filters.category : "";
+    const propTypeToken = opts.filters.propertyType || "";
+    const canonicalFilters = {
+      category: catToken || "all",
+      propertyType: propTypeToken,
+      city: opts.filters.city || "",
+      suburb: opts.filters.suburb || "",
+      minPrice: opts.filters.minPrice ?? null,
+      maxPrice: opts.filters.maxPrice ?? null,
+      amenities: opts.filters.amenities || [],
+      query: cleanQ.toLowerCase()
+    };
+    const searchKey = JSON.stringify(canonicalFilters);
+
+    const existingState = db
+      .prepare("SELECT * FROM whatsapp_search_state WHERE phone_number = ?")
+      .get(phone) as any;
+
+    // 1. Protect against accidental repeated taps on an already-dispatched Next button
+    if (
+      opts.pagePayloadId &&
+      existingState &&
+      existingState.search_key === searchKey &&
+      (existingState.last_page_payload === opts.pagePayloadId || opts.requestedOffset < Number(existingState.dispatched_count || 0))
+    ) {
+      const dispatched = Number(existingState.dispatched_count || 0);
+      const total = Number(existingState.total_matching || dispatched);
+      if (dispatched < total) {
+        const nextBtnId = encodeSearchPaginationId(dispatched, catToken || "all", propTypeToken, cleanQ);
+        const dupNotice = `ℹ️ *Results 1–${dispatched} of ${total} were already sent above.*\nTap *Next 5 Results* below to view the next batch (${total - dispatched} remaining), or start a new search.`;
+        queuePayload(
+          createButtonMessage(
+            phone,
+            dupNotice,
+            [
+              { id: nextBtnId, title: "⏩ Next 5 Results" },
+              { id: "CMD_SEARCH_MENU", title: "🔍 New Search" },
+              { id: "CMD_START_LISTING", title: "🏡 Post Property" }
+            ],
+            "Search Navigation"
+          )
+        );
+      } else {
+        const doneNotice = `✅ *All ${total} matching properties have already been sent above.*`;
+        queuePayload(
+          createButtonMessage(
+            phone,
+            doneNotice,
+            [
+              { id: "CMD_SEARCH_MENU", title: "🔍 New Search" },
+              { id: "CMD_MY_LISTINGS", title: "📋 My Listings" },
+              { id: "CMD_START_LISTING", title: "🏡 Post Property" }
+            ],
+            "End of Results"
+          )
+        );
+      }
+      await dispatchAll();
+      return {
+        phone,
+        action: "SEARCH_DUPLICATE_PAGE_GUARDED",
+        searchResultsCount: 0,
+        totalMatching: total,
+        outboundPayloads
+      };
+    }
+
+    // 2. Build DB query filters (use keyset cursor + seen IDs when advancing from stored state)
+    const queryFilters: SearchFilters = { ...opts.filters };
+    let priorSeenIds: number[] = [];
+    let startIndexOffset = opts.requestedOffset;
+
+    if (
+      opts.requestedOffset > 0 &&
+      existingState &&
+      existingState.search_key === searchKey &&
+      opts.requestedOffset === Number(existingState.dispatched_count || 0)
+    ) {
+      try {
+        priorSeenIds = JSON.parse(existingState.seen_ids || "[]");
+      } catch {
+        priorSeenIds = [];
+      }
+      if (existingState.cursor_created_at && existingState.cursor_id !== null && existingState.cursor_id !== undefined) {
+        queryFilters.cursorIsPremium = Number(existingState.cursor_is_premium ?? 0);
+        queryFilters.cursorCreatedAt = String(existingState.cursor_created_at);
+        queryFilters.cursorId = Number(existingState.cursor_id);
+      } else {
+        queryFilters.offset = opts.requestedOffset;
+      }
+      queryFilters.excludeIds = priorSeenIds;
+      startIndexOffset = Number(existingState.dispatched_count || opts.requestedOffset);
+    } else if (opts.requestedOffset > 0) {
+      // Check if an older state exists or if this is a stateless PAGE_ jump
+      if (existingState && existingState.search_key === searchKey) {
+        try {
+          priorSeenIds = JSON.parse(existingState.seen_ids || "[]");
+        } catch {
+          priorSeenIds = [];
+        }
+        queryFilters.excludeIds = priorSeenIds;
+      }
+      queryFilters.offset = opts.requestedOffset;
+    } else {
+      // Fresh search resets prior search state for this phone number
+      db.prepare("DELETE FROM whatsapp_search_state WHERE phone_number = ?").run(phone);
+    }
+
+    const pageRes = searchListingsPaginated(db, queryFilters, SEARCH_PAGE_SIZE);
+    const { results, totalMatching, nextCursor, hasMore } = pageRes;
+
+    const locDisplay = cleanQ || "All Locations";
+    const catNote = opts.categoryLabel
+      ? ` (${opts.categoryLabel})`
+      : propTypeToken
+      ? ` (${propTypeToken})`
+      : catToken
+      ? ` (${catToken})`
+      : "";
+    const locNote = cleanQ && cleanQ.toLowerCase() !== "all" ? ` in "${cleanQ}"` : "";
+
+    if (results.length === 0) {
+      const noResultsMsg =
+        opts.requestedOffset > 0
+          ? `✅ *You have reached the end of all matching listings${catNote}${locNote}.*\n\nTap *New Search* to refine your search or explore another area.`
+          : `🏡 No active${catNote} listings found${locNote ? locNote : ` in *"${locDisplay}"*`}.\n\n💡 *Try:* Broadening your area (e.g. *Harare*, *Bulawayo*, or *All Locations*), switching category, or posting a listing for free.`;
+      queuePayload(
+        createButtonMessage(
+          phone,
+          noResultsMsg,
+          [
+            { id: "CMD_SEARCH_MENU", title: "🔍 New Search" },
+            { id: "CMD_START_LISTING", title: "🏡 Post Property" }
+          ],
+          opts.requestedOffset > 0 ? "End of Results" : "No Listings Found"
+        )
+      );
+      await dispatchAll();
+      return {
+        phone,
+        action: opts.requestedOffset > 0 ? "SEARCH_END_OF_RESULTS" : "SEARCH_RESULTS",
+        searchResultsCount: 0,
+        totalMatching,
+        replyText: noResultsMsg,
+        outboundPayloads
+      };
+    }
+
+    const startNum = startIndexOffset + 1;
+    const endNum = startIndexOffset + results.length;
+    const newSeenIds = Array.from(new Set([...priorSeenIds, ...results.map(r => Number(r.id))]));
+    const updatedDispatched = opts.requestedOffset > 0 ? startIndexOffset + results.length : results.length;
+    const realHasMore = hasMore && updatedDispatched < totalMatching;
+
+    db.prepare(`
+      INSERT INTO whatsapp_search_state (
+        phone_number, search_key, filters_json, total_matching, dispatched_count,
+        cursor_is_premium, cursor_created_at, cursor_id, seen_ids, last_page_payload, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      ON CONFLICT(phone_number) DO UPDATE SET
+        search_key = excluded.search_key,
+        filters_json = excluded.filters_json,
+        total_matching = excluded.total_matching,
+        dispatched_count = excluded.dispatched_count,
+        cursor_is_premium = excluded.cursor_is_premium,
+        cursor_created_at = excluded.cursor_created_at,
+        cursor_id = excluded.cursor_id,
+        seen_ids = excluded.seen_ids,
+        last_page_payload = excluded.last_page_payload,
+        updated_at = CURRENT_TIMESTAMP
+    `).run(
+      phone,
+      searchKey,
+      JSON.stringify(opts.filters),
+      totalMatching,
+      updatedDispatched,
+      nextCursor ? nextCursor.is_premium : 0,
+      nextCursor ? nextCursor.created_at : null,
+      nextCursor ? nextCursor.id : null,
+      JSON.stringify(newSeenIds),
+      opts.pagePayloadId || ""
+    );
+
+    const headerMsg = `🏡 *Showing ${startNum}–${endNum} of ${totalMatching}${catNote}${locNote}:*`;
+    queuePayload(createTextMessage(phone, headerMsg, false));
+
+    for (let i = 0; i < results.length; i++) {
+      queuePayload(buildConciseSearchCard(results[i], baseUrl, phone, startNum + i));
+    }
+
+    const navButtons: Array<{ id: string; title: string }> = [];
+    if (realHasMore) {
+      const nextId = encodeSearchPaginationId(updatedDispatched, catToken || "all", propTypeToken, cleanQ);
+      navButtons.push({ id: nextId, title: "⏩ Next 5 Results" });
+      navButtons.push({ id: "CMD_SEARCH_MENU", title: "🔍 New Search" });
+      navButtons.push({ id: "CMD_START_LISTING", title: "🏡 Post Property" });
+    } else {
+      navButtons.push({ id: "CMD_SEARCH_MENU", title: "🔍 New Search" });
+      navButtons.push({ id: "CMD_MY_LISTINGS", title: "📋 My Listings" });
+      navButtons.push({ id: "CMD_START_LISTING", title: "🏡 Post Property" });
+    }
+
+    const remaining = Math.max(0, totalMatching - endNum);
+    const footerText = realHasMore
+      ? `📄 *Showing ${startNum}–${endNum} of ${totalMatching}* (${remaining} more available).\nTap *Next 5 Results* below or visit *bunkby.com* for maps & full galleries.`
+      : `✅ *End of results (${endNum} of ${totalMatching} shown).*\nVisit *bunkby.com* to see full galleries or refine your search.`;
+
+    queuePayload(
+      createButtonMessage(
+        phone,
+        footerText,
+        navButtons,
+        "BunkBy Search"
+      )
+    );
+
+    await dispatchAll();
+    return {
+      phone,
+      action: "SEARCH_RESULTS",
+      searchResultsCount: results.length,
+      totalMatching,
+      replyText: headerMsg,
+      outboundPayloads
+    };
+  };
 
   // Helper: Send 4-category Interactive List for Listing Creation
   const queueListingCategoryMenu = (bodyText: string) => {
@@ -586,44 +843,12 @@ async function processWhatsAppMessageInternal(
         filters.propertyType = searchPropertyType;
       }
 
-      const results = searchListings(db, filters, 5);
-      const locDisplay = cleanQuery || "All Locations";
-
-      if (results.length === 0) {
-        const noResultsMsg = `🏡 No active *${categoryLabel}* listings found in *"${locDisplay}"*.\n\nTap *New Search* to try another area or subtype, or *Post Property* to list for free.`;
-        queuePayload(
-          createButtonMessage(
-            phone,
-            noResultsMsg,
-            [
-              { id: "CMD_SEARCH_MENU", title: "🔍 New Search" },
-              { id: "CMD_START_LISTING", title: "🏡 Post Property" }
-            ],
-            "No Listings Found"
-          )
-        );
-        await dispatchAll();
-        return { phone, action: "SEARCH_RESULTS", searchResultsCount: 0, replyText: noResultsMsg, outboundPayloads };
-      }
-
-      const countMsg = `🏡 *Found ${results.length} active ${categoryLabel} listing${results.length === 1 ? "" : "s"}${cleanQuery ? ` in "${cleanQuery}"` : ""}:*`;
-      queuePayload(createTextMessage(phone, countMsg));
-      for (const listing of results) {
-        queuePayload(buildListingCard(listing, baseUrl, phone));
-      }
-      queuePayload(
-        createButtonMessage(
-          phone,
-          `👉 Visit *bunkby.com* for all listings, filters, and maps.`,
-          [
-            { id: "CMD_SEARCH_MENU", title: "🔍 New Search" },
-            { id: "CMD_START_LISTING", title: "🏡 Post Property" }
-          ],
-          "BunkBy Accommodation"
-        )
-      );
-      await dispatchAll();
-      return { phone, action: "SEARCH_RESULTS", searchResultsCount: results.length, outboundPayloads };
+      return await executeAndSendSearchPage({
+        filters,
+        displayQuery: cleanQuery,
+        categoryLabel,
+        requestedOffset: 0
+      });
     }
 
     // --- LISTING STEP 1: AWAITING_CATEGORY ---
@@ -1197,10 +1422,21 @@ async function processWhatsAppMessageInternal(
   // =========================================================================
   const isSearchIntent =
     !session && (
+      buttonPayload?.startsWith("PAGE_") ||
+      buttonPayload?.startsWith("SEARCH_") ||
+      buttonPayload === "CMD_SEARCH_MENU" ||
+      buttonPayload === "CMD_SEARCH" ||
       lowerText.startsWith("search") ||
       lowerText.startsWith("find") ||
       lowerText.startsWith("show") ||
       lowerText.startsWith("looking for") ||
+      lowerText.includes("all available") ||
+      lowerText.includes("all properties") ||
+      lowerText.includes("properties") ||
+      lowerText.includes("accommodation") ||
+      lowerText.includes("zimbabwe") ||
+      lowerText.includes("mount pleasant") ||
+      lowerText.includes("mt pleasant") ||
       lowerText.includes("room") ||
       lowerText.includes("cottage") ||
       lowerText.includes("lodge") ||
@@ -1211,12 +1447,10 @@ async function processWhatsAppMessageInternal(
       lowerText.includes("stall") ||
       lowerText.includes("table") ||
       lowerText.includes("commercial") ||
+      lowerText.includes("student") ||
       lowerText.includes("hostel") ||
       lowerText.includes("in ") ||
-      lowerText.includes("under ") ||
-      buttonPayload.startsWith("SEARCH_") ||
-      buttonPayload === "CMD_SEARCH_MENU" ||
-      buttonPayload === "CMD_SEARCH"
+      lowerText.includes("under ")
     );
 
   if (isSearchIntent) {
@@ -1255,76 +1489,39 @@ async function processWhatsAppMessageInternal(
       return { phone, action: "SEARCH_PROMPT_SUBTYPE", step: "AWAITING_SEARCH_SUBTYPE", replyText: subMsg, outboundPayloads };
     }
 
-    // Clean search text
-    const cleanSearchText = text.replace(/^(search|find|show|looking for)\s*/i, "").trim();
+    // Handle paginated next-page button clicks: PAGE_{offset}_{cat}:{subtype}_{query}
+    if (buttonPayload?.startsWith("PAGE_")) {
+      const parsedPage = parseSearchPaginationId(buttonPayload);
+      if (parsedPage) {
+        const filters: SearchFilters = parsedPage.query
+          ? parseNaturalLanguageQuery(parsedPage.query)
+          : { rawQuery: "", category: "all" };
+        if (parsedPage.category) {
+          filters.category = parsedPage.category as any;
+        }
+        if (parsedPage.propertyType) {
+          filters.propertyType = parsedPage.propertyType;
+        }
+        return await executeAndSendSearchPage({
+          filters,
+          displayQuery: parsedPage.query,
+          categoryLabel: parsedPage.propertyType || (parsedPage.category || undefined),
+          requestedOffset: parsedPage.offset,
+          pagePayloadId: buttonPayload
+        });
+      }
+    }
 
-    // Parse deterministic search criteria
+    // Natural-language first page search (page size = 5)
+    const cleanSearchText = text.replace(/^(search|find|show|looking for)\s*/i, "").trim();
     const filters = parseNaturalLanguageQuery(cleanSearchText || text);
 
-    // Query the database
-    const results = searchListings(db, filters, 3);
-
-    if (results.length === 0) {
-      const location = filters.suburb || filters.city || cleanSearchText;
-      const noResultsMsg = `🏡 No active listings currently found matching *"${location}"*.\n\n` +
-        `💡 *Suggestions:*\n` +
-        `• Try searching nearby suburbs like *Avonlea*, *Belvedere*, *Avenues*, or *Mt Pleasant*.\n` +
-        `• Adjust your price filter (e.g. *under $200*).\n` +
-        `• Switch between *residential*, *commercial*, *hospitality*, or *student*.\n\n` +
-        `Are you a landlord or property owner in this area? Tap below to list for free!`;
-
-      queuePayload(
-        createButtonMessage(
-          phone,
-          noResultsMsg,
-          [
-            { id: "CMD_START_LISTING", title: "🏡 Post Listing" },
-            { id: "CMD_SEARCH_MENU", title: "🔍 Search Again" }
-          ],
-          "No Listings Found"
-        )
-      );
-
-      await dispatchAll();
-      return {
-        phone,
-        action: "SEARCH_RESULTS",
-        searchResultsCount: 0,
-        replyText: noResultsMsg,
-        outboundPayloads
-      };
-    }
-
-    // Send header intro
-    const countMsg = `🏡 *Found ${results.length} active stay${results.length === 1 ? "" : "s"} on BunkBy:*`;
-    queuePayload(createTextMessage(phone, countMsg));
-
-    // Send real photographic listing cards
-    for (const listing of results) {
-      const card = buildListingCard(listing, baseUrl, phone);
-      queuePayload(card);
-    }
-
-    // Send action navigation footer
-    queuePayload(
-      createButtonMessage(
-        phone,
-        `👉 Visit *bunkby.com* for all listings, filters, and maps.`,
-        [
-          { id: "CMD_SEARCH_MENU", title: "🔍 New Search" },
-          { id: "CMD_START_LISTING", title: "🏡 Create a Listing" }
-        ],
-        "BunkBy Accommodation"
-      )
-    );
-
-    await dispatchAll();
-    return {
-      phone,
-      action: "SEARCH_RESULTS",
-      searchResultsCount: results.length,
-      outboundPayloads
-    };
+    return await executeAndSendSearchPage({
+      filters,
+      displayQuery: cleanSearchText,
+      categoryLabel: filters.propertyType || (filters.category && filters.category !== "all" ? filters.category : undefined),
+      requestedOffset: 0
+    });
   }
 
   // =========================================================================

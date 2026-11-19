@@ -60,6 +60,8 @@ export interface ParsedWhatsAppInput {
   isStatusUpdate?: boolean;
 }
 
+export const SEARCH_PAGE_SIZE = 5;
+
 export interface SearchFilters {
   category?: "residential" | "hospitality" | "commercial" | "student" | "all";
   city?: string;
@@ -69,6 +71,22 @@ export interface SearchFilters {
   maxPrice?: number;
   amenities?: string[];
   rawQuery?: string;
+  offset?: number;
+  cursorIsPremium?: number;
+  cursorCreatedAt?: string;
+  cursorId?: number;
+  excludeIds?: number[];
+}
+
+export interface PaginatedSearchResult {
+  results: any[];
+  totalMatching: number;
+  nextCursor: {
+    is_premium: number;
+    created_at: string;
+    id: number;
+  } | null;
+  hasMore: boolean;
 }
 
 /**
@@ -169,14 +187,14 @@ const ZIM_CITIES = [
 
 const COMMON_SUBURBS = [
   // Harare
-  "Avonlea", "Avondale", "Belvedere", "Mt Pleasant", "Avenues", "Braeside", 
+  "Avonlea", "Avondale", "Belvedere", "Mount Pleasant", "Mt Pleasant", "Avenues", "Braeside", 
   "Mabelreign", "Marlborough", "Borrowdale", "Eastlea", "Greendale", "Highlands",
   "Hatfield", "Waterfalls", "Westgate", "Madokero", "Bluffhill", "Mbare",
   "Highfield", "Glen View", "Budiriro", "Warren Park", "Dzivarasekwa", "Kambuzuma",
-  "CBD", "Chitungwiza", "Norton", "Ruwa",
+  "CBD", "Msasa", "Chitungwiza", "Norton", "Ruwa",
   // Bulawayo
   "Suburbs", "Kumalo", "Hillside", "Bradfield", "Famona", "Woodville", "Matsheumhlope",
-  "Khumalo", "Burnside", "Morningside", "Selborne Park", "Luveve", "Nkulumane",
+  "Khumalo", "Burnside", "Morningside", "Selborne Park", "Luveve", "Nkulumane", "Belmont", "Cowdray Park",
   // Gweru
   "Senga", "Southdowns", "Lundi Park", "Daylesford",
   // Mutare
@@ -271,7 +289,7 @@ export function parseNaturalLanguageQuery(query: string): SearchFilters {
 
   // 1. Detect Category
   const commercialMatches = ["commercial", "shop", "shops", "retail", "storefront", "office", "offices", "warehouse", "warehouses", "market stall", "stall", "booth", "table", "tables"];
-  const studentMatches = ["student hostel", "boarding house", "single student", "shared student", "student", "hostel", "hostels", "boarding", "campus"];
+  const studentMatches = ["student accommodation", "student hostel", "boarding house", "single student", "shared student", "student", "hostel", "hostels", "boarding", "campus"];
   const hospitalityMatches = ["lodge", "guesthouse", "guest house", "hotel", "b&b", "bed & breakfast", "bed and breakfast", "night", "per night", "hospitality"];
   const residentialMatches = ["cottage", "single room", "2 rooms", "3 rooms", "bed-sitter", "bedsitter", "flat", "apartment", "townhouse", "cluster", "full house", "monthly", "residential"];
 
@@ -392,9 +410,9 @@ export function parseNaturalLanguageQuery(query: string): SearchFilters {
 }
 
 /**
- * Queries the real SQLite database using extracted filters
+ * Shared SQL WHERE clause builder for both COUNT(*) and paginated SELECT queries.
  */
-export function searchListings(db: Database, filters: SearchFilters, limit = 5): any[] {
+function buildSearchWhereClause(filters: SearchFilters): { whereSql: string; params: any[] } {
   const conditions: string[] = ["listings.verification_status != 'Delisted'"];
   const params: any[] = [];
 
@@ -420,14 +438,19 @@ export function searchListings(db: Database, filters: SearchFilters, limit = 5):
     params.push(`%${filters.city}%`);
   }
 
-  // Suburb filter
+  // Suburb filter (treat "Mount Pleasant" and "Mt Pleasant" as equivalent)
   if (filters.suburb) {
-    conditions.push("listings.suburb LIKE ?");
-    params.push(`%${filters.suburb}%`);
+    const subLower = filters.suburb.toLowerCase();
+    if (subLower === "mount pleasant" || subLower === "mt pleasant") {
+      conditions.push("(listings.suburb LIKE '%Mt Pleasant%' OR listings.suburb LIKE '%Mount Pleasant%' OR listings.title LIKE '%Mt Pleasant%' OR listings.title LIKE '%Mount Pleasant%')");
+    } else {
+      conditions.push("listings.suburb LIKE ?");
+      params.push(`%${filters.suburb}%`);
+    }
   }
 
   // Property Type filter (with canonical commercial/hospitality alias awareness)
-  if (filters.propertyType) {
+  if (filters.propertyType && filters.propertyType.toLowerCase() !== "all") {
     if (filters.propertyType === "Commercial") {
       conditions.push("(listings.property_type = 'Commercial' OR listings.property_type = 'Office' OR listings.property_type LIKE '%Office%')");
     } else if (filters.propertyType === "Table") {
@@ -458,44 +481,187 @@ export function searchListings(db: Database, filters: SearchFilters, limit = 5):
     }
   }
 
-  // Fallback: If no suburb/city/price/propertyType extracted, do a general keyword LIKE match across title, suburb, landmark, city
+  // Fallback: If no suburb/city/propertyType extracted, clean generic nationwide/filler words before keyword matching
   if (!filters.suburb && !filters.city && !filters.propertyType && filters.rawQuery) {
     const cleanTokens = filters.rawQuery
-      .replace(/^(search|find|show|looking for|room in|house in)\s*/i, "")
+      .replace(/\b(search|find|show|looking for|room in|house in|all|available|across|zimbabwe|zim|anywhere|any|locations?|properties|property|places|listings|accommodation|rentals?|spaces?)\b/gi, " ")
+      .replace(/\b(in|at|near|around|for|with|across)\b/gi, " ")
+      .replace(/\s+/g, " ")
       .trim();
 
-    const lowerClean = cleanTokens.toLowerCase();
-    const isGenericCatOrAll = ["all", "any", "residential", "hospitality", "commercial", "student", "accommodation"].includes(lowerClean);
-    if (cleanTokens && cleanTokens.length >= 2 && !isGenericCatOrAll) {
+    if (cleanTokens && cleanTokens.length >= 2) {
       conditions.push("(listings.suburb LIKE ? OR listings.title LIKE ? OR listings.landmark LIKE ? OR listings.city LIKE ?)");
       params.push(`%${cleanTokens}%`, `%${cleanTokens}%`, `%${cleanTokens}%`, `%${cleanTokens}%`);
     }
   }
 
-  const sql = `
-    SELECT 
-      listings.*, 
-      landlords.full_name as landlord_name
-    FROM listings
-    LEFT JOIN landlords ON listings.landlord_id = landlords.id
-    WHERE ${conditions.join(" AND ")}
-    ORDER BY listings.is_premium DESC, listings.created_at DESC
-    LIMIT ?
-  `;
+  return {
+    whereSql: conditions.join(" AND "),
+    params
+  };
+}
 
-  params.push(limit);
+/**
+ * Scalable database-level paginated search returning at most `SEARCH_PAGE_SIZE` (5) listings per call.
+ * Uses SQL COUNT(*) + deterministic ORDER BY (is_premium DESC, created_at DESC, id DESC) + keyset cursor / OFFSET.
+ */
+export function searchListingsPaginated(
+  db: Database,
+  filters: SearchFilters,
+  pageSize = SEARCH_PAGE_SIZE
+): PaginatedSearchResult {
+  const safeLimit = Math.max(1, Math.min(pageSize, SEARCH_PAGE_SIZE));
+  const { whereSql, params } = buildSearchWhereClause(filters);
 
   try {
-    const rows = db.prepare(sql).all(...params);
-    return rows.map((r: any) => ({
+    const countRow = db
+      .prepare(`SELECT COUNT(*) as total FROM listings WHERE ${whereSql}`)
+      .get(...params) as any;
+    const totalMatching = Number(countRow?.total) || 0;
+
+    if (totalMatching === 0) {
+      return { results: [], totalMatching: 0, nextCursor: null, hasMore: false };
+    }
+
+    const pageConditions = [whereSql];
+    const pageParams = [...params];
+
+    // Deduplicate previously sent IDs in this search session
+    if (filters.excludeIds && filters.excludeIds.length > 0) {
+      const cleanIds = filters.excludeIds.filter(id => Number.isInteger(id) && id > 0);
+      if (cleanIds.length > 0) {
+        pageConditions.push(`listings.id NOT IN (${cleanIds.map(() => "?").join(", ")})`);
+        pageParams.push(...cleanIds);
+      }
+    }
+
+    const useCursor = Boolean(filters.cursorCreatedAt && filters.cursorId !== undefined);
+    if (useCursor) {
+      const cPrem = Number(filters.cursorIsPremium ?? 0);
+      const cCreated = String(filters.cursorCreatedAt);
+      const cId = Number(filters.cursorId);
+      pageConditions.push(
+        "(COALESCE(listings.is_premium, 0) < ? OR (COALESCE(listings.is_premium, 0) = ? AND (listings.created_at < ? OR (listings.created_at = ? AND listings.id < ?))))"
+      );
+      pageParams.push(cPrem, cPrem, cCreated, cCreated, cId);
+    }
+
+    const offset = useCursor ? 0 : Math.max(0, Number(filters.offset || 0));
+
+    const sql = `
+      SELECT 
+        listings.*, 
+        landlords.full_name as landlord_name
+      FROM listings
+      LEFT JOIN landlords ON listings.landlord_id = landlords.id
+      WHERE ${pageConditions.join(" AND ")}
+      ORDER BY COALESCE(listings.is_premium, 0) DESC, listings.created_at DESC, listings.id DESC
+      LIMIT ? OFFSET ?
+    `;
+
+    pageParams.push(safeLimit, offset);
+    const rows = db.prepare(sql).all(...pageParams) as any[];
+    const mapped = rows.map((r: any) => ({
       ...r,
       amenities: typeof r.amenities === "string" ? JSON.parse(r.amenities || "[]") : (r.amenities || []),
       is_premium: Boolean(r.is_premium)
     }));
+
+    const lastRow = mapped.length > 0 ? mapped[mapped.length - 1] : null;
+    const nextCursor = lastRow
+      ? {
+          is_premium: lastRow.is_premium ? 1 : 0,
+          created_at: String(lastRow.created_at || ""),
+          id: Number(lastRow.id)
+        }
+      : null;
+
+    const deliveredUpTo = useCursor
+      ? (filters.excludeIds?.length || 0) + mapped.length
+      : offset + mapped.length;
+    const hasMore = mapped.length === safeLimit && deliveredUpTo < totalMatching;
+
+    return {
+      results: mapped,
+      totalMatching,
+      nextCursor,
+      hasMore
+    };
   } catch (err) {
-    console.error("Error executing searchListings:", err);
-    return [];
+    console.error("Error executing searchListingsPaginated:", err);
+    return { results: [], totalMatching: 0, nextCursor: null, hasMore: false };
   }
+}
+
+/**
+ * Queries the real SQLite database using extracted filters (capped at pageSize, default 5)
+ */
+export function searchListings(db: Database, filters: SearchFilters, limit = SEARCH_PAGE_SIZE): any[] {
+  return searchListingsPaginated(db, filters, limit).results;
+}
+
+/**
+ * Encodes pagination state safely into `PAGE_{offset}_{cat}:{subtype}_{query}` (<= 256 chars for Meta buttons)
+ * preserving spaces and multi-word locations like "Mount Pleasant".
+ */
+export function encodeSearchPaginationId(
+  offset: number,
+  category?: string,
+  propertyType?: string,
+  query?: string
+): string {
+  const baseCat = (category || "all").toLowerCase().slice(0, 12);
+  const cleanSub = (propertyType || "").replace(/[_:]/g, " ").trim().slice(0, 24);
+  const catToken = cleanSub ? `${baseCat}:${cleanSub}` : baseCat;
+  const cleanQ = (query || "").trim().replace(/\s+/g, " ").slice(0, 80);
+  const encodedQ = cleanQ ? encodeURIComponent(cleanQ).replace(/_/g, "%5F") : "";
+  const id = `PAGE_${Math.max(0, Math.floor(offset))}_${catToken}_${encodedQ}`;
+  return id.slice(0, 256);
+}
+
+/**
+ * Parses `PAGE_{offset}_{cat}:{subtype}_{query}` payloads losslessly.
+ */
+export function parseSearchPaginationId(payload: string): {
+  offset: number;
+  category: string;
+  propertyType: string;
+  query: string;
+} | null {
+  if (!payload || !payload.startsWith("PAGE_")) return null;
+  const parts = payload.split("_");
+  const offset = Math.max(0, parseInt(parts[1] || "0", 10) || 0);
+  const catRaw = parts[2] || "";
+  const colonIdx = catRaw.indexOf(":");
+  const candCat = (colonIdx >= 0 ? catRaw.slice(0, colonIdx) : catRaw).toLowerCase();
+  const candSub = colonIdx >= 0 ? catRaw.slice(colonIdx + 1) : "";
+
+  const knownCats = ["residential", "hospitality", "commercial", "student", "all"];
+  if (knownCats.includes(candCat)) {
+    const rawQ = parts.slice(3).join("_");
+    let query = rawQ;
+    try {
+      query = decodeURIComponent(rawQ);
+    } catch (_) {}
+    return {
+      offset,
+      category: candCat === "all" ? "" : candCat,
+      propertyType: candSub,
+      query: query.trim()
+    };
+  }
+
+  const rawLegacyQ = parts.slice(2).join("_");
+  let legacyQuery = rawLegacyQ;
+  try {
+    legacyQuery = decodeURIComponent(rawLegacyQ);
+  } catch (_) {}
+  return {
+    offset,
+    category: "",
+    propertyType: "",
+    query: legacyQuery.trim()
+  };
 }
 
 /**
@@ -775,6 +941,62 @@ export function buildListingCard(listing: any, baseUrl: string, toPhone: string)
 
   // Fallback to text message if listing genuinely has no photograph
   return createTextMessage(toPhone, caption, true);
+}
+
+/**
+ * Builds a concise WhatsApp Search Result Card (no bulky descriptions or image uploads).
+ * Users can open the direct link for full website details & photo gallery, or reply `photos <id>`.
+ */
+export function buildConciseSearchCard(
+  listing: any,
+  baseUrl: string,
+  toPhone: string,
+  resultNumber?: number
+): WhatsAppMessagePayload {
+  const isHospitality = listing.category === "hospitality" || [
+    "Lodge / Guesthouse", "Hotel", "Lodge", "Guesthouse", "Guest House", "Bed & Breakfast"
+  ].includes(listing.property_type);
+  const isCommercial = listing.category === "commercial" || [
+    "Commercial", "Shop", "Warehouse", "Table", "Office"
+  ].includes(listing.property_type);
+  const isStudent = listing.category === "student" || [
+    "Student Hostel", "Boarding House", "Single Student Room", "Shared Student Room"
+  ].includes(listing.property_type) || listing.tenant_type === "Student";
+
+  const icon = isHospitality ? "🏨" : isCommercial ? "🏢" : isStudent ? "🎓" : "🏠";
+  const defaultType = isHospitality ? "Hospitality Stay" : isCommercial ? "Commercial Space" : isStudent ? "Student Accommodation" : "Residential Rental";
+  const cycle = listing.rent_cycle || (isHospitality ? "Night" : isStudent ? "Semester" : "Month");
+  const cleanBase = baseUrl.replace(/\/+$/, "");
+  const listingUrl = `${cleanBase}/?listing=${listing.id}`;
+
+  const titleText = String(isHospitality ? (listing.business_name || listing.title) : listing.title || "Property Listing").slice(0, 72);
+  const numPrefix = resultNumber ? `${resultNumber}. ` : "";
+
+  const amenitiesArr: string[] = Array.isArray(listing.amenities)
+    ? listing.amenities
+    : (() => {
+        try { return JSON.parse(listing.amenities || "[]"); } catch { return []; }
+      })();
+  const summaryParts: string[] = [];
+  if (listing.landmark) summaryParts.push(String(listing.landmark).slice(0, 45));
+  if (amenitiesArr.length > 0) summaryParts.push(amenitiesArr.slice(0, 3).join(", "));
+  const summaryLine = summaryParts.length > 0 ? summaryParts.join(" · ") : `${listing.property_type || defaultType} in ${listing.suburb}`;
+
+  const rawDigits = String(listing.contact_phone || "").replace(/\D/g, "");
+  const displayPhone = rawDigits.startsWith("263")
+    ? `+${rawDigits}`
+    : rawDigits.startsWith("0") && rawDigits.length >= 9
+    ? `+263${rawDigits.slice(1)}`
+    : (listing.contact_phone || "See link");
+
+  const cardText =
+    `${icon} *${numPrefix}${titleText}*\n` +
+    `🏷️ ${listing.property_type || defaultType} • 📍 ${listing.suburb}, ${listing.city || "Harare"}\n` +
+    `💰 *$${listing.price} / ${cycle}*\n` +
+    `✨ ${summaryLine}\n` +
+    `📞 ${displayPhone} • 🔗 ${listingUrl}`;
+
+  return createTextMessage(toPhone, cardText, false);
 }
 
 /**

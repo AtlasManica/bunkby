@@ -24,6 +24,26 @@ export function getPrimaryListingPhoto(room: any): string {
   return DEFAULT_ROOM_IMAGES[0];
 }
 import PrivacyPolicy from "./PrivacyPolicy";
+import { WhatsAppLandingPage } from "./components/WhatsAppLandingPage";
+import { LocationPage } from "./components/LocationPage";
+import { CategoryPage } from "./components/CategoryPage";
+import { ListingDetailPage } from "./components/ListingDetailPage";
+import { applyClientSeo } from "./utils/seoClient";
+import {
+  CATEGORY_DEFINITIONS,
+  FEATURED_CITY_SLUGS,
+  MarketplaceCategoryKey,
+  buildCategorySeo,
+  buildHomeSeo,
+  buildLocationSeo,
+  buildWhatsAppSeo,
+  findCityBySlugOrName,
+  findSuburbInCity,
+  getListingCategoryKey,
+  isListingAvailable,
+  matchesSuburbName,
+  toSlug,
+} from "../shared/seoData";
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -91,7 +111,7 @@ import {
 } from "./initialData";
 import { motion, AnimatePresence } from "motion/react";
 
-// Official WhatsApp Brand Icon Component
+// Official WhatsApp Brand Icon Component (handset centered inside chat bubble)
 const WhatsAppIcon = ({ className = "w-4 h-4" }: { className?: string }) => (
   <svg 
     viewBox="0 0 24 24" 
@@ -101,7 +121,10 @@ const WhatsAppIcon = ({ className = "w-4 h-4" }: { className?: string }) => (
     fill="currentColor"
     aria-hidden="true"
   >
-    <path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91C2.13 13.66 2.59 15.36 3.45 16.86L2.05 22L7.3 20.62C8.75 21.41 10.38 21.83 12.04 21.83C17.5 21.83 21.95 17.38 21.95 11.92C21.95 9.27 20.92 6.78 19.05 4.91C17.18 3.04 14.69 2 12.04 2M12.04 3.67C14.25 3.67 16.31 4.53 17.87 6.09C19.42 7.65 20.28 9.72 20.28 11.92C20.28 16.46 16.58 20.15 12.04 20.15C10.56 20.15 9.11 19.76 7.85 19L7.55 18.83L4.43 19.65L5.26 16.61L5.06 16.29C4.24 15 3.8 13.47 3.8 11.91C3.81 7.37 7.5 3.67 12.04 3.67M9.53 7.35C9.33 7.35 9 7.42 8.72 7.73C8.44 8.04 7.65 8.78 7.65 10.27C7.65 11.76 8.74 13.19 8.89 13.4C9.05 13.61 11.04 16.67 14.09 17.98C14.81 18.29 15.38 18.48 15.82 18.62C16.55 18.85 17.21 18.82 17.74 18.74C18.33 18.65 19.55 18 19.81 17.28C20.06 16.56 20.06 15.94 19.98 15.82C19.91 15.69 19.71 15.61 19.4 15.46C19.1 15.31 17.61 14.58 17.33 14.48C17.06 14.38 16.86 14.33 16.66 14.63C16.46 14.94 15.88 15.61 15.7 15.82C15.53 16.02 15.35 16.05 15.05 15.9C14.74 15.75 13.77 15.43 12.61 14.4C11.71 13.6 11.1 12.61 10.92 12.3C10.75 12 10.9 11.84 11.06 11.69C11.2 11.55 11.37 11.33 11.53 11.15C11.68 10.97 11.73 10.84 11.83 10.64C11.93 10.43 11.88 10.26 11.81 10.11C11.73 9.95 11.13 8.48 10.88 7.87C10.63 7.28 10.38 7.36 10.2 7.35H9.53Z" />
+    <path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91C2.13 13.66 2.59 15.36 3.45 16.86L2.05 22L7.3 20.62C8.75 21.41 10.38 21.83 12.04 21.83C17.5 21.83 21.95 17.38 21.95 11.92C21.95 9.27 20.92 6.78 19.05 4.91C17.18 3.04 14.69 2 12.04 2M12.04 3.67C14.25 3.67 16.31 4.53 17.87 6.09C19.42 7.65 20.28 9.72 20.28 11.92C20.28 16.46 16.58 20.15 12.04 20.15C10.56 20.15 9.11 19.76 7.85 19L7.55 18.83L4.43 19.65L5.26 16.61L5.06 16.29C4.24 15 3.8 13.47 3.8 11.91C3.81 7.37 7.5 3.67 12.04 3.67Z" />
+    <g transform="translate(12.04, 11.91) scale(0.88) translate(-13.855, -13.065)">
+      <path d="M9.53 7.35C9.33 7.35 9 7.42 8.72 7.73C8.44 8.04 7.65 8.78 7.65 10.27C7.65 11.76 8.74 13.19 8.89 13.4C9.05 13.61 11.04 16.67 14.09 17.98C14.81 18.29 15.38 18.48 15.82 18.62C16.55 18.85 17.21 18.82 17.74 18.74C18.33 18.65 19.55 18 19.81 17.28C20.06 16.56 20.06 15.94 19.98 15.82C19.91 15.69 19.71 15.61 19.4 15.46C19.1 15.31 17.61 14.58 17.33 14.48C17.06 14.38 16.86 14.33 16.66 14.63C16.46 14.94 15.88 15.61 15.7 15.82C15.53 16.02 15.35 16.05 15.05 15.9C14.74 15.75 13.77 15.43 12.61 14.4C11.71 13.6 11.1 12.61 10.92 12.3C10.75 12 10.9 11.84 11.06 11.69C11.2 11.55 11.37 11.33 11.53 11.15C11.68 10.97 11.73 10.84 11.83 10.64C11.93 10.43 11.88 10.26 11.81 10.11C11.73 9.95 11.13 8.48 10.88 7.87C10.63 7.28 10.38 7.36 10.2 7.35H9.53Z" />
+    </g>
   </svg>
 );
 
@@ -179,7 +202,7 @@ export default function App() {
   const [selectedSuburb, setSelectedSuburb] = useState("");
   const [selectedAmenity, setSelectedAmenity] = useState("");
   const [selectedTenantType, setSelectedTenantType] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState<"all" | "residential" | "hospitality">("all");
+  const [selectedCategory, setSelectedCategory] = useState<"all" | "residential" | "hospitality" | "commercial" | "student">("all");
   const [selectedPropertyType, setSelectedPropertyType] = useState("");
   const [minPrice, setMinPrice] = useState<number | "">("");
   const [maxPrice, setMaxPrice] = useState<number | "">("");
@@ -246,14 +269,57 @@ export default function App() {
   const [isAuthLoading, setIsAuthLoading] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
 
-    // Listen to browser forward/backward navigation for /privacy-policy route
+  // Floating WhatsApp CTA visibility: appears only after user scrolls a bit, then hides after 5 seconds
+  const [showFloatingWhatsapp, setShowFloatingWhatsapp] = useState(false);
+  const floatingWhatsappTimerRef = useRef<number | null>(null);
+  const isFloatingWhatsappHoveredRef = useRef(false);
+
+  useEffect(() => {
+    const scheduleHide = () => {
+      if (floatingWhatsappTimerRef.current !== null) {
+        window.clearTimeout(floatingWhatsappTimerRef.current);
+      }
+      floatingWhatsappTimerRef.current = window.setTimeout(() => {
+        if (!isFloatingWhatsappHoveredRef.current) {
+          setShowFloatingWhatsapp(false);
+        }
+        floatingWhatsappTimerRef.current = null;
+      }, 5000);
+    };
+
+    const handleScroll = () => {
+      if (window.scrollY > 180) {
+        setShowFloatingWhatsapp(true);
+        scheduleHide();
+      } else {
+        if (floatingWhatsappTimerRef.current !== null) {
+          window.clearTimeout(floatingWhatsappTimerRef.current);
+          floatingWhatsappTimerRef.current = null;
+        }
+        setShowFloatingWhatsapp(false);
+      }
+    };
+
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", handleScroll);
+      if (floatingWhatsappTimerRef.current !== null) {
+        window.clearTimeout(floatingWhatsappTimerRef.current);
+        floatingWhatsappTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  // Listen to browser forward/backward navigation across SPA & SEO routes
   useEffect(() => {
     const handlePopState = () => {
       setCurrentPath(window.location.pathname);
       const params = new URLSearchParams(window.location.search);
       const tab = params.get("tab");
-      if (tab && ["browse", "landlord", "whatsapp", "account", "help"].includes(tab)) {
+      if (tab && ["browse", "landlord", "account", "help"].includes(tab)) {
         setActiveTab(tab as any);
+      } else if (window.location.pathname === "/") {
+        setActiveTab("browse");
       }
     };
     window.addEventListener("popstate", handlePopState);
@@ -262,9 +328,9 @@ export default function App() {
 
   const navigateTo = (path: string, tab?: "browse" | "landlord" | "account" | "help") => {
     try {
-      if (path === "/privacy-policy") {
-        window.history.pushState(null, "", "/privacy-policy");
-        setCurrentPath("/privacy-policy");
+      if (path !== "/") {
+        window.history.pushState(null, "", path);
+        setCurrentPath(path);
         window.scrollTo({ top: 0, behavior: "smooth" });
       } else {
         const targetTab = tab || "browse";
@@ -297,7 +363,7 @@ export default function App() {
       if (q) setSearchTerm(q);
       if (city) setSelectedCity(city);
       if (suburb) setSelectedSuburb(suburb);
-      if (cat && ["all", "residential", "hospitality"].includes(cat)) setSelectedCategory(cat as any);
+      if (cat && ["all", "residential", "hospitality", "commercial", "student"].includes(cat)) setSelectedCategory(cat as any);
       if (propType) setSelectedPropertyType(propType);
       if (amenity) setSelectedAmenity(amenity);
       if (tenant) setSelectedTenantType(tenant);
@@ -322,8 +388,9 @@ export default function App() {
     }
   }, [pendingDirectListingId, listings]);
 
-  // Keep URL search query updated with active filters
+  // Keep URL search query updated ONLY when on the homepage "/"
   useEffect(() => {
+    if (currentPath !== "/") return;
     try {
       const params = new URLSearchParams();
       if (searchTerm) params.set("q", searchTerm);
@@ -340,26 +407,73 @@ export default function App() {
       if (selectedListingDetail) params.set("listing", String(selectedListingDetail.id));
 
       const newSearch = params.toString();
-      if (currentPath === "/privacy-policy") return;
       const newUrl = newSearch ? `/?${newSearch}` : "/";
       window.history.replaceState(null, "", newUrl);
-
-      // Keep canonical tag pointing to primary domain root https://bunkby.com/
-      try {
-        let canonicalTag = document.querySelector('link[rel="canonical"]');
-        if (!canonicalTag) {
-          canonicalTag = document.createElement("link");
-          canonicalTag.setAttribute("rel", "canonical");
-          document.head.appendChild(canonicalTag);
-        }
-        canonicalTag.setAttribute("href", "https://bunkby.com/");
-      } catch (_) {}
     } catch (_) {}
   }, [
-    searchTerm, selectedCity, selectedSuburb, selectedCategory,
+    currentPath, searchTerm, selectedCity, selectedSuburb, selectedCategory,
     selectedPropertyType, selectedAmenity, selectedTenantType,
     minPrice, maxPrice, sortBy, activeTab, selectedListingDetail
   ]);
+
+  // Synchronize document title, meta tags, canonical URL, and Schema.org JSON-LD across routes
+  useEffect(() => {
+    if (currentPath === "/privacy-policy") return;
+    if (currentPath.startsWith("/listing/")) return; // Handled directly by ListingDetailPage
+
+    const active = listings.filter((r) => isListingAvailable(r));
+
+    if (currentPath === "/whatsapp") {
+      applyClientSeo(buildWhatsAppSeo());
+      return;
+    }
+
+    const catMatch = currentPath.match(/^\/categories\/([^/]+)\/?$/);
+    if (catMatch) {
+      const slug = toSlug(decodeURIComponent(catMatch[1])) as MarketplaceCategoryKey;
+      const catDef = CATEGORY_DEFINITIONS[slug] || null;
+      const filtered = catDef ? active.filter((l) => getListingCategoryKey(l) === catDef.key) : [];
+      applyClientSeo(buildCategorySeo(catDef, filtered));
+      return;
+    }
+
+    const suburbMatch = currentPath.match(/^\/locations\/([^/]+)\/([^/]+)\/?$/);
+    if (suburbMatch) {
+      const city = findCityBySlugOrName(decodeURIComponent(suburbMatch[1]));
+      if (!city) {
+        applyClientSeo(buildLocationSeo(null, null, [], true));
+        return;
+      }
+      const suburb = findSuburbInCity(city, decodeURIComponent(suburbMatch[2]));
+      if (!suburb) {
+        applyClientSeo(buildLocationSeo(city, null, [], true));
+        return;
+      }
+      const filtered = active.filter((l) => toSlug(l.city) === city.slug && matchesSuburbName(l.suburb, suburb));
+      applyClientSeo(buildLocationSeo(city, suburb, filtered, false));
+      return;
+    }
+
+    const cityMatch = currentPath.match(/^\/locations\/([^/]+)\/?$/);
+    if (cityMatch) {
+      const city = findCityBySlugOrName(decodeURIComponent(cityMatch[1]));
+      if (!city) {
+        applyClientSeo(buildLocationSeo(null, null, []));
+        return;
+      }
+      const filtered = active.filter((l) => toSlug(l.city) === city.slug);
+      applyClientSeo(buildLocationSeo(city, null, filtered, false));
+      return;
+    }
+
+    if (currentPath === "/") {
+      const homeSeo = buildHomeSeo(active);
+      if (activeTab !== "browse") {
+        homeSeo.robots = "noindex, follow";
+      }
+      applyClientSeo(homeSeo);
+    }
+  }, [currentPath, listings, activeTab]);
 
 
 
@@ -1119,14 +1233,14 @@ export default function App() {
           <nav className="hidden md:flex items-center gap-1 text-xs">
             <button 
               onClick={() => navigateTo("/", "browse")}
-              className={`px-2.5 py-1.5 rounded-lg transition-all ${activeTab === "browse" ? "bg-[#021024] text-white font-extrabold shadow-xs border border-white/10" : "hover:text-white text-slate-200 hover:bg-[#021024]/40 font-semibold"}`}
+              className={`px-2.5 py-1.5 rounded-lg transition-all ${currentPath === "/" && activeTab === "browse" ? "bg-[#021024] text-white font-extrabold shadow-xs border border-white/10" : "hover:text-white text-slate-200 hover:bg-[#021024]/40 font-semibold"}`}
               id="nav-browse"
             >
               Browse Listings
             </button>
             <button 
               onClick={() => navigateTo("/", "landlord")}
-              className={`px-2.5 py-1.5 rounded-lg transition-all ${activeTab === "landlord" ? "bg-[#021024] text-white font-extrabold shadow-xs border border-white/10" : "hover:text-white text-slate-200 hover:bg-[#021024]/40 font-semibold"}`}
+              className={`px-2.5 py-1.5 rounded-lg transition-all ${currentPath === "/" && activeTab === "landlord" ? "bg-[#021024] text-white font-extrabold shadow-xs border border-white/10" : "hover:text-white text-slate-200 hover:bg-[#021024]/40 font-semibold"}`}
               id="nav-landlord"
             >
               Landlords Portal
@@ -1134,29 +1248,18 @@ export default function App() {
 
             <button 
               onClick={() => navigateTo("/", "account")}
-              className={`px-2.5 py-1.5 rounded-lg transition-all ${activeTab === "account" ? "bg-[#021024] text-white font-extrabold shadow-xs border border-white/10" : "hover:text-white text-slate-200 hover:bg-[#021024]/40 font-semibold"}`}
+              className={`px-2.5 py-1.5 rounded-lg transition-all ${currentPath === "/" && activeTab === "account" ? "bg-[#021024] text-white font-extrabold shadow-xs border border-white/10" : "hover:text-white text-slate-200 hover:bg-[#021024]/40 font-semibold"}`}
               id="nav-account"
             >
               Account
             </button>
             <button 
               onClick={() => navigateTo("/", "help")}
-              className={`px-2.5 py-1.5 rounded-lg transition-all whitespace-nowrap shrink-0 ${activeTab === "help" ? "bg-[#021024] text-white font-extrabold shadow-xs border border-white/10" : "hover:text-white text-slate-200 hover:bg-[#021024]/40 font-semibold"}`}
+              className={`px-2.5 py-1.5 rounded-lg transition-all whitespace-nowrap shrink-0 ${currentPath === "/" && activeTab === "help" ? "bg-[#021024] text-white font-extrabold shadow-xs border border-white/10" : "hover:text-white text-slate-200 hover:bg-[#021024]/40 font-semibold"}`}
               id="nav-help"
             >
               Help & FAQ
             </button>
-            <a
-              href={getBunkByWhatsAppUrl("Hi BunkBy! I would like assistance.")}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="px-2.5 py-1.5 rounded-lg transition-all whitespace-nowrap shrink-0 text-slate-200 hover:text-white hover:bg-[#021024]/40 font-semibold flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#25D366]"
-              id="nav-whatsapp"
-              title={`Chat with BunkBy WhatsApp Bot (${BUNKBY_WHATSAPP_DISPLAY})`}
-            >
-              <WhatsAppIcon className="w-3.5 h-3.5 text-[#25D366] shrink-0" />
-              <span>WhatsApp Bot</span>
-            </a>
           </nav>
 
           {/* Right Controls / User details */}
@@ -1189,7 +1292,7 @@ export default function App() {
             ) : (
               <button 
                 onClick={() => {
-                  setActiveTab("landlord");
+                  navigateTo("/", "landlord");
                   showToast("🔑 Register or access BunkBy Landlord workspace using your phone number!");
                 }}
                 className="bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white font-bold text-[11px] sm:text-xs px-2.5 sm:px-3 py-1.5 rounded-lg shadow-sm flex items-center gap-1 transition-all outline-none cursor-pointer min-h-[36px]"
@@ -1209,14 +1312,14 @@ export default function App() {
       <nav aria-label="Mobile Navigation" className="md:hidden bg-[#052659] border-b border-[#052659]/80 flex items-center justify-around text-[11px] font-medium py-1 sticky top-14 z-35 shadow-sm">
         <button 
           onClick={() => navigateTo("/", "browse")}
-          className={`flex flex-col items-center justify-center py-1 px-2 rounded-md min-h-[44px] min-w-[56px] transition-colors ${activeTab === "browse" ? "text-white font-extrabold bg-[#021024]/50" : "text-[#E2E8F0] hover:text-white"}`}
+          className={`flex flex-col items-center justify-center py-1 px-2 rounded-md min-h-[44px] min-w-[56px] transition-colors ${currentPath === "/" && activeTab === "browse" ? "text-white font-extrabold bg-[#021024]/50" : "text-[#E2E8F0] hover:text-white"}`}
         >
           <Building className="w-4 h-4 shrink-0" />
           <span className="leading-tight mt-0.5">Browse</span>
         </button>
         <button 
           onClick={() => navigateTo("/", "landlord")}
-          className={`flex flex-col items-center justify-center py-1 px-2 rounded-md min-h-[44px] min-w-[56px] transition-colors relative ${activeTab === "landlord" ? "text-white font-extrabold bg-[#021024]/50" : "text-[#E2E8F0] hover:text-white"}`}
+          className={`flex flex-col items-center justify-center py-1 px-2 rounded-md min-h-[44px] min-w-[56px] transition-colors relative ${currentPath === "/" && activeTab === "landlord" ? "text-white font-extrabold bg-[#021024]/50" : "text-[#E2E8F0] hover:text-white"}`}
         >
           <SlidersHorizontal className="w-4 h-4 shrink-0" />
           <span className="leading-tight mt-0.5">Portal</span>
@@ -1224,35 +1327,102 @@ export default function App() {
 
         <button 
           onClick={() => navigateTo("/", "account")}
-          className={`flex flex-col items-center justify-center py-1 px-2 rounded-md min-h-[44px] min-w-[56px] transition-colors ${activeTab === "account" ? "text-white font-extrabold bg-[#021024]/50" : "text-[#E2E8F0] hover:text-white"}`}
+          className={`flex flex-col items-center justify-center py-1 px-2 rounded-md min-h-[44px] min-w-[56px] transition-colors ${currentPath === "/" && activeTab === "account" ? "text-white font-extrabold bg-[#021024]/50" : "text-[#E2E8F0] hover:text-white"}`}
         >
           <Settings className="w-4 h-4 shrink-0" />
           <span className="leading-tight mt-0.5">Account</span>
         </button>
         <button 
           onClick={() => navigateTo("/", "help")}
-          className={`flex flex-col items-center justify-center py-1 px-2 rounded-md min-h-[44px] min-w-[52px] transition-colors ${activeTab === "help" ? "text-white font-extrabold bg-[#021024]/50" : "text-[#E2E8F0] hover:text-white"}`}
+          className={`flex flex-col items-center justify-center py-1 px-2 rounded-md min-h-[44px] min-w-[52px] transition-colors ${currentPath === "/" && activeTab === "help" ? "text-white font-extrabold bg-[#021024]/50" : "text-[#E2E8F0] hover:text-white"}`}
         >
           <HelpCircle className="w-4 h-4 shrink-0" />
           <span className="leading-tight mt-0.5">Help</span>
         </button>
-        <a
-          href={getBunkByWhatsAppUrl("Hi BunkBy! I would like assistance.")}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex flex-col items-center justify-center py-1 px-2 rounded-md min-h-[44px] min-w-[52px] transition-colors text-[#E2E8F0] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#25D366]"
-          aria-label="Open BunkBy WhatsApp Bot"
-        >
-          <WhatsAppIcon className="w-4 h-4 text-[#25D366] shrink-0" />
-          <span className="leading-tight mt-0.5">WhatsApp</span>
-        </a>
       </nav>
 
       {/* Application Body Content */}
       <main className="flex-grow max-w-7xl w-full mx-auto px-3 sm:px-5 lg:px-8 py-3.5 sm:py-6">
-        
+
+        {/* DEDICATED SEO ROUTES: /whatsapp, /listing/:id, /locations/:city(/:suburb), /categories/:category */}
+        {(() => {
+          if (currentPath === "/whatsapp") {
+            return <WhatsAppLandingPage onNavigate={(p) => navigateTo(p)} />;
+          }
+
+          const listingMatch = currentPath.match(/^\/listing\/([^/]+)\/?$/);
+          if (listingMatch) {
+            return (
+              <ListingDetailPage
+                listingId={decodeURIComponent(listingMatch[1])}
+                cachedListings={listings}
+                onNavigate={(p) => navigateTo(p)}
+                onContactLandlord={handleContactLandlord}
+                onReportListing={(room) => {
+                  setReportingListing(room);
+                  setIsReportModalOpen(true);
+                }}
+                showToast={showToast}
+              />
+            );
+          }
+
+          const suburbMatch = currentPath.match(/^\/locations\/([^/]+)\/([^/]+)\/?$/);
+          if (suburbMatch) {
+            const city = findCityBySlugOrName(decodeURIComponent(suburbMatch[1]));
+            const suburb = city ? findSuburbInCity(city, decodeURIComponent(suburbMatch[2])) : null;
+            return (
+              <LocationPage
+                city={city}
+                suburb={suburb}
+                isUnknownSuburb={!city || !suburb}
+                allListings={listings}
+                isLoading={isLoading}
+                onNavigate={(p) => navigateTo(p)}
+                onContactLandlord={handleContactLandlord}
+                getPrimaryPhoto={getPrimaryListingPhoto}
+              />
+            );
+          }
+
+          const cityMatch = currentPath.match(/^\/locations\/([^/]+)\/?$/);
+          if (cityMatch) {
+            const city = findCityBySlugOrName(decodeURIComponent(cityMatch[1]));
+            return (
+              <LocationPage
+                city={city}
+                suburb={null}
+                isUnknownSuburb={!city}
+                allListings={listings}
+                isLoading={isLoading}
+                onNavigate={(p) => navigateTo(p)}
+                onContactLandlord={handleContactLandlord}
+                getPrimaryPhoto={getPrimaryListingPhoto}
+              />
+            );
+          }
+
+          const catMatch = currentPath.match(/^\/categories\/([^/]+)\/?$/);
+          if (catMatch) {
+            const slug = toSlug(decodeURIComponent(catMatch[1])) as MarketplaceCategoryKey;
+            const catDef = CATEGORY_DEFINITIONS[slug] || null;
+            return (
+              <CategoryPage
+                category={catDef}
+                allListings={listings}
+                isLoading={isLoading}
+                onNavigate={(p) => navigateTo(p)}
+                onContactLandlord={handleContactLandlord}
+                getPrimaryPhoto={getPrimaryListingPhoto}
+              />
+            );
+          }
+
+          return null;
+        })()}
+
         {/* TAB 1: BROWSER / ROOM DIRECTORY */}
-        {activeTab === "browse" && (
+        {currentPath === "/" && activeTab === "browse" && (
           <div className="space-y-6">
             
             {/* Hero Card with User Uploaded hero-background.png */}
@@ -1697,17 +1867,19 @@ export default function App() {
                       className="bg-white rounded-2xl overflow-hidden border border-slate-200/90 shadow-xs hover:shadow-md hover:border-slate-300 transition-all flex flex-col group relative"
                     >
                       {/* Room Image with overlay tags - Compact aspect-ratio */}
-                      <div 
-                        onClick={() => {
-                          setSelectedListingDetail(room);
-                          setDetailActivePhotoIdx(0);
+                      <a
+                        href={`/listing/${encodeURIComponent(String(room.id))}`}
+                        onClick={(e) => {
+                          if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+                          e.preventDefault();
+                          navigateTo(`/listing/${encodeURIComponent(String(room.id))}`);
                         }}
                         className="relative aspect-16/10 sm:aspect-16/9 w-full overflow-hidden bg-slate-100 shrink-0 flex items-center justify-center cursor-pointer"
                       >
                         {getPrimaryListingPhoto(room) ? (
                           <img 
                             src={getPrimaryListingPhoto(room)} 
-                            alt={room.title}
+                            alt={`${room.title} - ${room.propertyType} in ${room.suburb}, ${room.city}`}
                             className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
                             referrerPolicy="no-referrer"
                             loading="lazy"
@@ -1763,7 +1935,7 @@ export default function App() {
                             <span className="text-[8.5px] text-emerald-600 block font-mono font-bold leading-none">No Deposit</span>
                           )}
                         </div>
-                      </div>
+                      </a>
 
                       {/* Room Metadata - Tightly structured, readable, no excess padding */}
                       <div className="p-3.5 sm:p-4 flex-grow flex flex-col space-y-2.5">
@@ -1777,15 +1949,19 @@ export default function App() {
                             </div>
                           )}
 
-                          <h3 
-                            onClick={() => {
-                              setSelectedListingDetail(room);
-                              setDetailActivePhotoIdx(0);
-                            }}
-                            className="text-sm sm:text-base font-bold text-slate-800 leading-snug line-clamp-1 hover:text-[#052659] cursor-pointer transition-colors"
-                            title={room.title}
-                          >
-                            {room.title}
+                          <h3 className="text-sm sm:text-base font-bold text-slate-800 leading-snug line-clamp-1">
+                            <a
+                              href={`/listing/${encodeURIComponent(String(room.id))}`}
+                              onClick={(e) => {
+                                if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+                                e.preventDefault();
+                                navigateTo(`/listing/${encodeURIComponent(String(room.id))}`);
+                              }}
+                              className="hover:text-[#052659] cursor-pointer transition-colors"
+                              title={room.title}
+                            >
+                              {room.title}
+                            </a>
                           </h3>
                           
                           {/* Location lines */}
@@ -1838,17 +2014,18 @@ export default function App() {
 
                         {/* Bottom action panel with View Details & direct contact */}
                         <div className="pt-2.5 border-t border-slate-100 flex items-center justify-between gap-2 mt-auto shrink-0">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setSelectedListingDetail(room);
-                              setDetailActivePhotoIdx(0);
+                          <a
+                            href={`/listing/${encodeURIComponent(String(room.id))}`}
+                            onClick={(e) => {
+                              if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+                              e.preventDefault();
+                              navigateTo(`/listing/${encodeURIComponent(String(room.id))}`);
                             }}
                             className="text-xs font-bold text-slate-700 hover:text-[#052659] bg-slate-100 hover:bg-slate-200 py-2 px-2.5 sm:px-3 rounded-xl transition-all cursor-pointer flex items-center gap-1 min-h-[38px]"
                           >
                             <Eye className="w-3.5 h-3.5 shrink-0" />
                             <span>Details</span>
-                          </button>
+                          </a>
 
                           <button 
                             type="button"
@@ -1880,10 +2057,106 @@ export default function App() {
                 </p>
               </div>
             </section>
+
+            {/* Crawlable Zimbabwe Cities, Suburbs & Category Directory for Search & AI Discovery */}
+            <section aria-label="Explore Zimbabwe Property Locations and Categories" className="bg-white rounded-2xl p-5 sm:p-6 border border-slate-200 shadow-xs space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div>
+                  <h2 className="text-base sm:text-lg font-display font-bold text-[#052659]">
+                    Explore Zimbabwe Property Locations &amp; Categories
+                  </h2>
+                  <p className="text-xs text-slate-600">
+                    BunkBy (operated by Atlas Manica Group) connects seekers directly with hosts for rooms, houses, cottages, flats, student accommodation, guesthouses, lodges, and commercial properties online or on WhatsApp ({BUNKBY_WHATSAPP_DISPLAY}).
+                  </p>
+                </div>
+                <a
+                  href="/whatsapp"
+                  onClick={(e) => {
+                    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+                    e.preventDefault();
+                    navigateTo("/whatsapp");
+                  }}
+                  className="text-xs font-bold text-[#15803d] hover:underline whitespace-nowrap shrink-0"
+                >
+                  WhatsApp Guide &rarr;
+                </a>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-1 text-xs">
+                <div className="space-y-1.5">
+                  <h3 className="font-mono font-bold text-slate-500 uppercase text-[10px]">Major Cities</h3>
+                  <div className="flex flex-wrap gap-1.5">
+                    {FEATURED_CITY_SLUGS.map((slug) => {
+                      const city = findCityBySlugOrName(slug);
+                      if (!city) return null;
+                      return (
+                        <a
+                          key={city.slug}
+                          href={`/locations/${city.slug}`}
+                          onClick={(e) => {
+                            if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+                            e.preventDefault();
+                            navigateTo(`/locations/${city.slug}`);
+                          }}
+                          className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-[#052659] font-semibold transition-colors"
+                        >
+                          {city.name}
+                        </a>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <h3 className="font-mono font-bold text-slate-500 uppercase text-[10px]">Popular Harare Suburbs</h3>
+                  <div className="flex flex-wrap gap-1.5">
+                    {["mount-pleasant", "borrowdale", "avondale", "eastlea", "greendale", "avonlea", "belvedere", "cbd"].map((subSlug) => {
+                      const harare = findCityBySlugOrName("harare");
+                      const sub = harare ? findSuburbInCity(harare, subSlug) : null;
+                      if (!sub) return null;
+                      return (
+                        <a
+                          key={sub.slug}
+                          href={`/locations/harare/${sub.slug}`}
+                          onClick={(e) => {
+                            if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+                            e.preventDefault();
+                            navigateTo(`/locations/harare/${sub.slug}`);
+                          }}
+                          className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium transition-colors"
+                        >
+                          {sub.name}
+                        </a>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <h3 className="font-mono font-bold text-slate-500 uppercase text-[10px]">Marketplace Categories</h3>
+                  <div className="flex flex-wrap gap-1.5">
+                    {Object.values(CATEGORY_DEFINITIONS).map((cat) => (
+                      <a
+                        key={cat.slug}
+                        href={`/categories/${cat.slug}`}
+                        onClick={(e) => {
+                          if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+                          e.preventDefault();
+                          navigateTo(`/categories/${cat.slug}`);
+                        }}
+                        className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-[#052659] font-semibold transition-colors"
+                      >
+                        {cat.name}
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </section>
           </div>
         )}
         {/* TAB 2: LANDLORDS PORTAL (MY LISTINGS & ACTIVE CONSOLE) */}
-        {activeTab === "landlord" && (
+        {currentPath === "/" && activeTab === "landlord" && (
           !userProfile ? (
             <div className="max-w-md mx-auto bg-white border border-slate-200 rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 shadow-xl space-y-4 sm:space-y-6">
               <div className="text-center space-y-2">
@@ -2305,7 +2578,7 @@ export default function App() {
         )}
 
         {/* TAB 3: ACCOUNT SETTINGS */}
-        {activeTab === "account" && (
+        {currentPath === "/" && activeTab === "account" && (
           !userProfile ? (
             <div className="max-w-md mx-auto bg-white border border-slate-200 rounded-3xl p-6 md:p-8 shadow-xl space-y-6 animate-fade-in font-sans">
               <div className="text-center space-y-2">
@@ -2799,7 +3072,7 @@ export default function App() {
         )}
 
         {/* TAB 5: HELP & GUIDES */}
-        {activeTab === "help" && (
+        {currentPath === "/" && activeTab === "help" && (
           <div className="space-y-6 max-w-3xl mx-auto">
             
             {/* Help Header */}
@@ -2869,21 +3142,6 @@ export default function App() {
             </p>
           </div>
 
-          <div className="flex flex-col items-center sm:items-end gap-2 text-xs">
-            <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 font-bold">
-              BunkBy WhatsApp Marketplace
-            </span>
-            <a
-              href={getBunkByWhatsAppUrl("Hi BunkBy! I would like assistance.")}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 text-white hover:text-[#25D366] font-semibold transition-colors whitespace-nowrap"
-            >
-              <WhatsAppIcon className="w-4 h-4 text-[#25D366] shrink-0" />
-              <span className="font-mono">{BUNKBY_WHATSAPP_DISPLAY}</span>
-            </a>
-          </div>
-
         </div>
 
         {/* ATLASMANICA BRANDING CREDIT AS USER EXPLICITLY REQUESTED */}
@@ -2891,7 +3149,16 @@ export default function App() {
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="text-[11px] text-slate-300 font-normal">
               <p>© 2026 BunkBy. BunkBy is an accommodation marketplace operated by ATLAS MANICA GROUP LTD.</p>
-              <div className="pt-1.5 text-[11px] text-slate-300">
+              <div className="pt-1.5 text-[11px] text-slate-300 flex flex-wrap items-center justify-center sm:justify-start gap-3">
+                <a 
+                  href="/whatsapp"
+                  onClick={(e) => { e.preventDefault(); navigateTo("/whatsapp"); }}
+                  className="hover:text-white underline underline-offset-2 transition-colors cursor-pointer"
+                  id="footer-whatsapp-guide-link"
+                >
+                  WhatsApp Assistant
+                </a>
+                <span className="text-slate-500">•</span>
                 <a 
                   href="/privacy-policy" 
                   onClick={(e) => { e.preventDefault(); navigateTo("/privacy-policy"); }}
@@ -4233,24 +4500,46 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* Floating WhatsApp Assistant Button (bottom-right, compact circular on mobile, labeled on sm+) */}
-      <motion.a
-        id="floating-whatsapp-cta"
-        href={getBunkByWhatsAppUrl("Hi BunkBy! I would like assistance.")}
-        target="_blank"
-        rel="noopener noreferrer"
-        aria-label="Chat with BunkBy on WhatsApp (+263 78 978 3200)"
-        title={`Chat with BunkBy on WhatsApp (${BUNKBY_WHATSAPP_DISPLAY})`}
-        initial={{ opacity: 0, y: 14, scale: 0.94 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
-        className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-40 inline-flex items-center justify-center gap-2 w-12 h-12 sm:w-auto sm:h-11 sm:pl-2 sm:pr-4 rounded-full bg-[#25D366] sm:bg-[#15803d] hover:bg-[#166534] text-white font-bold text-xs sm:text-sm shadow-lg shadow-emerald-950/25 hover:shadow-xl hover:-translate-y-0.5 active:translate-y-0 transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#021024]"
-      >
-        <span className="sm:w-7 sm:h-7 sm:rounded-full sm:bg-[#25D366] flex items-center justify-center shrink-0">
-          <WhatsAppIcon className="w-6 h-6 sm:w-4.5 sm:h-4.5 text-white shrink-0" />
-        </span>
-        <span className="hidden sm:inline whitespace-nowrap">Chat with BunkBy</span>
-      </motion.a>
+      {/* Floating WhatsApp Assistant Button (appears after scrolling, auto-hides after 5 seconds) */}
+      <AnimatePresence>
+        {showFloatingWhatsapp && (
+          <motion.a
+            id="floating-whatsapp-cta"
+            href={getBunkByWhatsAppUrl("Hi BunkBy! I would like assistance.")}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="Chat with BunkBy on WhatsApp (+263 78 978 3200)"
+            title={`Chat with BunkBy on WhatsApp (${BUNKBY_WHATSAPP_DISPLAY})`}
+            initial={{ opacity: 0, y: 14, scale: 0.94 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 14, scale: 0.94 }}
+            transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+            onMouseEnter={() => {
+              isFloatingWhatsappHoveredRef.current = true;
+              if (floatingWhatsappTimerRef.current !== null) {
+                window.clearTimeout(floatingWhatsappTimerRef.current);
+                floatingWhatsappTimerRef.current = null;
+              }
+            }}
+            onMouseLeave={() => {
+              isFloatingWhatsappHoveredRef.current = false;
+              if (floatingWhatsappTimerRef.current !== null) {
+                window.clearTimeout(floatingWhatsappTimerRef.current);
+              }
+              floatingWhatsappTimerRef.current = window.setTimeout(() => {
+                setShowFloatingWhatsapp(false);
+                floatingWhatsappTimerRef.current = null;
+              }, 5000);
+            }}
+            className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-40 inline-flex items-center justify-center gap-2 w-12 h-12 sm:w-auto sm:h-11 sm:pl-2 sm:pr-4 rounded-full bg-[#25D366] sm:bg-[#15803d] hover:bg-[#166534] text-white font-bold text-xs sm:text-sm shadow-lg shadow-emerald-950/25 hover:shadow-xl hover:-translate-y-0.5 active:translate-y-0 transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#021024]"
+          >
+            <span className="sm:w-7 sm:h-7 sm:rounded-full sm:bg-[#25D366] flex items-center justify-center shrink-0">
+              <WhatsAppIcon className="w-6 h-6 sm:w-4.5 sm:h-4.5 text-white shrink-0" />
+            </span>
+            <span className="hidden sm:inline whitespace-nowrap">Chat with BunkBy</span>
+          </motion.a>
+        )}
+      </AnimatePresence>
 
     </div>
   );

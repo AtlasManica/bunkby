@@ -10,6 +10,8 @@
  * 5. Prompt Webhook Acknowledgment with Retry Deduplication
  */
 
+const SEARCH_PAGE_SIZE = 5;
+
 interface Env {
   DB: any;
   WHATSAPP_ACCESS_TOKEN?: string;
@@ -291,14 +293,24 @@ function buildCategoryAndLocationClauses(
   const q = (locationQuery || "").trim();
   const qLower = q.toLowerCase();
 
-  if (q && qLower !== "all" && qLower !== "any" && qLower !== "skip") {
-    const locClauses: string[] = [
-      `(${prefix}suburb LIKE ? OR ${prefix}city LIKE ? OR ${prefix}title LIKE ? OR ${prefix}landmark LIKE ?)`
-    ];
-    params.push(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`);
+  if (
+    q &&
+    !["all", "any", "skip", "all locations", "zimbabwe", "across zimbabwe", "everywhere"].includes(qLower)
+  ) {
+    const locClauses: string[] = [];
+    if (qLower === "mount pleasant" || qLower === "mt pleasant") {
+      locClauses.push(
+        `(${prefix}suburb LIKE '%Mt Pleasant%' OR ${prefix}suburb LIKE '%Mount Pleasant%' OR ${prefix}city LIKE '%Mt Pleasant%' OR ${prefix}title LIKE '%Mt Pleasant%' OR ${prefix}title LIKE '%Mount Pleasant%' OR ${prefix}landmark LIKE '%Mt Pleasant%' OR ${prefix}landmark LIKE '%Mount Pleasant%')`
+      );
+    } else {
+      locClauses.push(
+        `(${prefix}suburb LIKE ? OR ${prefix}city LIKE ? OR ${prefix}title LIKE ? OR ${prefix}landmark LIKE ?)`
+      );
+      params.push(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`);
+    }
 
     const tokens = q.split(/[,/+\s]+/).map(t => t.trim()).filter(t => t.length >= 2);
-    if (tokens.length >= 2) {
+    if (tokens.length >= 2 && qLower !== "mount pleasant" && qLower !== "mt pleasant") {
       const tokenSubclauses: string[] = [];
       for (const t of tokens) {
         tokenSubclauses.push(`(${prefix}suburb LIKE ? OR ${prefix}city LIKE ? OR ${prefix}title LIKE ? OR ${prefix}landmark LIKE ?)`);
@@ -362,7 +374,7 @@ function extractNaturalSearchIntent(cleanQuery: string): {
     propertyType = "Commercial";
   } else if (/\b(commercials?|commercial propert(?:y|ies)|commercial spaces?)\b/i.test(qLower)) {
     category = "commercial";
-  } else if (/\b(student hostels?|boarding houses?|students?|hostels?)\b/i.test(qLower)) {
+  } else if (/\b(student accommodation|student hostels?|boarding houses?|students?|hostels?)\b/i.test(qLower)) {
     category = "student";
   } else if (/\b(guesthouses?|guest houses?|lodges?|hotels?|b&bs?|bed & breakfasts?|hospitality)\b/i.test(qLower)) {
     category = "hospitality";
@@ -370,15 +382,12 @@ function extractNaturalSearchIntent(cleanQuery: string): {
     category = "residential";
   }
 
-  // Strip detected category/type words + prepositions so remaining text is pure location
-  let locationQuery = q;
-  if (category) {
-    locationQuery = locationQuery
-      .replace(/\b(retail shops?|storefronts?|shops?|warehouses?|storage|market stalls?|flea markets?|stalls?|booths?|tables?|office spaces?|office suites?|offices?|commercial propert(?:y|ies)|commercial spaces?|commercials?|student accommodation|student hostels?|boarding houses?|hostels?|students?|guesthouses?|guest houses?|lodges?|hotels?|b&bs?|hospitality|residential|rentals?|properties|property|spaces?|accommodation|rooms?)\b/gi, " ")
-      .replace(/\b(in|at|near|around|for|with)\b/gi, " ")
-      .replace(/\s+/g, " ")
-      .trim();
-  }
+  // Strip detected category/type words and generic search fillers so remaining text is pure location
+  let locationQuery = q
+    .replace(/\b(retail shops?|storefronts?|shops?|warehouses?|storage|market stalls?|flea markets?|stalls?|booths?|tables?|office spaces?|office suites?|offices?|commercial propert(?:y|ies)|commercial spaces?|commercials?|student accommodation|student hostels?|boarding houses?|hostels?|students?|guesthouses?|guest houses?|lodges?|hotels?|b&bs?|hospitality|residential|rentals?|properties|property|places|listings|spaces?|accommodation|rooms?)\b/gi, " ")
+    .replace(/\b(all|available|across|zimbabwe|zim|anywhere|any|locations?|search|find|show|looking|for|in|at|near|around|with|me)\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 
   return { category, propertyType, locationQuery };
 }
@@ -386,6 +395,60 @@ function extractNaturalSearchIntent(cleanQuery: string): {
 function buildLocationSearchClauses(cleanQuery: string, tablePrefix: string = ""): { whereSql: string; params: any[] } {
   const intent = extractNaturalSearchIntent(cleanQuery);
   return buildCategoryAndLocationClauses(intent.category, intent.locationQuery, tablePrefix, intent.propertyType);
+}
+
+function encodePageButtonId(
+  offset: number,
+  category: string,
+  propertyType: string,
+  query: string
+): string {
+  const baseCat = (category || "all").toLowerCase().slice(0, 12);
+  const cleanSub = (propertyType || "").replace(/[_:]/g, " ").trim().slice(0, 24);
+  const catToken = cleanSub ? `${baseCat}:${cleanSub}` : baseCat;
+  const cleanQ = (query || "").trim().replace(/\s+/g, " ").slice(0, 80);
+  const encodedQ = cleanQ ? encodeURIComponent(cleanQ).replace(/_/g, "%5F") : "";
+  return `PAGE_${Math.max(0, Math.floor(offset))}_${catToken}_${encodedQ}`.slice(0, 256);
+}
+
+function parsePageButtonId(payload: string): {
+  offset: number;
+  category: string;
+  propertyType: string;
+  query: string;
+} {
+  const pageParts = payload.split("_");
+  const offset = Math.max(0, parseInt(pageParts[1] || "0", 10) || 0);
+  const candidateCatRaw = pageParts[2] || "";
+  const colonIdx = candidateCatRaw.indexOf(":");
+  const candidateCat = colonIdx >= 0 ? candidateCatRaw.slice(0, colonIdx) : candidateCatRaw;
+  const candidateSubtype = colonIdx >= 0 ? candidateCatRaw.slice(colonIdx + 1) : "";
+
+  if (["residential", "hospitality", "commercial", "student", "all"].includes(candidateCat.toLowerCase())) {
+    const rawQ = pageParts.slice(3).join("_") || "";
+    let decodedQ = rawQ;
+    try {
+      decodedQ = decodeURIComponent(rawQ);
+    } catch (_) {}
+    return {
+      offset,
+      category: candidateCat.toLowerCase() === "all" ? "" : candidateCat.toLowerCase(),
+      propertyType: candidateSubtype,
+      query: decodedQ.trim()
+    };
+  }
+
+  const legacyRaw = pageParts.slice(2).join("_") || "";
+  let decodedLegacy = legacyRaw;
+  try {
+    decodedLegacy = decodeURIComponent(legacyRaw);
+  } catch (_) {}
+  return {
+    offset,
+    category: "",
+    propertyType: "",
+    query: decodedLegacy.trim()
+  };
 }
 
 /**
@@ -676,6 +739,78 @@ function buildListingCardMessage(
     rawPhoto: String(listing.image_url || "").trim() || null,
     text
   };
+}
+
+/**
+ * Builds a concise WhatsApp search card (no image downloads/uploads or bulky text).
+ * Includes: listing title, property type, location, price + cycle, short summary, direct ?listing= link.
+ */
+function buildConciseSearchCardText(listing: any, baseUrl: string, resultNumber?: number): string {
+  const isHospitality = listing.category === "hospitality" || [
+    "Lodge / Guesthouse", "Hotel", "Lodge", "Guesthouse", "Guest House", "Bed & Breakfast"
+  ].includes(listing.property_type);
+  const isStudent = listing.category === "student" || [
+    "Student Hostel", "Boarding House", "Single Student Room", "Shared Student Room"
+  ].includes(listing.property_type) || listing.tenant_type === "Student";
+  const isCommercial = listing.category === "commercial" || [
+    "Commercial", "Shop", "Warehouse", "Table", "Office"
+  ].includes(listing.property_type);
+
+  const icon = isHospitality ? "🏨" : isCommercial ? "🏢" : isStudent ? "🎓" : "🏠";
+  const defaultType = isHospitality
+    ? "Hospitality Stay"
+    : isCommercial
+    ? "Commercial Space"
+    : isStudent
+    ? "Student Accommodation"
+    : "Residential Rental";
+  const cycle = listing.rent_cycle || (isHospitality ? "Night" : isStudent ? "Semester" : "Month");
+
+  let publicBase = "https://bunkby.com";
+  if (baseUrl && (baseUrl.startsWith("https://") || baseUrl.startsWith("http://"))) {
+    try {
+      const u = new URL(baseUrl);
+      if (u.hostname !== "localhost" && u.hostname !== "127.0.0.1") {
+        publicBase = u.origin.replace(/\/+$/, "");
+      }
+    } catch (_) {}
+  }
+  const listingUrl = `${publicBase}/?listing=${listing.id}`;
+
+  const rawTitle = String(isHospitality ? (listing.business_name || listing.title) : listing.title || "Property").slice(0, 72);
+  const numPrefix = resultNumber ? `${resultNumber}. ` : "";
+
+  let amenitiesList: string[] = [];
+  if (typeof listing.amenities === "string") {
+    try {
+      amenitiesList = JSON.parse(listing.amenities || "[]");
+    } catch {
+      amenitiesList = [];
+    }
+  } else if (Array.isArray(listing.amenities)) {
+    amenitiesList = listing.amenities;
+  }
+
+  const summaryParts: string[] = [];
+  if (listing.landmark) summaryParts.push(String(listing.landmark).slice(0, 45));
+  if (amenitiesList.length > 0) summaryParts.push(amenitiesList.slice(0, 3).join(", "));
+  const summaryLine = summaryParts.length > 0
+    ? summaryParts.join(" · ")
+    : `${listing.property_type || defaultType} in ${listing.suburb}`;
+
+  const rawDigits = String(listing.contact_phone || "").replace(/\D/g, "");
+  let displayPhone = listing.contact_phone || "See link";
+  if (rawDigits.startsWith("263")) displayPhone = `+${rawDigits}`;
+  else if (rawDigits.startsWith("0") && rawDigits.length >= 9) displayPhone = `+263${rawDigits.slice(1)}`;
+  else if (rawDigits.length === 9) displayPhone = `+263${rawDigits}`;
+
+  return (
+    `${icon} *${numPrefix}${rawTitle}*\n` +
+    `🏷️ ${listing.property_type || defaultType} • 📍 ${listing.suburb}, ${listing.city || "Harare"}\n` +
+    `💰 *$${listing.price} / ${cycle}*\n` +
+    `✨ ${summaryLine}\n` +
+    `📞 ${displayPhone} • 🔗 ${listingUrl}`
+  );
 }
 
 
@@ -1013,6 +1148,39 @@ async function ensureDiagnosticTable(db: any) {
       error TEXT
     )
   `).run();
+
+  await db.prepare(`
+    CREATE TABLE IF NOT EXISTS whatsapp_search_state (
+      phone_number TEXT PRIMARY KEY,
+      search_key TEXT NOT NULL,
+      filters_json TEXT,
+      total_matching INTEGER DEFAULT 0,
+      dispatched_count INTEGER DEFAULT 0,
+      cursor_is_premium INTEGER DEFAULT 0,
+      cursor_created_at TEXT,
+      cursor_id INTEGER,
+      seen_ids TEXT,
+      last_page_payload TEXT,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `).run();
+
+  // Ensure scalable covering search indexes exist (safe, idempotent)
+  const indexDdls = [
+    "CREATE INDEX IF NOT EXISTS idx_listings_active_created_id ON listings(created_at DESC, id DESC) WHERE verification_status != 'Delisted'",
+    "CREATE INDEX IF NOT EXISTS idx_listings_active_cat_created_id ON listings(category, created_at DESC, id DESC) WHERE verification_status != 'Delisted'",
+    "CREATE INDEX IF NOT EXISTS idx_listings_active_type_created_id ON listings(property_type, created_at DESC, id DESC) WHERE verification_status != 'Delisted'",
+    "CREATE INDEX IF NOT EXISTS idx_listings_active_premium_created_id ON listings(is_premium DESC, created_at DESC, id DESC) WHERE verification_status != 'Delisted'",
+    "CREATE INDEX IF NOT EXISTS idx_listings_active_coalesce_premium_created_id ON listings(COALESCE(is_premium, 0) DESC, created_at DESC, id DESC) WHERE verification_status != 'Delisted'",
+    "CREATE INDEX IF NOT EXISTS idx_listings_city_status ON listings(city, verification_status)",
+    "CREATE INDEX IF NOT EXISTS idx_listings_suburb_status ON listings(suburb, verification_status)",
+    "CREATE INDEX IF NOT EXISTS idx_listings_landlord_status ON listings(landlord_id, verification_status, id DESC)"
+  ];
+  for (const ddl of indexDdls) {
+    try {
+      await db.prepare(ddl).run();
+    } catch (_) {}
+  }
 
   // 2. Self-healing D1 schema migrations: ensure new columns exist in listings table
   try {
@@ -1575,6 +1743,7 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
       if (session) {
         await env.DB.prepare("DELETE FROM chatbot_sessions WHERE phone_number = ?").bind(phone).run();
       }
+      await env.DB.prepare("DELETE FROM whatsapp_search_state WHERE phone_number = ?").bind(phone).run();
       replyText = "🚫 *Your current session has been cancelled.* No listing was published.\n\nWhat would you like to do next?";
       buttonsToSend = [
         { id: "CMD_SEARCH", title: "🔍 Search Stays" },
@@ -1726,17 +1895,15 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
         const searchPropertyType = collectedData.searchPropertyType || "";
         const categoryLabel = collectedData.categoryLabel || "";
 
-        // Clear the search session once executing search
+        // Clear the guided search prompt session once executing search
         await env.DB.prepare("DELETE FROM chatbot_sessions WHERE phone_number = ?").bind(phone).run();
 
         const isAllLocations = buttonPayload === "SEARCH_LOC_ALL" || lowerText === "all" || lowerText === "any";
-        const cleanQuery = isAllLocations ? "All" : text.replace(/^(search|find|looking for|i want a|need a)\s*/i, "").trim();
+        const cleanQuery = isAllLocations ? "" : text.replace(/^(search|find|show|looking for|i want a|need a)\s*/i, "").trim();
 
-        // Intelligent combined category, commercial subtype, and location search
         const locationFilter = buildCategoryAndLocationClauses(searchCategory, cleanQuery, "listings", searchPropertyType);
         const countFilter = buildCategoryAndLocationClauses(searchCategory, cleanQuery, "", searchPropertyType);
 
-        // Count total matching listings
         const countSql = `
           SELECT COUNT(*) as total
           FROM listings
@@ -1747,21 +1914,22 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
           : await env.DB.prepare(countSql).first();
         const totalMatching = Number(totalCountRes?.total) || 0;
 
-        // Query up to 3 listings for the first page
         const querySql = `
           SELECT listings.*, landlords.full_name as landlord_name
           FROM listings
           LEFT JOIN landlords ON listings.landlord_id = landlords.id
           WHERE listings.verification_status != 'Delisted'${locationFilter.whereSql}
-          ORDER BY listings.created_at DESC LIMIT 3 OFFSET 0
+          ORDER BY COALESCE(listings.is_premium, 0) DESC, listings.created_at DESC, listings.id DESC LIMIT ? OFFSET 0
         `;
 
         const stmt = env.DB.prepare(querySql);
-        const { results } = locationFilter.params.length > 0 ? await stmt.bind(...locationFilter.params).all() : await stmt.all();
+        const { results } = await stmt.bind(...locationFilter.params, SEARCH_PAGE_SIZE).all();
 
         if (!results || results.length === 0) {
+          await env.DB.prepare("DELETE FROM whatsapp_search_state WHERE phone_number = ?").bind(phone).run();
           const catNote = categoryLabel ? ` (${categoryLabel})` : "";
-          replyText = `🏡 No active listings currently found${catNote} in *"${cleanQuery}"*.\n\n💡 *Suggestions:*\n• Try searching a wider area like *Harare*, *Bulawayo*, or *All* locations.\n• Tap *Search Again* to pick another category or commercial subtype.\n• Tap *Create a Listing* below to post your property on BunkBy!`;
+          const locDisp = cleanQuery || "All Locations";
+          replyText = `🏡 No active listings currently found${catNote} in *"${locDisp}"*.\n\n💡 *Suggestions:*\n• Try searching a wider area like *Harare*, *Bulawayo*, or *All Locations*.\n• Tap *Search Again* to pick another category or commercial subtype.\n• Tap *Create a Listing* below to post your property on BunkBy!`;
           actionTaken = "SEARCH_NO_RESULTS";
           buttonsToSend = [
             { id: "CMD_SEARCH", title: "🔍 Search Again" },
@@ -1772,44 +1940,64 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
           const baseUrl = new URL(request.url).origin || "https://bunkby.com";
 
           const catSnippet = categoryLabel ? ` (${categoryLabel})` : "";
-          const locSuffix = cleanQuery.toLowerCase() === "all" ? "" : ` in "${cleanQuery}"`;
-          const headerMsg = totalMatching > results.length
-            ? `🏡 *Showing ${results.length} of ${totalMatching} properties${catSnippet}${locSuffix}:*`
-            : `🏡 *Found ${totalMatching} active propert${totalMatching === 1 ? "y" : "ies"}${catSnippet}${locSuffix}:*`;
-          
+          const locSuffix = cleanQuery && cleanQuery.toLowerCase() !== "all" ? ` in "${cleanQuery}"` : "";
+          const endNum = results.length;
+          const headerMsg = `🏡 *Showing 1–${endNum} of ${totalMatching}${catSnippet}${locSuffix}:*`;
           outboundQueue.push({ text: headerMsg, itemType: "intro" });
 
-          // Send up to 3 property cards
-          for (const room of results) {
-            const card = buildListingCardMessage(room, baseUrl, phone);
-            if (card.imageUrl) {
-              outboundQueue.push({
-                text: `📸 Photo for: *${room.title || "Accommodation"}*`,
-                imageUrl: card.imageUrl,
-                rawPhoto: card.rawPhoto,
-                itemType: "listing_photo",
-                listingId: room.id
-              } as any);
-            }
+          for (let idx = 0; idx < results.length; idx++) {
+            const room = results[idx];
             outboundQueue.push({
-              text: card.text,
+              text: buildConciseSearchCardText(room, baseUrl, idx + 1),
               itemType: "listing_card",
               listingId: room.id
             });
           }
 
-          // Build navigation buttons (preserve category & commercial subtype in pagination ID)
-          const hasMore = results.length < totalMatching;
-          const safeQuery = cleanQuery.slice(0, 15).replace(/[^a-zA-Z0-9]/g, "");
+          const lastRoom: any = results[results.length - 1];
+          const lastIsPremium = Number(lastRoom.is_premium) ? 1 : 0;
+          const seenIds = results.map((r: any) => Number(r.id));
+          const searchKey = JSON.stringify({
+            cat: (searchCategory || "").toLowerCase(),
+            sub: searchPropertyType || "",
+            q: cleanQuery.toLowerCase()
+          });
 
+          await env.DB.prepare(`
+            INSERT INTO whatsapp_search_state (
+              phone_number, search_key, filters_json, total_matching, dispatched_count,
+              cursor_is_premium, cursor_created_at, cursor_id, seen_ids, last_page_payload, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '', CURRENT_TIMESTAMP)
+            ON CONFLICT(phone_number) DO UPDATE SET
+              search_key = excluded.search_key,
+              filters_json = excluded.filters_json,
+              total_matching = excluded.total_matching,
+              dispatched_count = excluded.dispatched_count,
+              cursor_is_premium = excluded.cursor_is_premium,
+              cursor_created_at = excluded.cursor_created_at,
+              cursor_id = excluded.cursor_id,
+              seen_ids = excluded.seen_ids,
+              last_page_payload = '',
+              updated_at = CURRENT_TIMESTAMP
+          `).bind(
+            phone,
+            searchKey,
+            JSON.stringify({ category: searchCategory, propertyType: searchPropertyType, query: cleanQuery }),
+            totalMatching,
+            endNum,
+            lastIsPremium,
+            String(lastRoom.created_at || ""),
+            Number(lastRoom.id),
+            JSON.stringify(seenIds)
+          ).run();
+
+          const hasMore = endNum < totalMatching;
           const navButtons: Array<{ id: string; title: string }> = [];
-          const baseCat = (searchCategory || "all").slice(0, 12);
-          const safeCatToken = searchPropertyType ? `${baseCat}:${searchPropertyType}` : baseCat;
-          const remainingCount = totalMatching - results.length;
+          const remainingCount = totalMatching - endNum;
           if (hasMore) {
             navButtons.push({
-              id: `PAGE_3_${safeCatToken}_${safeQuery}`,
-              title: `⏩ Next 3 Stays (${remainingCount} left)`
+              id: encodePageButtonId(endNum, searchCategory || "all", searchPropertyType, cleanQuery),
+              title: "⏩ Next 5 Results"
             });
             navButtons.push({ id: "CMD_SEARCH", title: "🔍 New Search" });
             navButtons.push({ id: "CMD_LIST", title: "🏡 Add Listing" });
@@ -1820,11 +2008,11 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
           }
 
           const searchWebUrl = cleanQuery && cleanQuery.toLowerCase() !== "all"
-            ? `https://bunkby.com/#search=${encodeURIComponent(cleanQuery)}`
+            ? `https://bunkby.com/?q=${encodeURIComponent(cleanQuery)}`
             : "https://bunkby.com";
           const footerText = hasMore
-            ? `📄 *Viewing 1–${results.length} of ${totalMatching} available properties.* Tap *Next 3 Stays* below to view the next batch, or see full galleries on the web:\n🔗 ${searchWebUrl}`
-            : `✅ *You have viewed all ${totalMatching} available propert${totalMatching === 1 ? "y" : "ies"}${locSuffix}.*\nExplore all areas or view map on:\n🔗 ${searchWebUrl}`;
+            ? `📄 *Showing 1–${endNum} of ${totalMatching} matching properties* (${remainingCount} remaining).\nTap *Next 5 Results* below or browse full galleries on:\n🔗 ${searchWebUrl}`
+            : `✅ *End of results (${endNum} of ${totalMatching} shown)${locSuffix}.*\nView full details and photo galleries on:\n🔗 ${searchWebUrl}`;
 
           outboundQueue.push({
             text: footerText,
@@ -3124,7 +3312,13 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
       lowerText === "lodge" ||
       lowerText.startsWith("search ") ||
       lowerText.startsWith("find ") ||
+      lowerText.startsWith("show ") ||
       lowerText.startsWith("looking for ") ||
+      lowerText.includes("all available") ||
+      lowerText.includes("all properties") ||
+      lowerText.includes("properties") ||
+      lowerText.includes("accommodation") ||
+      lowerText.includes("zimbabwe") ||
       lowerText.includes("room") ||
       lowerText.includes("cottage") ||
       lowerText.includes("apartment") ||
@@ -3147,10 +3341,15 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
       lowerText.includes("nyanga") ||
       lowerText.includes("bindura") ||
       lowerText.includes("chivhu") ||
+      lowerText.includes("victoria falls") ||
+      lowerText.includes("mount pleasant") ||
       lowerText.includes("mt pleasant") ||
       lowerText.includes("avonlea") ||
+      lowerText.includes("avondale") ||
+      lowerText.includes("borrowdale") ||
       lowerText.includes("belvedere") ||
-      lowerText.includes("avenues")
+      lowerText.includes("avenues") ||
+      lowerText.includes("msasa")
     ) {
       // Initiate a conversational SEARCH SESSION with Category Selection
       if (buttonPayload === "CMD_SEARCH" || buttonPayload === "CMD_SEARCH_MENU" || lowerText === "search") {
@@ -3167,46 +3366,45 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
         listToSend = buildSearchCategoryList();
         actionTaken = "SEARCH_PROMPT_CATEGORY";
       } else {
-        let cleanQuery = text.replace(/^(search|find|looking for|i want a|need a)\s*/i, "").trim();
+        let cleanQuery = text.replace(/^(search|find|show|looking for|i want a|need a)\s*/i, "").trim();
         let searchOffset = 0;
         let paginatedCategory = "";
         let paginatedPropertyType = "";
+        const isPageClick = Boolean(buttonPayload?.startsWith("PAGE_"));
 
-        if (buttonPayload?.startsWith("PAGE_")) {
-          // Format: PAGE_{offset}_{cat[:subtype]}_{query}
-          const pageParts = buttonPayload.split("_");
-          searchOffset = parseInt(pageParts[1], 10) || 0;
-          const candidateCatRaw = pageParts[2] || "";
-          const [candidateCat, candidateSubtype] = candidateCatRaw.split(":");
-          if (["residential", "hospitality", "commercial", "student", "all"].includes((candidateCat || "").toLowerCase())) {
-            paginatedCategory = candidateCat.toLowerCase() === "all" ? "" : candidateCat.toLowerCase();
-            paginatedPropertyType = candidateSubtype || "";
-            cleanQuery = pageParts.slice(3).join("_") || "";
-          } else {
-            cleanQuery = pageParts.slice(2).join("_") || cleanQuery;
-          }
+        if (isPageClick && buttonPayload) {
+          // Format: PAGE_{offset}_{cat[:subtype]}_{encodedQuery}
+          const parsedPage = parsePageButtonId(buttonPayload);
+          searchOffset = parsedPage.offset;
+          paginatedCategory = parsedPage.category;
+          paginatedPropertyType = parsedPage.propertyType;
+          cleanQuery = parsedPage.query;
         } else if (buttonPayload === "SEARCH_HARARE") {
           cleanQuery = "Harare";
         } else if (buttonPayload === "SEARCH_BULAWAYO") {
           cleanQuery = "Bulawayo";
         } else if (buttonPayload === "SEARCH_VICFALLS") {
           cleanQuery = "Victoria Falls";
-        } else if (
-          buttonPayload === "SEARCH_CAT_RESIDENTIAL" ||
-          buttonPayload === "SEARCH_CAT_HOSPITALITY" ||
-          buttonPayload === "SEARCH_CAT_COMMERCIAL" ||
-          buttonPayload === "SEARCH_CAT_STUDENT" ||
-          lowerText === "1" ||
-          lowerText === "2" ||
-          lowerText === "3" ||
-          lowerText === "4" ||
-          lowerText === "residential" ||
-          lowerText === "hospitality" ||
-          lowerText === "commercial" ||
-          lowerText === "student" ||
-          lowerText === "student accommodation" ||
-          lowerText === "guesthouse" ||
-          lowerText === "lodge"
+        }
+
+        if (
+          !isPageClick && (
+            buttonPayload === "SEARCH_CAT_RESIDENTIAL" ||
+            buttonPayload === "SEARCH_CAT_HOSPITALITY" ||
+            buttonPayload === "SEARCH_CAT_COMMERCIAL" ||
+            buttonPayload === "SEARCH_CAT_STUDENT" ||
+            lowerText === "1" ||
+            lowerText === "2" ||
+            lowerText === "3" ||
+            lowerText === "4" ||
+            lowerText === "residential" ||
+            lowerText === "hospitality" ||
+            lowerText === "commercial" ||
+            lowerText === "student" ||
+            lowerText === "student accommodation" ||
+            lowerText === "guesthouse" ||
+            lowerText === "lodge"
+          )
         ) {
           let chosenCategory = "residential";
           let categoryLabel = "Residential Rentals";
@@ -3263,7 +3461,7 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
             actionTaken = "SEARCH_PROMPT_LOCATION";
           }
         } else {
-          // Direct natural-language or paginated search
+          // Direct natural-language or paginated search (5 results per page)
           const locationFilter = paginatedCategory || paginatedPropertyType
             ? buildCategoryAndLocationClauses(paginatedCategory, cleanQuery, "listings", paginatedPropertyType)
             : (cleanQuery ? buildLocationSearchClauses(cleanQuery, "listings") : { whereSql: "", params: [] });
@@ -3271,99 +3469,205 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
             ? buildCategoryAndLocationClauses(paginatedCategory, cleanQuery, "", paginatedPropertyType)
             : (cleanQuery ? buildLocationSearchClauses(cleanQuery) : { whereSql: "", params: [] });
 
-          const countSql = `
-            SELECT COUNT(*) as total
-            FROM listings
-            WHERE verification_status != 'Delisted'${countFilter.whereSql}
-          `;
-          const totalCountRes: any = countFilter.params.length > 0 
-            ? await env.DB.prepare(countSql).bind(...countFilter.params).first()
-            : await env.DB.prepare(countSql).first();
-          const totalMatching = Number(totalCountRes?.total) || 0;
+          const searchKey = JSON.stringify({
+            cat: (paginatedCategory || "").toLowerCase(),
+            sub: paginatedPropertyType || "",
+            q: cleanQuery.toLowerCase()
+          });
 
-          const querySql = `
-            SELECT listings.*, landlords.full_name as landlord_name
-            FROM listings
-            LEFT JOIN landlords ON listings.landlord_id = landlords.id
-            WHERE listings.verification_status != 'Delisted'${locationFilter.whereSql}
-            ORDER BY listings.created_at DESC LIMIT 3 OFFSET ?
-          `;
+          const existingSearchState = await env.DB.prepare(
+            "SELECT * FROM whatsapp_search_state WHERE phone_number = ?"
+          ).bind(phone).first();
 
-          const bindParams = [...locationFilter.params, searchOffset];
-          const stmt = env.DB.prepare(querySql);
-          const { results } = await stmt.bind(...bindParams).all();
-
-          if (!results || results.length === 0) {
-            replyText = `🏡 No active listings found matching *"${cleanQuery || "your search"}"*.\n\n💡 *Suggestions:*\n• Try searching a major city or town (e.g. *Harare*, *Bulawayo*, *Victoria Falls*).\n• Tap *Search Again* to pick a category or commercial subtype.\n• Tap *Create a Listing* below to post a property on BunkBy!`;
-            actionTaken = "SEARCH_NO_RESULTS";
-            buttonsToSend = [
-              { id: "CMD_SEARCH", title: "🔍 Search Again" },
-              { id: "CMD_LIST", title: "🏡 Create a Listing" }
-            ];
-          } else {
-            actionTaken = "SEARCH_RESULTS";
-            const baseUrl = new URL(request.url).origin || "https://bunkby.com";
-
-            const startNum = searchOffset + 1;
-            const endNum = searchOffset + results.length;
-            const labelCtx = paginatedPropertyType ? ` (${paginatedPropertyType})` : "";
-            const headerMsg = totalMatching > results.length
-              ? `🏡 *Showing stays ${startNum}–${endNum} of ${totalMatching}${labelCtx} in "${cleanQuery || "All"}":*`
-              : `🏡 *Found ${totalMatching} active propert${totalMatching === 1 ? "y" : "ies"}${labelCtx} in "${cleanQuery || "All"}":*`;
-            
-            outboundQueue.push({ text: headerMsg, itemType: "intro" });
-
-            for (const room of results) {
-              const card = buildListingCardMessage(room, baseUrl, phone);
-              if (card.imageUrl) {
-                outboundQueue.push({
-                  text: `📸 Photo for: *${room.title || "Accommodation"}*`,
-                  imageUrl: card.imageUrl,
-                  rawPhoto: card.rawPhoto,
-                  itemType: "listing_photo",
-                  listingId: room.id
-                } as any);
-              }
-              outboundQueue.push({
-                text: card.text,
-                itemType: "listing_card",
-                listingId: room.id
-              });
-            }
-
-            const hasMore = searchOffset + results.length < totalMatching;
-            const nextOffset = searchOffset + 3;
-            const safeQuery = cleanQuery.slice(0, 15).replace(/[^a-zA-Z0-9]/g, "");
-
-            const navButtons: Array<{ id: string; title: string }> = [];
-            const baseCat = (paginatedCategory || "all").slice(0, 12);
-            const safeCatToken = paginatedPropertyType ? `${baseCat}:${paginatedPropertyType}` : baseCat;
-            const remainingCount = totalMatching - endNum;
-            if (hasMore) {
-              navButtons.push({
-                id: `PAGE_${nextOffset}_${safeCatToken}_${safeQuery}`,
-                title: `⏩ Next 3 Stays (${remainingCount} left)`
-              });
-              navButtons.push({ id: "CMD_SEARCH", title: "🔍 New Search" });
-              navButtons.push({ id: "CMD_LIST", title: "🏡 Add Listing" });
+          // Repeated click guard: prevent sending duplicate properties if user taps an already-dispatched Next button
+          if (
+            isPageClick &&
+            existingSearchState &&
+            existingSearchState.search_key === searchKey &&
+            (existingSearchState.last_page_payload === buttonPayload || searchOffset < Number(existingSearchState.dispatched_count || 0))
+          ) {
+            const dispatched = Number(existingSearchState.dispatched_count || 0);
+            const totalStored = Number(existingSearchState.total_matching || dispatched);
+            actionTaken = "SEARCH_DUPLICATE_PAGE_GUARDED";
+            if (dispatched < totalStored) {
+              const nextBtnId = encodePageButtonId(dispatched, paginatedCategory || "all", paginatedPropertyType, cleanQuery);
+              replyText = `ℹ️ *Results 1–${dispatched} of ${totalStored} were already sent above.*\nTap *Next 5 Results* below to view the next batch (${totalStored - dispatched} remaining), or start a new search.`;
+              buttonsToSend = [
+                { id: nextBtnId, title: "⏩ Next 5 Results" },
+                { id: "CMD_SEARCH", title: "🔍 New Search" },
+                { id: "CMD_LIST", title: "🏡 Add Listing" }
+              ];
             } else {
-              navButtons.push({ id: "CMD_SEARCH", title: "🔍 Search Again" });
-              navButtons.push({ id: "CMD_MY_LISTINGS", title: "📋 My Listings" });
-              navButtons.push({ id: "CMD_LIST", title: "🏡 Add Listing" });
+              replyText = `✅ *All ${totalStored} matching properties have already been sent above.*`;
+              buttonsToSend = [
+                { id: "CMD_SEARCH", title: "🔍 New Search" },
+                { id: "CMD_MY_LISTINGS", title: "📋 My Listings" },
+                { id: "CMD_LIST", title: "🏡 Add Listing" }
+              ];
+            }
+          } else {
+            const countSql = `
+              SELECT COUNT(*) as total
+              FROM listings
+              WHERE verification_status != 'Delisted'${countFilter.whereSql}
+            `;
+            const totalCountRes: any = countFilter.params.length > 0 
+              ? await env.DB.prepare(countSql).bind(...countFilter.params).first()
+              : await env.DB.prepare(countSql).first();
+            const totalMatching = Number(totalCountRes?.total) || 0;
+
+            let seenIds: number[] = [];
+            let useCursor = false;
+            let cursorIsPremium = 0;
+            let cursorCreatedAt = "";
+            let cursorId = 0;
+            let startOffset = searchOffset;
+
+            if (
+              isPageClick &&
+              existingSearchState &&
+              existingSearchState.search_key === searchKey &&
+              searchOffset === Number(existingSearchState.dispatched_count || 0)
+            ) {
+              try {
+                seenIds = JSON.parse(existingSearchState.seen_ids || "[]");
+              } catch {
+                seenIds = [];
+              }
+              if (existingSearchState.cursor_created_at && existingSearchState.cursor_id) {
+                useCursor = true;
+                cursorIsPremium = Number(existingSearchState.cursor_is_premium ?? 0) ? 1 : 0;
+                cursorCreatedAt = String(existingSearchState.cursor_created_at);
+                cursorId = Number(existingSearchState.cursor_id);
+              }
+              startOffset = Number(existingSearchState.dispatched_count || searchOffset);
+            } else if (!isPageClick) {
+              await env.DB.prepare("DELETE FROM whatsapp_search_state WHERE phone_number = ?").bind(phone).run();
             }
 
-            const searchWebUrl = cleanQuery && cleanQuery.toLowerCase() !== "all"
-              ? `https://bunkby.com/#search=${encodeURIComponent(cleanQuery)}`
-              : "https://bunkby.com";
-            const footerText = hasMore
-              ? `📄 *Viewing ${startNum}–${endNum} of ${totalMatching} available properties.* Tap *Next 3 Stays* below to view the next batch, or see full galleries on the web:\n🔗 ${searchWebUrl}`
-              : `✅ *You have reached the end of all ${totalMatching} listings.*\nExplore all areas or view map on:\n🔗 ${searchWebUrl}`;
+            let extraWhere = "";
+            const pageBindParams: any[] = [...locationFilter.params];
+            if (seenIds.length > 0) {
+              extraWhere += ` AND listings.id NOT IN (${seenIds.map(() => "?").join(", ")})`;
+              pageBindParams.push(...seenIds);
+            }
+            if (useCursor) {
+              extraWhere += ` AND (COALESCE(listings.is_premium, 0) < ? OR (COALESCE(listings.is_premium, 0) = ? AND (listings.created_at < ? OR (listings.created_at = ? AND listings.id < ?))))`;
+              pageBindParams.push(cursorIsPremium, cursorIsPremium, cursorCreatedAt, cursorCreatedAt, cursorId);
+            }
 
-            outboundQueue.push({
-              text: footerText,
-              buttons: navButtons,
-              itemType: "action_footer"
-            });
+            const sqlOffset = useCursor ? 0 : Math.max(0, searchOffset);
+            const querySql = `
+              SELECT listings.*, landlords.full_name as landlord_name
+              FROM listings
+              LEFT JOIN landlords ON listings.landlord_id = landlords.id
+              WHERE listings.verification_status != 'Delisted'${locationFilter.whereSql}${extraWhere}
+              ORDER BY COALESCE(listings.is_premium, 0) DESC, listings.created_at DESC, listings.id DESC LIMIT ? OFFSET ?
+            `;
+
+            pageBindParams.push(SEARCH_PAGE_SIZE, sqlOffset);
+            const { results } = await env.DB.prepare(querySql).bind(...pageBindParams).all();
+
+            if (!results || results.length === 0) {
+              if (isPageClick && startOffset > 0) {
+                replyText = `✅ *You have reached the end of all matching listings.*`;
+                actionTaken = "SEARCH_END_OF_RESULTS";
+                buttonsToSend = [
+                  { id: "CMD_SEARCH", title: "🔍 New Search" },
+                  { id: "CMD_MY_LISTINGS", title: "📋 My Listings" },
+                  { id: "CMD_LIST", title: "🏡 Add Listing" }
+                ];
+              } else {
+                replyText = `🏡 No active listings found matching *"${cleanQuery || "your search"}"*.\n\n💡 *Suggestions:*\n• Try searching a major city or town (e.g. *Harare*, *Bulawayo*, *Victoria Falls*).\n• Tap *Search Again* to pick a category or commercial subtype.\n• Tap *Create a Listing* below to post a property on BunkBy!`;
+                actionTaken = "SEARCH_NO_RESULTS";
+                buttonsToSend = [
+                  { id: "CMD_SEARCH", title: "🔍 Search Again" },
+                  { id: "CMD_LIST", title: "🏡 Create a Listing" }
+                ];
+              }
+            } else {
+              actionTaken = "SEARCH_RESULTS";
+              const baseUrl = new URL(request.url).origin || "https://bunkby.com";
+
+              const startNum = startOffset + 1;
+              const endNum = startOffset + results.length;
+              const labelCtx = paginatedPropertyType ? ` (${paginatedPropertyType})` : "";
+              const locSuffix = cleanQuery && cleanQuery.toLowerCase() !== "all" ? ` in "${cleanQuery}"` : "";
+              const headerMsg = `🏡 *Showing ${startNum}–${endNum} of ${totalMatching}${labelCtx}${locSuffix}:*`;
+              outboundQueue.push({ text: headerMsg, itemType: "intro" });
+
+              for (let idx = 0; idx < results.length; idx++) {
+                const room = results[idx];
+                outboundQueue.push({
+                  text: buildConciseSearchCardText(room, baseUrl, startNum + idx),
+                  itemType: "listing_card",
+                  listingId: room.id
+                });
+              }
+
+              const lastRoom: any = results[results.length - 1];
+              const lastIsPremium = Number(lastRoom.is_premium) ? 1 : 0;
+              const updatedSeenIds = Array.from(new Set([...seenIds, ...results.map((r: any) => Number(r.id))]));
+              const updatedDispatched = isPageClick ? endNum : results.length;
+              const hasMore = results.length === SEARCH_PAGE_SIZE && endNum < totalMatching;
+
+              await env.DB.prepare(`
+                INSERT INTO whatsapp_search_state (
+                  phone_number, search_key, filters_json, total_matching, dispatched_count,
+                  cursor_is_premium, cursor_created_at, cursor_id, seen_ids, last_page_payload, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(phone_number) DO UPDATE SET
+                  search_key = excluded.search_key,
+                  filters_json = excluded.filters_json,
+                  total_matching = excluded.total_matching,
+                  dispatched_count = excluded.dispatched_count,
+                  cursor_is_premium = excluded.cursor_is_premium,
+                  cursor_created_at = excluded.cursor_created_at,
+                  cursor_id = excluded.cursor_id,
+                  seen_ids = excluded.seen_ids,
+                  last_page_payload = excluded.last_page_payload,
+                  updated_at = CURRENT_TIMESTAMP
+              `).bind(
+                phone,
+                searchKey,
+                JSON.stringify({ category: paginatedCategory, propertyType: paginatedPropertyType, query: cleanQuery }),
+                totalMatching,
+                updatedDispatched,
+                lastIsPremium,
+                String(lastRoom.created_at || ""),
+                Number(lastRoom.id),
+                JSON.stringify(updatedSeenIds),
+                isPageClick ? (buttonPayload || "") : ""
+              ).run();
+
+              const navButtons: Array<{ id: string; title: string }> = [];
+              const remainingCount = Math.max(0, totalMatching - endNum);
+              if (hasMore) {
+                navButtons.push({
+                  id: encodePageButtonId(endNum, paginatedCategory || "all", paginatedPropertyType, cleanQuery),
+                  title: "⏩ Next 5 Results"
+                });
+                navButtons.push({ id: "CMD_SEARCH", title: "🔍 New Search" });
+                navButtons.push({ id: "CMD_LIST", title: "🏡 Add Listing" });
+              } else {
+                navButtons.push({ id: "CMD_SEARCH", title: "🔍 Search Again" });
+                navButtons.push({ id: "CMD_MY_LISTINGS", title: "📋 My Listings" });
+                navButtons.push({ id: "CMD_LIST", title: "🏡 Add Listing" });
+              }
+
+              const searchWebUrl = cleanQuery && cleanQuery.toLowerCase() !== "all"
+                ? `https://bunkby.com/?q=${encodeURIComponent(cleanQuery)}`
+                : "https://bunkby.com";
+              const footerText = hasMore
+                ? `📄 *Showing ${startNum}–${endNum} of ${totalMatching} matching properties* (${remainingCount} remaining).\nTap *Next 5 Results* below or browse full galleries on:\n🔗 ${searchWebUrl}`
+                : `✅ *End of results (${endNum} of ${totalMatching} shown)${locSuffix}.*\nExplore all areas or view galleries on:\n🔗 ${searchWebUrl}`;
+
+              outboundQueue.push({
+                text: footerText,
+                buttons: navButtons,
+                itemType: "action_footer"
+              });
+            }
           }
         }
       }
@@ -3390,7 +3694,7 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
         const item = outboundQueue[i];
         
         if (i > 0) {
-          await new Promise(r => setTimeout(r, 600));
+          await new Promise(r => setTimeout(r, item.imageUrl ? 600 : 120));
         }
 
         let effectiveImageUrl = item.imageUrl;

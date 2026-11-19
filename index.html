@@ -62,26 +62,38 @@
     <meta name="twitter:image:alt" content="BunkBy - Zimbabwe Property Marketplace & Global Lodges, Commercial & Rentals" />
 
     <!-- Schema.org JSON-LD Structured Data for Google Search Engine & Crawlers -->
-    <script type="application/ld+json">
+    <script type="application/ld+json" id="bunkby-seo-jsonld">
     {
       "@context": "https://schema.org",
       "@graph": [
+        {
+          "@type": "Organization",
+          "@id": "https://bunkby.com/#organization",
+          "name": "BunkBy",
+          "legalName": "Atlas Manica Group",
+          "url": "https://bunkby.com/",
+          "logo": {
+            "@type": "ImageObject",
+            "url": "https://bunkby.com/bunkbylogo.png",
+            "width": 1254,
+            "height": 1254
+          },
+          "contactPoint": {
+            "@type": "ContactPoint",
+            "telephone": "+263789783200",
+            "contactType": "customer service",
+            "areaServed": "ZW",
+            "availableLanguage": ["en"]
+          }
+        },
         {
           "@type": "WebSite",
           "@id": "https://bunkby.com/#website",
           "url": "https://bunkby.com/",
           "name": "BunkBy",
-          "description": "Find verified accommodation & commercial spaces, or list your property directly on WhatsApp! Access 24/7 search, instant photos, and automated landlord listing creation via WhatsApp (+263 78 978 3200) or online with zero agent fees.",
+          "description": "Find residential rentals, rooms, cottages, houses, student accommodation, guesthouses, lodges, and commercial properties across Zimbabwe on BunkBy or via WhatsApp (+263 78 978 3200) with zero agent fees.",
           "publisher": {
-            "@type": "Organization",
-            "name": "Atlas Manica Group",
-            "url": "https://bunkby.com/",
-            "logo": {
-              "@type": "ImageObject",
-              "url": "https://bunkby.com/bunkbylogo.png",
-              "width": 1254,
-              "height": 1254
-            }
+            "@id": "https://bunkby.com/#organization"
           },
           "potentialAction": {
             "@type": "SearchAction",
@@ -94,43 +106,13 @@
           "inLanguage": "en-ZW"
         },
         {
-          "@type": "RealEstateAgent",
-          "@id": "https://bunkby.com/#marketplace",
-          "name": "BunkBy Property & Accommodation Marketplace",
-          "url": "https://bunkby.com/",
-          "description": "Direct peer-to-peer property marketplace in Zimbabwe connecting tenants, commercial businesses, and international travelers directly to verified landlords, hosts, and lodge managers with transparent pricing and zero agent commissions.",
-          "areaServed": [
-            {
-              "@type": "Country",
-              "name": "Zimbabwe"
-            },
-            {
-              "@type": "City",
-              "name": "Harare"
-            },
-            {
-              "@type": "City",
-              "name": "Victoria Falls"
-            },
-            {
-              "@type": "City",
-              "name": "Bulawayo"
-            },
-            {
-              "@type": "City",
-              "name": "Mutare"
-            }
-          ],
-          "priceRange": "$10 - $2500"
-        },
-        {
           "@type": "WebApplication",
           "@id": "https://bunkby.com/#app",
           "name": "BunkBy Accommodation & Commercial Property Marketplace",
           "url": "https://bunkby.com/",
-          "applicationCategory": "RealEstateApplication",
+          "applicationCategory": "LifestyleApplication",
           "operatingSystem": "All",
-          "description": "Agent-free accommodation and commercial property marketplace across Zimbabwe and regional tourist hubs connecting renters, guests, and businesses directly with verified property hosts via WhatsApp.",
+          "description": "Agent-free property and accommodation marketplace across Zimbabwe connecting property seekers and landlords directly online and via WhatsApp.",
           "offers": {
             "@type": "Offer",
             "price": "0",
@@ -143,39 +125,27 @@
   </head>
   <body class="bg-[#021024] text-slate-800 antialiased">
     <!-- Fallback content for search crawlers (Googlebot, Bingbot) before JavaScript execution -->
-    <div id="root">
+    <div id="root"><!-- SSR_ROOT_START -->
       <noscript>
         <div style="font-family: sans-serif; max-width: 800px; margin: 40px auto; padding: 20px; color: #1e293b; background: #ffffff; border-radius: 12px;">
-          <h1 style="color: #052659; font-size: 28px;">BunkBy – Zimbabwe Property & Global Hospitality Marketplace</h1>
+          <h1 style="color: #052659; font-size: 28px;">BunkBy – Zimbabwe Property & Accommodation Marketplace</h1>
           <p style="font-size: 16px; line-height: 1.6;">
-            Find verified rooms, cottages, apartments, guesthouses, safari lodges, hotels, and commercial spaces (shops, offices, warehouses) with transparent prices across Zimbabwe and international tourist hubs. 
+            Find rooms, cottages, apartments, houses, student accommodation, guesthouses, lodges, and commercial spaces (shops, offices, warehouses) across Zimbabwe with transparent prices and direct WhatsApp contact.
           </p>
-          <div style="background: #f0fdf4; border: 2px solid #22c55e; border-radius: 10px; padding: 16px; margin: 20px 0;">
-            <h2 style="color: #15803d; font-size: 18px; margin-top: 0;">💬 Everything Can Be Done On WhatsApp!</h2>
-            <p style="font-size: 14.5px; line-height: 1.6; margin: 6px 0; color: #166534;">
-              Did you know you can do everything directly on WhatsApp? Save mobile data and find or list properties on the go:
-            </p>
-            <ul style="font-size: 14px; color: #14532d; padding-left: 20px; line-height: 1.6;">
-              <li><strong>Search properties instantly on WhatsApp:</strong> Text what you are looking for (e.g. <em>"rooms in Avondale under $200"</em> or <em>"shops in Harare CBD"</em>) to get instant property cards and photos.</li>
-              <li><strong>List your property 24/7 on WhatsApp:</strong> Landlords and lodge hosts can type <em>"list"</em> to publish properties directly to BunkBy without agent commissions.</li>
-              <li><strong>Direct WhatsApp Bot:</strong> Save our automated WhatsApp bot number <a href="https://wa.me/263789783200" style="color: #15803d; font-weight: bold; text-decoration: underline;">+263 78 978 3200</a> and text "Hi" anytime!</li>
-            </ul>
-          </div>
-          <h2 style="color: #052659; font-size: 20px; margin-top: 24px;">Featured Destinations & Hubs</h2>
-          <p>Victoria Falls (World Wonder) • Harare • Bulawayo • Kariba • Nyanga • Mutare • Gweru • Chitungwiza • Masvingo</p>
-          <h2 style="color: #052659; font-size: 20px; margin-top: 24px;">Property & Stay Categories with Transparent Rates</h2>
-          <ul>
-            <li><strong>Hospitality & Stays (Global & Local):</strong> Safari Lodges, Boutique Guest Houses, City Hotels, Bed & Breakfasts, Vacation Villas ($25 – $500+/night)</li>
-            <li><strong>Commercial Real Estate:</strong> Retail Shops, Office Spaces, Commercial Buildings, Warehouses & Flea Market Tables ($50 – $3,000+/month)</li>
-            <li><strong>Residential Rentals:</strong> Single Rooms, Bedsits, Self-Contained Cottages, Apartments & Full Houses ($30 – $1,200/month)</li>
-            <li><strong>Student Accommodation:</strong> Verified Hostels, Boarding Houses & University Off-Campus Rooms ($40 – $150/semester or month)</li>
-          </ul>
-          <p style="margin-top: 24px;">
-            <a href="/privacy-policy" style="color: #FF7A00; text-decoration: underline;">BunkBy Privacy Policy</a>
+          <p style="font-size: 14px; line-height: 1.6;">
+            <a href="/whatsapp" style="color: #15803d; font-weight: bold;">Find &amp; List Accommodation on WhatsApp (+263 78 978 3200)</a> &middot;
+            <a href="/locations/harare">Harare</a> &middot;
+            <a href="/locations/bulawayo">Bulawayo</a> &middot;
+            <a href="/locations/mutare">Mutare</a> &middot;
+            <a href="/locations/gweru">Gweru</a> &middot;
+            <a href="/locations/masvingo">Masvingo</a> &middot;
+            <a href="/locations/chitungwiza">Chitungwiza</a> &middot;
+            <a href="/locations/victoria-falls">Victoria Falls</a> &middot;
+            <a href="/privacy-policy">Privacy Policy</a>
           </p>
         </div>
       </noscript>
-    </div>
+    <!-- SSR_ROOT_END --></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

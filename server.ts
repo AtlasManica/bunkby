@@ -10,6 +10,26 @@ import fs from "fs";
 import crypto from "crypto";
 import Database from "better-sqlite3";
 import { processWhatsAppMessage, ensureChatbotTable } from "./server/whatsappEngine";
+import {
+  buildHomeSeo,
+  buildWhatsAppSeo,
+  buildPrivacySeo,
+  buildLocationSeo,
+  buildCategorySeo,
+  buildListingSeo,
+  buildSitemapXml,
+  normalizeListingRow,
+  isListingAvailable,
+  findCityBySlugOrName,
+  findSuburbInCity,
+  matchesSuburbName,
+  toSlug,
+  CATEGORY_DEFINITIONS,
+  MarketplaceCategoryKey,
+  getListingCategoryKey,
+  SeoPagePayload,
+} from "./shared/seoData";
+import { injectSeoIntoHtml } from "./shared/seoHtml";
 
 const app = express();
 const PORT = 3000;
@@ -131,6 +151,49 @@ function initDatabase() {
         status TEXT,
         error TEXT
       );
+
+      CREATE TABLE IF NOT EXISTS whatsapp_search_state (
+        phone_number TEXT PRIMARY KEY,
+        search_key TEXT NOT NULL,
+        filters_json TEXT,
+        total_matching INTEGER DEFAULT 0,
+        dispatched_count INTEGER DEFAULT 0,
+        cursor_is_premium INTEGER DEFAULT 0,
+        cursor_created_at TEXT,
+        cursor_id INTEGER,
+        seen_ids TEXT,
+        last_page_payload TEXT,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_listings_active_created_id
+        ON listings(created_at DESC, id DESC)
+        WHERE verification_status != 'Delisted';
+
+      CREATE INDEX IF NOT EXISTS idx_listings_active_cat_created_id
+        ON listings(category, created_at DESC, id DESC)
+        WHERE verification_status != 'Delisted';
+
+      CREATE INDEX IF NOT EXISTS idx_listings_active_type_created_id
+        ON listings(property_type, created_at DESC, id DESC)
+        WHERE verification_status != 'Delisted';
+
+      CREATE INDEX IF NOT EXISTS idx_listings_active_premium_created_id
+        ON listings(is_premium DESC, created_at DESC, id DESC)
+        WHERE verification_status != 'Delisted';
+
+      CREATE INDEX IF NOT EXISTS idx_listings_active_coalesce_premium_created_id
+        ON listings(COALESCE(is_premium, 0) DESC, created_at DESC, id DESC)
+        WHERE verification_status != 'Delisted';
+
+      CREATE INDEX IF NOT EXISTS idx_listings_city_status
+        ON listings(city, verification_status);
+
+      CREATE INDEX IF NOT EXISTS idx_listings_suburb_status
+        ON listings(suburb, verification_status);
+
+      CREATE INDEX IF NOT EXISTS idx_listings_landlord_status
+        ON listings(landlord_id, verification_status, id DESC);
     `);
 
     // Flag demo seed landlords/listings and assign demo PIN (1234) so they remain testable and secure
@@ -580,6 +643,47 @@ app.post("/api/admin", (req, res) => {
   }
 });
 
+app.get(["/api/rooms/:id", "/api/listings/:id"], (req, res) => {
+  try {
+    const id = String(req.params.id || "").trim();
+    const row = db.prepare(`
+      SELECT
+        listings.*,
+        landlords.full_name as landlordName,
+        landlords.verification_status as landlordVerificationStatus
+      FROM listings
+      LEFT JOIN landlords ON listings.landlord_id = landlords.id
+      WHERE listings.id = ?
+    `).get(id) as any;
+
+    if (!row) {
+      return res.status(404).json({ error: "Listing not found" });
+    }
+
+    const mapped = normalizeListingRow(row);
+    const available = isListingAvailable(mapped);
+
+    if (!available) {
+      return res.status(410).json({
+        available: false,
+        listing: {
+          id: mapped.id,
+          title: mapped.title,
+          city: mapped.city,
+          suburb: mapped.suburb,
+          propertyType: mapped.propertyType,
+          category: mapped.category,
+          status: mapped.status,
+        },
+      });
+    }
+
+    return res.json({ available: true, listing: mapped });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 app.put("/api/rooms/:id", (req, res) => {
   const { id } = req.params;
   const {
@@ -993,10 +1097,104 @@ app.post("/api/whatsapp/chat", async (req, res) => {
   }
 });
 
+function querySqliteActiveListings(): any[] {
+  try {
+    const rows = db.prepare(`
+      SELECT
+        listings.*,
+        landlords.full_name as landlordName,
+        landlords.verification_status as landlordVerificationStatus
+      FROM listings
+      LEFT JOIN landlords ON listings.landlord_id = landlords.id
+      WHERE listings.verification_status IN ('Active', 'verified')
+      ORDER BY COALESCE(listings.is_premium, 0) DESC, listings.created_at DESC, listings.id DESC
+    `).all() as any[];
+    return rows.map(normalizeListingRow).filter((l) => l && isListingAvailable(l));
+  } catch {
+    return [];
+  }
+}
+
+function querySqliteSingleListing(id: string): any | null {
+  try {
+    const row = db.prepare(`
+      SELECT
+        listings.*,
+        landlords.full_name as landlordName,
+        landlords.verification_status as landlordVerificationStatus
+      FROM listings
+      LEFT JOIN landlords ON listings.landlord_id = landlords.id
+      WHERE listings.id = ?
+    `).get(id) as any;
+    return row ? normalizeListingRow(row) : null;
+  } catch {
+    return null;
+  }
+}
+
+function resolveExpressSeoPayload(req: express.Request): SeoPagePayload | null {
+  const pathname = req.path || "/";
+  if (pathname === "/") {
+    const listingQueryId = typeof req.query.listing === "string" ? req.query.listing.trim() : "";
+    if (listingQueryId) {
+      return buildListingSeo(querySqliteSingleListing(listingQueryId), listingQueryId);
+    }
+    return buildHomeSeo(querySqliteActiveListings());
+  }
+  if (pathname === "/whatsapp") {
+    return buildWhatsAppSeo();
+  }
+  if (pathname === "/privacy-policy") {
+    return buildPrivacySeo();
+  }
+  const listingMatch = pathname.match(/^\/listing\/([^/]+)\/?$/);
+  if (listingMatch) {
+    const id = decodeURIComponent(listingMatch[1]);
+    return buildListingSeo(querySqliteSingleListing(id), id);
+  }
+  const catMatch = pathname.match(/^\/categories\/([^/]+)\/?$/);
+  if (catMatch) {
+    const slug = toSlug(decodeURIComponent(catMatch[1])) as MarketplaceCategoryKey;
+    const catDef = CATEGORY_DEFINITIONS[slug] || null;
+    if (!catDef) return buildCategorySeo(null, []);
+    const active = querySqliteActiveListings().filter((l) => getListingCategoryKey(l) === catDef.key);
+    return buildCategorySeo(catDef, active);
+  }
+  const suburbMatch = pathname.match(/^\/locations\/([^/]+)\/([^/]+)\/?$/);
+  if (suburbMatch) {
+    const city = findCityBySlugOrName(decodeURIComponent(suburbMatch[1]));
+    if (!city) return buildLocationSeo(null, null, [], true);
+    const suburb = findSuburbInCity(city, decodeURIComponent(suburbMatch[2]));
+    if (!suburb) return buildLocationSeo(city, null, [], true);
+    const active = querySqliteActiveListings().filter(
+      (l) => toSlug(l.city) === city.slug && matchesSuburbName(l.suburb, suburb)
+    );
+    return buildLocationSeo(city, suburb, active, false);
+  }
+  const cityMatch = pathname.match(/^\/locations\/([^/]+)\/?$/);
+  if (cityMatch) {
+    const city = findCityBySlugOrName(decodeURIComponent(cityMatch[1]));
+    if (!city) return buildLocationSeo(null, null, []);
+    const active = querySqliteActiveListings().filter((l) => toSlug(l.city) === city.slug);
+    return buildLocationSeo(city, null, active, false);
+  }
+  return null;
+}
+
 // Configure Vite or Serve SPA static files
 async function startServer() {
+  // Dynamic XML Sitemap reflecting live DB listings and indexable location/category hubs
+  app.get("/sitemap.xml", (req, res) => {
+    const listings = querySqliteActiveListings();
+    const xml = buildSitemapXml(listings);
+    res.setHeader("Content-Type", "application/xml; charset=utf-8");
+    res.setHeader("Cache-Control", "public, max-age=300");
+    res.status(200).send(xml);
+  });
+
   // Standalone server route for the raw private administration board
   app.get(["/admin.html", "/admin"], (req, res) => {
+    res.setHeader("X-Robots-Tag", "noindex, nofollow");
     res.sendFile(path.join(process.cwd(), "admin.html"));
   });
 
@@ -1009,14 +1207,65 @@ async function startServer() {
       server: { middlewareMode: true },
       appType: "spa",
     });
+
+    // Dynamic SSR HTML & SEO metadata routes before Vite's SPA fallback
+    app.get(
+      [
+        "/",
+        "/whatsapp",
+        "/privacy-policy",
+        "/listing/:id",
+        "/locations/:city",
+        "/locations/:city/:suburb",
+        "/categories/:category",
+      ],
+      async (req, res, next) => {
+        try {
+          const seo = resolveExpressSeoPayload(req);
+          if (!seo) return next();
+          const rawTemplate = fs.readFileSync(path.join(process.cwd(), "index.html"), "utf-8");
+          const injected = injectSeoIntoHtml(rawTemplate, seo);
+          const transformed = await vite.transformIndexHtml(req.originalUrl, injected);
+          res
+            .status(seo.httpStatus)
+            .set({ "Content-Type": "text/html; charset=utf-8" })
+            .end(transformed);
+        } catch (err) {
+          next(err);
+        }
+      }
+    );
+
     app.use(vite.middlewares);
     console.log("Vite dev middleware loaded onto Express server.");
   } else {
     // Production Mode - serve built client assets
     const distPath = path.join(process.cwd(), "dist");
-    app.use(express.static(distPath));
+    app.use(express.static(distPath, { index: false }));
+
+    app.get(
+      [
+        "/",
+        "/whatsapp",
+        "/privacy-policy",
+        "/listing/:id",
+        "/locations/:city",
+        "/locations/:city/:suburb",
+        "/categories/:category",
+      ],
+      (req, res) => {
+        const seo = resolveExpressSeoPayload(req) || buildHomeSeo(querySqliteActiveListings());
+        const distIndex = fs.readFileSync(path.join(distPath, "index.html"), "utf-8");
+        const rendered = injectSeoIntoHtml(distIndex, seo);
+        res
+          .status(seo.httpStatus)
+          .set({ "Content-Type": "text/html; charset=utf-8" })
+          .send(rendered);
+      }
+    );
+
     app.get("*", (req, res) => {
-      res.sendFile(path.join(distPath, "index.html"));
+      res.status(404).set({ "X-Robots-Tag": "noindex, nofollow" }).sendFile(path.join(distPath, "index.html"));
     });
   }
 

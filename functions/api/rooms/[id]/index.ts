@@ -1,3 +1,63 @@
+import { normalizeListingRow, isListingAvailable } from "../../../../shared/seoData";
+
+export async function onRequestGet({ env, params }: { env: any; params: { id: string } }) {
+  try {
+    const id = String(params?.id || "").trim();
+    const row = await env.DB.prepare(`
+      SELECT
+        listings.*,
+        landlords.full_name as landlordName,
+        landlords.verification_status as landlordVerificationStatus
+      FROM listings
+      LEFT JOIN landlords ON listings.landlord_id = landlords.id
+      WHERE listings.id = ?
+    `)
+      .bind(id)
+      .first();
+
+    if (!row) {
+      return new Response(JSON.stringify({ error: "Listing not found" }), {
+        status: 404,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    const mapped = normalizeListingRow(row);
+    const available = isListingAvailable(mapped);
+
+    if (!available) {
+      return new Response(
+        JSON.stringify({
+          available: false,
+          listing: {
+            id: mapped.id,
+            title: mapped.title,
+            city: mapped.city,
+            suburb: mapped.suburb,
+            propertyType: mapped.propertyType,
+            category: mapped.category,
+            status: mapped.status,
+          },
+        }),
+        {
+          status: 410,
+          headers: { "Content-Type": "application/json" },
+        }
+      );
+    }
+
+    return new Response(JSON.stringify({ available: true, listing: mapped }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (error: any) {
+    return new Response(JSON.stringify({ error: error.message }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+}
+
 export async function onRequestPut({ request, env, params }: { request: Request; env: any; params: any }) {
   try {
     const id = params.id;
