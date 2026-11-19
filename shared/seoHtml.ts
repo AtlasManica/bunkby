@@ -4,11 +4,28 @@ function escapeJsonForScript(obj: Record<string, any>): string {
   return JSON.stringify(obj).replace(/</g, "\\u003c");
 }
 
+export function isCrawlerUserAgent(userAgent?: string | null): boolean {
+  const ua = String(userAgent || "").trim();
+  if (!ua) return true;
+  return /(bot|crawl|spider|slurp|mediapartners|adsbot|google-inspectiontool|google-extended|storebot|bingpreview|duckduck|baidu|yandex|applebot|facebookexternalhit|facebot|whatsapp|twitterbot|linkedinbot|slackbot|discordbot|telegrambot|pinterest|gptbot|oai-searchbot|chatgpt|claudebot|claude-web|anthropic|perplexity|bytespider|petalbot|semrush|ahrefs|mj12bot|lighthouse|pagespeed|gtmetrix|headless|curl|wget|python|httpclient|node-fetch|undici|\bnode\b|axios|got\/|okhttp|java\/|ruby|php\/)/i.test(
+    ua
+  );
+}
+
 /**
  * Replaces metadata tags, JSON-LD, and <div id="root"> SSR content inside base index.html
  * cleanly for crawlers & social scrapers without touching Vite asset script/style bundles.
+ *
+ * When includeSsrBody is false (standard human browsers), seo.ssrHtml is omitted from #root
+ * so browsers NEVER paint a flash of unstyled SSR HTML before React mounts, while preserving
+ * full dynamic <title>, <meta>, canonical, OG, and Schema.org JSON-LD in <head>.
  */
-export function injectSeoIntoHtml(baseHtml: string, seo: SeoPagePayload): string {
+export function injectSeoIntoHtml(
+  baseHtml: string,
+  seo: SeoPagePayload,
+  options: { includeSsrBody?: boolean } = {}
+): string {
+  const includeSsrBody = options.includeSsrBody !== false;
   let html = baseHtml;
 
   // Replace <title>...</title>
@@ -72,23 +89,33 @@ export function injectSeoIntoHtml(baseHtml: string, seo: SeoPagePayload): string
     html = html.replace(jsonLdRegex, "");
   }
 
-  // Inject crawler-readable semantic HTML inside <div id="root">...</div>
-  // Wrapped in #seo-ssr-snapshot so JS-enabled browsers hide it synchronously before first paint (zero flash),
-  // while non-JS crawlers receive the full semantic HTML content. React's createRoot(...).render(...) replaces #root cleanly on mount.
-  const wrappedSsrHtml = `<div id="seo-ssr-snapshot">${seo.ssrHtml}</div>`;
   const markerPattern = /<!--\s*SSR_ROOT_START\s*-->[\s\S]*?<!--\s*SSR_ROOT_END\s*-->/i;
-  if (markerPattern.test(html)) {
-    html = html.replace(
-      markerPattern,
-      `<!-- SSR_ROOT_START -->${wrappedSsrHtml}<!-- SSR_ROOT_END -->`
-    );
-  } else {
-    const rootDivPattern = /<div\s+id=["']root["']\s*>[\s\S]*?<\/div>\s*(?=<script|<\/body>)/i;
-    if (rootDivPattern.test(html)) {
+  const bootShellPattern = /<!--\s*BOOT_SHELL_START\s*-->[\s\S]*?<!--\s*BOOT_SHELL_END\s*-->/i;
+
+  if (includeSsrBody) {
+    // Search/AI crawlers: strip human boot shell and inject full semantic SSR HTML
+    if (bootShellPattern.test(html)) {
+      html = html.replace(bootShellPattern, "");
+    }
+    const wrappedSsrHtml = `<div id="seo-ssr-snapshot">${seo.ssrHtml}</div>`;
+    if (markerPattern.test(html)) {
       html = html.replace(
-        rootDivPattern,
-        `<div id="root"><!-- SSR_ROOT_START -->${wrappedSsrHtml}<!-- SSR_ROOT_END --></div>\n    `
+        markerPattern,
+        `<!-- SSR_ROOT_START -->${wrappedSsrHtml}<!-- SSR_ROOT_END -->`
       );
+    } else {
+      const rootDivPattern = /<div\s+id=["']root["']\s*>[\s\S]*?<\/div>\s*(?=<script|<\/body>)/i;
+      if (rootDivPattern.test(html)) {
+        html = html.replace(
+          rootDivPattern,
+          `<div id="root"><!-- SSR_ROOT_START -->${wrappedSsrHtml}<!-- SSR_ROOT_END --></div>\n    `
+        );
+      }
+    }
+  } else {
+    // Human browsers: never send unstyled SSR white HTML block into #root
+    if (markerPattern.test(html)) {
+      html = html.replace(markerPattern, `<!-- SSR_ROOT_START --><!-- SSR_ROOT_END -->`);
     }
   }
 

@@ -160,9 +160,27 @@ export default function App() {
   const [currentPath, setCurrentPath] = useState<string>(() => typeof window !== "undefined" ? window.location.pathname : "/");
   const [activeTab, setActiveTab] = useState<"browse" | "landlord" | "account" | "help">("browse");
 
-  // Room Listings State
-  const [listings, setListings] = useState<any[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  // Room Listings State (hydrated instantaneously from sessionStorage cache when available)
+  const [listings, setListings] = useState<any[]>(() => {
+    try {
+      const cached = sessionStorage.getItem("bunkby_listings_v1");
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return [];
+  });
+  const [isLoading, setIsLoading] = useState<boolean>(() => {
+    try {
+      const cached = sessionStorage.getItem("bunkby_listings_v1");
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) return false;
+      }
+    } catch {}
+    return true;
+  });
 
   // Card photo swipe tracking: listingId -> active photo index
   const [cardPhotoIndices, setCardPhotoIndices] = useState<Record<string | number, number>>({});
@@ -180,13 +198,20 @@ export default function App() {
           const prefetchedData = await preloaded;
           if (prefetchedData && Array.isArray(prefetchedData.listings)) {
             setListings(prefetchedData.listings);
+            try {
+              sessionStorage.setItem("bunkby_listings_v1", JSON.stringify(prefetchedData.listings));
+            } catch {}
             return;
           }
         }
         const res = await fetch("/api/listings");
         if (res.ok) {
           const data = await res.json();
-          setListings(data.listings || []);
+          const fresh = data.listings || [];
+          setListings(fresh);
+          try {
+            sessionStorage.setItem("bunkby_listings_v1", JSON.stringify(fresh));
+          } catch {}
         }
       } catch (e) {
         console.error("Failed to load listings", e);
@@ -1860,9 +1885,17 @@ export default function App() {
 
             {/* Rooms Cards Directory list - Compact, Responsive Grid */}
             {isLoading ? (
-              <div className="flex flex-col items-center justify-center py-16 gap-3">
-                <RefreshCw className="w-7 h-7 text-orange-500 animate-spin" />
-                <p className="text-slate-500 font-medium text-sm">Querying active agent-free listings...</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5 sm:gap-5 lg:gap-6" aria-busy="true">
+                {[0, 1, 2, 3, 4, 5].map((idx) => (
+                  <div key={idx} className="bg-white rounded-2xl overflow-hidden border border-slate-200/90 shadow-xs flex flex-col animate-pulse">
+                    <div className="aspect-16/10 sm:aspect-16/9 w-full bg-slate-200" />
+                    <div className="p-4 space-y-2.5">
+                      <div className="h-4 bg-slate-200 rounded w-3/4" />
+                      <div className="h-3 bg-slate-100 rounded w-1/2" />
+                      <div className="h-6 bg-slate-200 rounded w-1/3 mt-2" />
+                    </div>
+                  </div>
+                ))}
               </div>
             ) : displayedListings.length === 0 ? (
               <div className="bg-white rounded-2xl p-8 sm:p-12 text-center border border-slate-200 space-y-3 max-w-lg mx-auto shadow-xs">

@@ -29,7 +29,7 @@ import {
   getListingCategoryKey,
   SeoPagePayload,
 } from "./shared/seoData";
-import { injectSeoIntoHtml } from "./shared/seoHtml";
+import { injectSeoIntoHtml, isCrawlerUserAgent } from "./shared/seoHtml";
 
 const app = express();
 const PORT = 3000;
@@ -1224,11 +1224,16 @@ async function startServer() {
           const seo = resolveExpressSeoPayload(req);
           if (!seo) return next();
           const rawTemplate = fs.readFileSync(path.join(process.cwd(), "index.html"), "utf-8");
-          const injected = injectSeoIntoHtml(rawTemplate, seo);
+          const isCrawler = isCrawlerUserAgent(req.headers["user-agent"]);
+          const injected = injectSeoIntoHtml(rawTemplate, seo, { includeSsrBody: isCrawler });
           const transformed = await vite.transformIndexHtml(req.originalUrl, injected);
           res
             .status(seo.httpStatus)
-            .set({ "Content-Type": "text/html; charset=utf-8" })
+            .set({
+              "Content-Type": "text/html; charset=utf-8",
+              "Vary": "User-Agent",
+              "Cache-Control": "no-cache, no-store, must-revalidate",
+            })
             .end(transformed);
         } catch (err) {
           next(err);
@@ -1266,10 +1271,15 @@ async function startServer() {
       (req, res) => {
         const seo = resolveExpressSeoPayload(req) || buildHomeSeo(querySqliteActiveListings());
         const distIndex = fs.readFileSync(path.join(distPath, "index.html"), "utf-8");
-        const rendered = injectSeoIntoHtml(distIndex, seo);
+        const isCrawler = isCrawlerUserAgent(req.headers["user-agent"]);
+        const rendered = injectSeoIntoHtml(distIndex, seo, { includeSsrBody: isCrawler });
         res
           .status(seo.httpStatus)
-          .set({ "Content-Type": "text/html; charset=utf-8" })
+          .set({
+            "Content-Type": "text/html; charset=utf-8",
+            "Vary": "User-Agent",
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+          })
           .send(rendered);
       }
     );

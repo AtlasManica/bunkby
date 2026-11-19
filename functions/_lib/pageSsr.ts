@@ -3,7 +3,7 @@ import {
   normalizeListingRow,
   isListingAvailable,
 } from "../../shared/seoData";
-import { injectSeoIntoHtml } from "../../shared/seoHtml";
+import { injectSeoIntoHtml, isCrawlerUserAgent } from "../../shared/seoHtml";
 
 export async function queryAllAvailableListings(env: any): Promise<any[]> {
   if (!env?.DB) return [];
@@ -86,12 +86,14 @@ export async function renderSeoHtmlResponse(
     baseHtml = `<!doctype html><html lang="en"><head><meta charset="UTF-8" /><title></title></head><body><div id="root"><!-- SSR_ROOT_START --><!-- SSR_ROOT_END --></div></body></html>`;
   }
 
-  const renderedHtml = injectSeoIntoHtml(baseHtml, seo);
+  const isCrawler = isCrawlerUserAgent(request.headers.get("user-agent"));
+  const renderedHtml = injectSeoIntoHtml(baseHtml, seo, { includeSsrBody: isCrawler });
   return new Response(renderedHtml, {
     status: seo.httpStatus,
     headers: {
       "Content-Type": "text/html; charset=utf-8",
-      "Cache-Control": seo.httpStatus === 200 ? "public, max-age=120, s-maxage=300" : "no-store",
+      "Vary": "User-Agent",
+      "Cache-Control": "no-cache, no-store, must-revalidate",
     },
   });
 }
