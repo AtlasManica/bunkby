@@ -706,37 +706,71 @@ export function isBrandingOrLogoImage(rawImage: string): boolean {
   return false;
 }
 
-export function getListingPhotoUrl(listing: any, baseUrl: string): string | null {
-  if (!listing) return null;
+export function resolvePublicOrigin(baseUrl?: string): string {
+  const fallback = "https://bunkby.com";
+  if (!baseUrl) return fallback;
+  try {
+    const u = new URL(baseUrl);
+    if (u.hostname && u.hostname !== "localhost" && u.hostname !== "127.0.0.1") {
+      return `https://${u.host}`.replace(/\/+$/, "");
+    }
+  } catch (_) {}
+  return fallback;
+}
 
-  let raw = listing.image_url;
-  if (!raw || typeof raw !== "string") return null;
-  raw = raw.trim();
+export function extractValidListingImages(rawImage: unknown): string[] {
+  if (!rawImage || typeof rawImage !== "string") return [];
+  const raw = rawImage.trim();
+  if (!raw) return [];
 
-  // If stored as JSON array of image strings, extract primary photo
+  let candidates: string[] = [];
   if (raw.startsWith("[")) {
     try {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        raw = String(parsed[0]).trim();
+      if (Array.isArray(parsed)) {
+        candidates = parsed.map((item: any) => String(item || "").trim()).filter(Boolean);
+      }
+    } catch (_) {
+      candidates = [raw];
+    }
+  } else {
+    candidates = [raw];
+  }
+
+  return candidates.filter((img) => Boolean(img) && !isBrandingOrLogoImage(img));
+}
+
+export function getListingPhotoUrl(listing: any, baseUrl: string): string | null {
+  if (!listing) return null;
+
+  const validPhotos = extractValidListingImages(listing.image_url);
+  const raw = validPhotos[0] || "";
+  if (!raw) return null;
+
+  const publicOrigin = resolvePublicOrigin(baseUrl);
+
+  // If it is already a public HTTP/HTTPS URL, use it directly (upgrade bunkby.com HTTP to HTTPS)
+  if (raw.startsWith("https://")) {
+    return raw;
+  }
+  if (raw.startsWith("http://")) {
+    try {
+      const u = new URL(raw);
+      if (u.hostname === "bunkby.com" || u.hostname.endsWith(".bunkby.com")) {
+        return `https://${u.host}${u.pathname}${u.search}`;
       }
     } catch (_) {}
-  }
-
-  // Filter out any corporate branding, company logos, or placeholder graphics
-  if (isBrandingOrLogoImage(raw)) {
-    return null;
-  }
-
-  // If it is already a public HTTP/HTTPS URL, use it directly
-  if (raw.startsWith("http://") || raw.startsWith("https://")) {
     return raw;
   }
 
-  // If it's a data URI or relative path, point to our public photo endpoint
-  if (raw.startsWith("data:") || raw.startsWith("/")) {
-    const cleanBase = baseUrl.replace(/\/+$/, "");
-    return `${cleanBase}/api/rooms/${listing.id}/photo`;
+  // If it's a data URI, point to our public HTTPS photo endpoint with .jpg suffix
+  if (raw.startsWith("data:") && listing.id !== undefined && listing.id !== null) {
+    return `${publicOrigin}/api/rooms/${encodeURIComponent(String(listing.id))}/photo.jpg`;
+  }
+
+  // If it's a relative asset path, resolve against public HTTPS origin
+  if (raw.startsWith("/")) {
+    return `${publicOrigin}${raw}`;
   }
 
   return null;
@@ -867,7 +901,12 @@ export function createListMessage(
 /**
  * Builds a WhatsApp Listing Card with real photograph and formatted caption
  */
-export function buildListingCard(listing: any, baseUrl: string, toPhone: string): WhatsAppMessagePayload {
+export function buildListingCard(
+  listing: any,
+  baseUrl: string,
+  toPhone: string,
+  resultNumber?: number
+): WhatsAppMessagePayload {
   const isHospitality = listing.category === "hospitality" || [
     "Lodge / Guesthouse", "Hotel", "Lodge", "Guesthouse", "Guest House", "Bed & Breakfast"
   ].includes(listing.property_type);
@@ -879,60 +918,100 @@ export function buildListingCard(listing: any, baseUrl: string, toPhone: string)
   ].includes(listing.property_type) || listing.tenant_type === "Student";
 
   const cycle = listing.rent_cycle || (isHospitality ? "Night" : isStudent ? "Semester" : "Month");
+  const validPhotos = extractValidListingImages(listing.image_url);
   const photoUrl = getListingPhotoUrl(listing, baseUrl);
-  const cleanBase = baseUrl.replace(/\/+$/, "");
-  const listingUrl = `${cleanBase}/#listing-${listing.id}`;
+  const publicOrigin = resolvePublicOrigin(baseUrl);
+  const listingUrl = `${publicOrigin}/listing/${encodeURIComponent(String(listing.id))}`;
+  const numPrefix = resultNumber ? `${resultNumber}. ` : "";
 
-  const cleanPhone = (listing.contact_phone || "").replace(/\D/g, "");
-  const waContactLink = cleanPhone ? `wa.me/${cleanPhone.startsWith("0") ? "263" + cleanPhone.slice(1) : cleanPhone}` : null;
+  const rawDigits = String(listing.contact_phone || "").replace(/\D/g, "");
+  let displayPhone = listing.contact_phone || "Contact on BunkBy";
+  let waDigits = rawDigits;
+  if (rawDigits.startsWith("263")) {
+    displayPhone = `+${rawDigits}`;
+    waDigits = rawDigits;
+  } else if (rawDigits.startsWith("0") && rawDigits.length >= 9) {
+    displayPhone = `+263${rawDigits.slice(1)}`;
+    waDigits = `263${rawDigits.slice(1)}`;
+  } else if (rawDigits.length === 9) {
+    displayPhone = `+263${rawDigits}`;
+    waDigits = `263${rawDigits}`;
+  } else if (rawDigits.length > 0 && !displayPhone.startsWith("+")) {
+    displayPhone = `+${rawDigits}`;
+  }
+  const waContactLink = waDigits ? `https://wa.me/${waDigits}` : null;
 
-  let caption = "";
+  let headerText = "";
   if (isHospitality) {
-    caption += `🏨 *${listing.business_name || listing.title}*\n`;
+    headerText += `🏨 *${numPrefix}${listing.business_name || listing.title}*\n`;
     if (listing.business_name && listing.title && listing.business_name !== listing.title) {
-      caption += `"${listing.title}"\n`;
+      headerText += `"${listing.title}"\n`;
     }
-    caption += `✨ _[${listing.property_type || "Hospitality & Guest Stay"}]_\n\n`;
+    headerText += `✨ *${listing.property_type || "Hospitality & Guest Stay"}*\n\n`;
   } else if (isCommercial) {
-    caption += `🏢 *${listing.title}*\n`;
-    caption += `🏷️ _[${listing.property_type || "Commercial Property"}]_\n\n`;
+    headerText += `🏢 *${numPrefix}${listing.title}*\n`;
+    headerText += `🏷️ *${listing.property_type || "Commercial Property"}*\n\n`;
   } else if (isStudent) {
-    caption += `🎓 *${listing.title}*\n`;
-    caption += `🏷️ _[${listing.property_type || "Student Accommodation"}]_\n\n`;
+    headerText += `🎓 *${numPrefix}${listing.title}*\n`;
+    headerText += `🏷️ *${listing.property_type || "Student Accommodation"}*\n\n`;
   } else {
-    caption += `🏠 *${listing.title}*\n`;
-    caption += `🏷️ _[${listing.property_type || "Residential Rental"}]_\n\n`;
+    headerText += `🏠 *${numPrefix}${listing.title}*\n`;
+    headerText += `🏷️ *${listing.property_type || "Residential Rental"}*\n\n`;
   }
 
-  caption += `📍 *Location:* ${listing.suburb}, ${listing.city || "Harare"}`;
+  headerText += `📍 *Location:* ${listing.suburb}, ${listing.city || "Harare"}`;
   if (listing.landmark) {
-    caption += ` (${listing.landmark})`;
+    headerText += ` (${String(listing.landmark).slice(0, 70)})`;
   }
-  caption += `\n`;
+  headerText += `\n`;
 
-  caption += `💰 *Rate:* $${listing.price} / ${cycle}`;
-  if (!isHospitality && listing.deposit !== undefined) {
-    caption += ` (Deposit: $${listing.deposit})`;
+  headerText += `💰 *Rate:* $${listing.price} / ${cycle}`;
+  if (!isHospitality && listing.deposit !== undefined && listing.deposit !== null) {
+    headerText += ` (Deposit: $${listing.deposit})`;
   }
-  caption += `\n`;
+  headerText += `\n`;
 
-  if (listing.tenant_type) {
-    caption += `👤 *Seeking:* ${listing.tenant_type}\n`;
+  if (listing.tenant_type && !isHospitality) {
+    headerText += `👤 *Seeking:* ${listing.tenant_type}\n`;
   }
 
-  if (listing.amenities && listing.amenities.length > 0) {
-    caption += `\n✨ *Key Amenities:*\n`;
-    const topAmenities = listing.amenities.slice(0, 4);
-    for (const am of topAmenities) {
-      caption += `• ${am}\n`;
+  const amenitiesArr: string[] = Array.isArray(listing.amenities)
+    ? listing.amenities
+    : (() => {
+        try { return JSON.parse(listing.amenities || "[]"); } catch { return []; }
+      })();
+
+  let extraSection = "";
+  if (amenitiesArr.length > 0) {
+    extraSection += `\n✨ *Key Amenities:*\n`;
+    for (const am of amenitiesArr.slice(0, 4)) {
+      extraSection += `• ${am}\n`;
+    }
+  }
+  if (listing.description) {
+    const cleanDesc = String(listing.description).trim().replace(/\s+/g, " ");
+    if (cleanDesc) {
+      extraSection += `\n📝 ${cleanDesc.slice(0, 140)}${cleanDesc.length > 140 ? "..." : ""}\n`;
     }
   }
 
-  caption += `\n📞 *Direct Host/Landlord:* ${listing.contact_phone || "Contact on BunkBy"}\n`;
+  let footerText = `\n📞 *Direct Host/Landlord:* ${displayPhone}\n`;
   if (waContactLink) {
-    caption += `💬 *Chat directly:* ${waContactLink}\n`;
+    footerText += `💬 *Chat directly:* ${waContactLink}\n`;
   }
-  caption += `🔗 *Full Details:* ${listingUrl}`;
+  if (validPhotos.length > 1) {
+    footerText += `📸 *Gallery:* ${validPhotos.length} photos available (reply *photos ${listing.id}* to view all here!)\n`;
+  }
+  footerText += `🔗 *Full Gallery & Details:* ${listingUrl}`;
+
+  let caption = `${headerText}${extraSection}${footerText}`;
+  if (photoUrl && caption.length > 1020) {
+    caption = `${headerText}${footerText}`;
+    if (caption.length > 1020) {
+      const maxHeaderLen = Math.max(80, 1020 - footerText.length - 4);
+      caption = `${headerText.slice(0, maxHeaderLen)}...\n${footerText}`;
+    }
+  }
 
   // If a real photo exists, send as an image message with caption
   if (photoUrl) {
@@ -999,6 +1078,61 @@ export function buildConciseSearchCard(
   return createTextMessage(toPhone, cardText, false);
 }
 
+async function uploadMediaUrlOrDataToMeta(
+  source: string,
+  token: string,
+  phoneId: string
+): Promise<string | null> {
+  if (!source || !token || !phoneId) return null;
+  try {
+    let fileBlob: Blob | null = null;
+    let mimeType = "image/jpeg";
+    const normalized = source.trim();
+
+    if (normalized.startsWith("data:")) {
+      const match = normalized.match(/^data:([a-zA-Z0-9.+_-]+\/[a-zA-Z0-9.+_-]+)(?:;[a-zA-Z0-9=_-]+)*;base64,([\s\S]+)$/i);
+      if (!match) return null;
+      mimeType = match[1];
+      const buffer = Buffer.from(match[2].replace(/\s+/g, ""), "base64");
+      fileBlob = new Blob([buffer], { type: mimeType });
+    } else if (normalized.startsWith("http://") || normalized.startsWith("https://")) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 8000);
+      try {
+        const resp = await fetch(normalized, { signal: controller.signal });
+        clearTimeout(timeoutId);
+        if (!resp.ok) return null;
+        const arrBuf = await resp.arrayBuffer();
+        mimeType = resp.headers.get("content-type") || "image/jpeg";
+        fileBlob = new Blob([arrBuf], { type: mimeType });
+      } catch {
+        clearTimeout(timeoutId);
+        return null;
+      }
+    }
+
+    if (!fileBlob || fileBlob.size === 0) return null;
+    const ext = mimeType.includes("png") ? "png" : mimeType.includes("webp") ? "webp" : "jpg";
+    const formData = new FormData();
+    formData.append("messaging_product", "whatsapp");
+    formData.append("type", mimeType);
+    formData.append("file", fileBlob, `property.${ext}`);
+
+    const uploadRes = await fetch(`https://graph.facebook.com/v26.0/${phoneId}/media`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${token}`
+      },
+      body: formData
+    });
+    if (!uploadRes.ok) return null;
+    const uploadData: any = await uploadRes.json();
+    return uploadData.id || null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Sends messages to Meta's WhatsApp Cloud API
  * Gracefully logs and returns payload if credentials are not configured yet.
@@ -1009,11 +1143,11 @@ export async function sendWhatsAppMessage(
     accessToken?: string;
     phoneNumberId?: string;
     businessAccountId?: string;
+    rawPhoto?: string | null;
   }
 ): Promise<{ success: boolean; data?: any; error?: string; simulated?: boolean }> {
   const token = config?.accessToken || process.env.WHATSAPP_ACCESS_TOKEN;
   const phoneId = config?.phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID;
-  const businessAccountId = config?.businessAccountId || process.env.WHATSAPP_BUSINESS_ACCOUNT_ID;
 
   // If credentials are NOT provided, return simulated success for testing mode
   if (!token || !phoneId) {
@@ -1032,6 +1166,29 @@ export async function sendWhatsAppMessage(
   const sanitizedRecipient = payload.to ? `${String(payload.to).slice(0, 4)}***${String(payload.to).slice(-3)}` : "unknown";
   console.log(`[WhatsApp Outbound] Attempting Meta dispatch to recipient: ${sanitizedRecipient}, payload type: ${payload.type}`);
 
+  let outboundPayload: WhatsAppMessagePayload = payload;
+  if (payload.type === "image" && (config?.rawPhoto || payload.image?.link)) {
+    const source = config?.rawPhoto || payload.image?.link || "";
+    const mediaId = await uploadMediaUrlOrDataToMeta(source, token, phoneId);
+    if (mediaId) {
+      outboundPayload = {
+        ...payload,
+        image: {
+          id: mediaId,
+          caption: (payload.image?.caption || "").slice(0, 1024)
+        }
+      };
+    } else if (payload.image?.caption && payload.image.caption.length > 1024) {
+      outboundPayload = {
+        ...payload,
+        image: {
+          ...payload.image,
+          caption: payload.image.caption.slice(0, 1024)
+        }
+      };
+    }
+  }
+
   try {
     const response = await fetch(endpoint, {
       method: "POST",
@@ -1039,10 +1196,27 @@ export async function sendWhatsAppMessage(
         "Authorization": `Bearer ${token}`,
         "Content-Type": "application/json"
       },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(outboundPayload)
     });
 
-    const data = await response.json();
+    const data: any = await response.json();
+
+    if (!response.ok && outboundPayload.type === "image" && outboundPayload.image?.caption) {
+      console.warn(`[WhatsApp Outbound Image Fallback] Retrying as text for ${sanitizedRecipient}: HTTP ${response.status}`);
+      const fallbackPayload = createTextMessage(outboundPayload.to, outboundPayload.image.caption, true);
+      const fallbackRes = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(fallbackPayload)
+      });
+      const fallbackData: any = await fallbackRes.json();
+      if (fallbackRes.ok) {
+        return { success: true, data: fallbackData };
+      }
+    }
 
     if (!response.ok) {
       const codePart = data.error?.code ? `(Meta Code ${data.error.code}) ` : "";

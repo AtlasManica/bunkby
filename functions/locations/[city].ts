@@ -1,8 +1,4 @@
-import {
-  findCityBySlugOrName,
-  toSlug,
-  buildLocationSeo,
-} from "../../shared/seoData";
+import { buildLocationSeo } from "../../shared/seoData";
 import { queryAllAvailableListings, renderSeoHtmlResponse } from "../_lib/pageSsr";
 
 export async function onRequestGet({
@@ -14,14 +10,8 @@ export async function onRequestGet({
   env: any;
   params: { city: string };
 }) {
-  const city = findCityBySlugOrName(String(params?.city || ""));
-  if (!city) {
-    return renderSeoHtmlResponse(request, env, buildLocationSeo(null, null, []));
-  }
+  const city = String(params?.city || "").trim();
   const activeListings = await queryAllAvailableListings(env);
-  const cityListings = activeListings.filter(
-    (l: any) => toSlug(l.city) === city.slug
-  );
-  const seo = buildLocationSeo(city, null, cityListings, false);
+  const seo = buildLocationSeo(city, activeListings);
   return renderSeoHtmlResponse(request, env, seo);
 }

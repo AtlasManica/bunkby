@@ -15,6 +15,8 @@ import {
   buildWhatsAppSeo,
   buildPrivacySeo,
   buildListingSeo,
+  buildCategorySeo,
+  buildLocationSeo,
   buildSitemapXml,
   normalizeListingRow,
   isListingAvailable,
@@ -816,32 +818,51 @@ app.get(["/api/listings/:id/photo", "/api/rooms/:id/photo", "/api/listings/:id/p
       return res.status(404).send("Photograph not found");
     }
 
+    const idxRaw = req.query.index ?? req.query.idx ?? req.query.i;
+    const requestedIdx = idxRaw !== undefined ? parseInt(String(idxRaw), 10) : NaN;
+    const photoIndex = !Number.isNaN(requestedIdx) && requestedIdx >= 0 ? requestedIdx : null;
+
     let raw = String(listing.image_url).trim();
 
-    // If stored as JSON array of multiple photos, extract primary photo
+    // If stored as JSON array of multiple photos, extract requested index or primary valid photo
     if (raw.startsWith("[")) {
       try {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          raw = String(parsed[0]).trim();
+          const entries = parsed.map((item: any) => String(item || "").trim()).filter(Boolean);
+          if (photoIndex !== null) {
+            raw = entries[photoIndex] !== undefined ? entries[photoIndex] : (entries[0] || "");
+          } else {
+            raw = entries.find((item: string) => !/logo|bunkbylogo|watermark|favicon|brand-mark/i.test(item)) || entries[0] || "";
+          }
         }
       } catch (_) {}
     }
 
+    if (!raw) {
+      return res.status(404).send("Photograph not found");
+    }
+
     // If it's a data URI (base64 image from web camera / upload)
     if (raw.startsWith("data:")) {
-      const matches = raw.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+      const matches = raw.match(/^data:([a-zA-Z0-9.+_-]+\/[a-zA-Z0-9.+_-]+)(?:;[a-zA-Z0-9=_-]+)*;base64,([\s\S]+)$/i);
       if (matches && matches.length === 3) {
         const mimeType = matches[1];
-        const buffer = Buffer.from(matches[2], "base64");
+        const buffer = Buffer.from(matches[2].replace(/\s+/g, ""), "base64");
         res.setHeader("Content-Type", mimeType);
         res.setHeader("Cache-Control", "public, max-age=86400");
+        res.setHeader("Access-Control-Allow-Origin", "*");
         return res.send(buffer);
       }
     }
 
     // If it's an HTTP/HTTPS URL
     if (raw.startsWith("http://") || raw.startsWith("https://")) {
+      return res.redirect(302, raw);
+    }
+
+    // If it's a relative URL
+    if (raw.startsWith("/")) {
       return res.redirect(302, raw);
     }
 
@@ -1152,6 +1173,22 @@ function resolveExpressSeoPayload(req: express.Request): SeoPagePayload | null {
     const id = decodeURIComponent(listingMatch[1]);
     return buildListingSeo(querySqliteSingleListing(id), id);
   }
+  const categoryMatch = pathname.match(/^\/categories\/([^/]+)\/?$/);
+  if (categoryMatch) {
+    const category = decodeURIComponent(categoryMatch[1]);
+    return buildCategorySeo(category, querySqliteActiveListings());
+  }
+  const locationSuburbMatch = pathname.match(/^\/locations\/([^/]+)\/([^/]+)\/?$/);
+  if (locationSuburbMatch) {
+    const city = decodeURIComponent(locationSuburbMatch[1]);
+    const suburb = decodeURIComponent(locationSuburbMatch[2]);
+    return buildLocationSeo(city, suburb, querySqliteActiveListings());
+  }
+  const locationCityMatch = pathname.match(/^\/locations\/([^/]+)\/?$/);
+  if (locationCityMatch) {
+    const city = decodeURIComponent(locationCityMatch[1]);
+    return buildLocationSeo(city, querySqliteActiveListings());
+  }
   return null;
 }
 
@@ -1194,6 +1231,9 @@ async function startServer() {
         "/whatsapp",
         "/privacy-policy",
         "/listing/:id",
+        "/categories/:category",
+        "/locations/:city",
+        "/locations/:city/:suburb",
       ],
       async (req, res, next) => {
         try {
@@ -1240,6 +1280,9 @@ async function startServer() {
         "/whatsapp",
         "/privacy-policy",
         "/listing/:id",
+        "/categories/:category",
+        "/locations/:city",
+        "/locations/:city/:suburb",
       ],
       (req, res) => {
         const seo = resolveExpressSeoPayload(req) || buildHomeSeo(querySqliteActiveListings());

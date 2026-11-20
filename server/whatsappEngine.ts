@@ -6,7 +6,8 @@ import {
   searchListingsPaginated,
   encodeSearchPaginationId,
   parseSearchPaginationId,
-  buildConciseSearchCard,
+  buildListingCard,
+  extractValidListingImages,
   createTextMessage,
   createButtonMessage,
   createListMessage,
@@ -129,16 +130,21 @@ async function processWhatsAppMessageInternal(
 
   const outboundPayloads: WhatsAppMessagePayload[] = [];
 
+  const outboundRawPhotos: Array<string | null> = [];
+
   // Helper to append a payload
-  const queuePayload = (payload: WhatsAppMessagePayload) => {
+  const queuePayload = (payload: WhatsAppMessagePayload, rawPhoto?: string | null) => {
     outboundPayloads.push(payload);
+    outboundRawPhotos.push(rawPhoto || null);
   };
 
   // Helper to dispatch queued payloads to Meta
   const dispatchAll = async () => {
     console.log(`[WhatsApp Engine Dispatch] Dispatching ${outboundPayloads.length} response message(s) to ${sanitizedSender}`);
-    for (const p of outboundPayloads) {
-      const res = await sendWhatsAppMessage(p, metaConfig);
+    for (let i = 0; i < outboundPayloads.length; i++) {
+      const p = outboundPayloads[i];
+      const rawPhoto = outboundRawPhotos[i];
+      const res = await sendWhatsAppMessage(p, metaConfig ? { ...metaConfig, rawPhoto } : { rawPhoto });
       deliveryResults.push({
         success: res.success,
         error: res.error,
@@ -398,7 +404,12 @@ async function processWhatsAppMessageInternal(
     queuePayload(createTextMessage(phone, headerMsg, false));
 
     for (let i = 0; i < results.length; i++) {
-      queuePayload(buildConciseSearchCard(results[i], baseUrl, phone, startNum + i));
+      const listing = results[i];
+      const validPhotos = extractValidListingImages(listing.image_url);
+      queuePayload(
+        buildListingCard(listing, baseUrl, phone, startNum + i),
+        validPhotos[0] || null
+      );
     }
 
     const navButtons: Array<{ id: string; title: string }> = [];

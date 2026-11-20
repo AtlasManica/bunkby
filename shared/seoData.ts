@@ -712,6 +712,624 @@ export function buildListingSeo(rawListing: any | null, idParam: string): SeoPag
   };
 }
 
+function findCategoryDefinition(categoryParam: string): CategoryDefinition | null {
+  const clean = toSlug(categoryParam);
+  if (!clean) return null;
+  for (const def of Object.values(CATEGORY_DEFINITIONS)) {
+    if (def.slug === clean || def.key === clean) {
+      return def;
+    }
+  }
+  return null;
+}
+
+function selectFeaturedOgImage(listings: any[]): string {
+  for (const listing of listings) {
+    const candidate = getPublicListingImageUrl(listing, SITE_URL);
+    if (candidate && candidate !== `${SITE_URL}/og-image.png`) {
+      return candidate;
+    }
+  }
+  return `${SITE_URL}/og-image.png`;
+}
+
+export function buildCategorySeo(categorySlug: string, rawListings?: any[]): SeoPagePayload;
+export function buildCategorySeo(rawListings: any[], categorySlug: string): SeoPagePayload;
+export function buildCategorySeo(
+  arg1: string | any[],
+  arg2?: any[] | string
+): SeoPagePayload {
+  const categorySlug = Array.isArray(arg1) ? String(arg2 || "") : String(arg1 || "");
+  const rawListings = Array.isArray(arg1) ? arg1 : Array.isArray(arg2) ? arg2 : [];
+  const cleanSlug = toSlug(categorySlug) || String(categorySlug || "").trim();
+  const catDef = findCategoryDefinition(cleanSlug);
+
+  if (!catDef) {
+    const canonicalUrl = `${SITE_URL}/categories/${encodeURIComponent(cleanSlug || "unknown")}`;
+    return {
+      httpStatus: 404,
+      title: "Category Not Found | BunkBy Zimbabwe",
+      description: "This property category could not be found on BunkBy Zimbabwe.",
+      canonicalUrl,
+      robots: "noindex, nofollow",
+      ogType: "website",
+      ogTitle: "Category Not Found | BunkBy Zimbabwe",
+      ogDescription: "Explore residential rentals, hospitality stays, commercial spaces, and student accommodation on BunkBy.",
+      ogImage: `${SITE_URL}/og-image.png`,
+      jsonLd: null,
+      ssrHtml: `<main style="font-family:sans-serif;max-width:900px;margin:24px auto;padding:24px;background:#fff;color:#1e293b;border-radius:12px;">
+        <nav aria-label="Breadcrumb" style="font-size:13px;margin-bottom:14px;"><a href="/">Home</a> &rsaquo; <span>Category Not Found</span></nav>
+        <h1 style="color:#052659;">Property Category Not Found</h1>
+        <p>The requested category does not exist. Explore available categories on <a href="/">BunkBy</a>:</p>
+        <ul>${Object.values(CATEGORY_DEFINITIONS)
+          .map((c) => `<li><a href="/categories/${escapeHtml(c.slug)}">${escapeHtml(c.name)}</a></li>`)
+          .join("")}</ul>
+      </main>`,
+    };
+  }
+
+  const available = rawListings
+    .map(normalizeListingRow)
+    .filter((l) => l && isListingAvailable(l) && getListingCategoryKey(l) === catDef.key);
+
+  const canonicalUrl = `${SITE_URL}/categories/${catDef.slug}`;
+  const ogImage = selectFeaturedOgImage(available);
+  const countSummary =
+    available.length > 0
+      ? `${available.length} active ${available.length === 1 ? "listing" : "listings"} currently available.`
+      : `Browse live ${catDef.name.toLowerCase()} listings and post properties directly via BunkBy or WhatsApp (${WHATSAPP_NUMBER_DISPLAY}).`;
+  const description = `${catDef.metaDescription} ${countSummary}`.trim();
+
+  const itemListElements = available.slice(0, 20).map((listing, index) => ({
+    "@type": "ListItem",
+    position: index + 1,
+    url: `${SITE_URL}/listing/${encodeURIComponent(String(listing.id))}`,
+    name: listing.title,
+  }));
+
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "CollectionPage",
+        "@id": canonicalUrl,
+        url: canonicalUrl,
+        name: catDef.headline,
+        description,
+        isPartOf: { "@id": `${SITE_URL}/#website` },
+        inLanguage: "en-ZW",
+        mainEntity: {
+          "@type": "ItemList",
+          numberOfItems: available.length,
+          itemListElement: itemListElements,
+        },
+      },
+      {
+        "@type": "BreadcrumbList",
+        itemListElement: [
+          { "@type": "ListItem", position: 1, name: "Home", item: `${SITE_URL}/` },
+          { "@type": "ListItem", position: 2, name: catDef.name, item: canonicalUrl },
+        ],
+      },
+    ],
+  };
+
+  const cityLookupMap = new Map(LOCATION_CITIES.map((c) => [c.slug, c]));
+  const featuredCityLinks = FEATURED_CITY_SLUGS.map((slug) => cityLookupMap.get(slug))
+    .filter((c): c is CityDefinition => Boolean(c))
+    .map(
+      (c) =>
+        `<a href="/locations/${escapeHtml(c.slug)}" style="margin-right:12px;color:#052659;">${escapeHtml(c.name)}</a>`
+    )
+    .join("");
+
+  const ssrHtml = `<main style="font-family:sans-serif;max-width:960px;margin:24px auto;padding:24px;background:#fff;color:#1e293b;border-radius:12px;">
+    <nav aria-label="Breadcrumb" style="font-size:13px;margin-bottom:14px;"><a href="/">Home</a> &rsaquo; <span>${escapeHtml(catDef.name)}</span></nav>
+    <header style="margin-bottom:20px;border-bottom:1px solid #e2e8f0;padding-bottom:16px;">
+      <p style="font-size:12px;text-transform:uppercase;color:#FF7A00;font-weight:bold;margin:0 0 6px;">${SITE_NAME} &middot; ${escapeHtml(catDef.name)}</p>
+      <h1 style="color:#052659;font-size:28px;margin:0 0 8px;">${escapeHtml(catDef.headline)}</h1>
+      <p style="font-size:15px;line-height:1.6;margin:0 0 10px;">${escapeHtml(catDef.intro)}</p>
+      <p style="font-size:13px;color:#475569;margin:0;"><strong>${available.length}</strong> active ${available.length === 1 ? "property" : "properties"} available &middot; Property types: ${escapeHtml(catDef.propertyTypes.slice(0, 6).join(", "))}</p>
+    </header>
+    ${
+      available.length > 0
+        ? `<section><h2 style="font-size:19px;color:#052659;margin:0 0 12px;">Available ${escapeHtml(catDef.name)}</h2>${available
+            .slice(0, 30)
+            .map(buildListingCardSsrHtml)
+            .join("")}</section>`
+        : `<section style="padding:16px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;">
+            <h2 style="font-size:18px;color:#052659;margin:0 0 8px;">No active ${escapeHtml(catDef.name.toLowerCase())} listings right now</h2>
+            <p style="font-size:14px;margin:0;">Search all Zimbabwe areas on <a href="/">BunkBy Home</a> or post a property directly via <a href="/whatsapp">BunkBy on WhatsApp (${WHATSAPP_NUMBER_DISPLAY})</a>.</p>
+          </section>`
+    }
+    <section style="margin-top:24px;padding-top:14px;border-top:1px solid #e2e8f0;">
+      <h2 style="font-size:16px;color:#052659;margin:0 0 8px;">Other Property Categories</h2>
+      <p style="font-size:13px;margin:0 0 12px;">${Object.values(CATEGORY_DEFINITIONS)
+        .map((c) => `<a href="/categories/${escapeHtml(c.slug)}" style="margin-right:12px;color:#052659;">${escapeHtml(c.name)}</a>`)
+        .join("")}</p>
+      <h2 style="font-size:16px;color:#052659;margin:0 0 8px;">Popular Zimbabwe Locations</h2>
+      <p style="font-size:13px;margin:0;">${featuredCityLinks}</p>
+    </section>
+  </main>`;
+
+  return {
+    httpStatus: 200,
+    title: catDef.metaTitle,
+    description,
+    canonicalUrl,
+    robots: "index, follow, max-image-preview:large",
+    ogType: "website",
+    ogTitle: catDef.metaTitle,
+    ogDescription: description,
+    ogImage,
+    jsonLd,
+    ssrHtml,
+  };
+}
+
+export function buildLocationSeo(cityOrProvinceSlug: string, rawListings?: any[]): SeoPagePayload;
+export function buildLocationSeo(
+  cityOrProvinceSlug: string,
+  suburbSlug: string | null | undefined,
+  rawListings?: any[]
+): SeoPagePayload;
+export function buildLocationSeo(
+  rawListings: any[],
+  cityOrProvinceSlug: string,
+  suburbSlug?: string | null
+): SeoPagePayload;
+export function buildLocationSeo(
+  arg1: string | any[],
+  arg2?: string | any[] | null,
+  arg3?: string | any[] | null
+): SeoPagePayload {
+  let cityOrProvinceParam = "";
+  let suburbParam = "";
+  let rawListings: any[] = [];
+
+  if (Array.isArray(arg1)) {
+    rawListings = arg1;
+    cityOrProvinceParam = String(arg2 || "");
+    suburbParam = typeof arg3 === "string" ? arg3 : "";
+  } else {
+    cityOrProvinceParam = String(arg1 || "");
+    if (Array.isArray(arg2)) {
+      rawListings = arg2;
+    } else {
+      suburbParam = typeof arg2 === "string" ? arg2 : "";
+      rawListings = Array.isArray(arg3) ? arg3 : [];
+    }
+  }
+
+  const cleanCitySlug = toSlug(cityOrProvinceParam) || String(cityOrProvinceParam || "").trim();
+  const cleanSuburbSlug = toSlug(suburbParam) || String(suburbParam || "").trim();
+
+  const allAvailable = rawListings
+    .map(normalizeListingRow)
+    .filter((l) => l && isListingAvailable(l));
+
+  const cityDef = findCityBySlugOrName(cleanCitySlug);
+
+  // Suburb route: /locations/:city/:suburb
+  if (cleanSuburbSlug) {
+    const suburbDef = cityDef ? findSuburbInCity(cityDef, cleanSuburbSlug) : null;
+    if (!cityDef || !suburbDef) {
+      const canonicalUrl = `${SITE_URL}/locations/${encodeURIComponent(cleanCitySlug || "unknown")}/${encodeURIComponent(cleanSuburbSlug)}`;
+      return {
+        httpStatus: 404,
+        title: "Location Not Found | BunkBy Zimbabwe",
+        description: "The requested Zimbabwe suburb or area page could not be found on BunkBy.",
+        canonicalUrl,
+        robots: "noindex, nofollow",
+        ogType: "website",
+        ogTitle: "Location Not Found | BunkBy Zimbabwe",
+        ogDescription: "Explore verified cities, towns, and suburbs across Zimbabwe on BunkBy.",
+        ogImage: `${SITE_URL}/og-image.png`,
+        jsonLd: null,
+        ssrHtml: `<main style="font-family:sans-serif;max-width:900px;margin:24px auto;padding:24px;background:#fff;color:#1e293b;border-radius:12px;">
+          <nav aria-label="Breadcrumb" style="font-size:13px;margin-bottom:14px;"><a href="/">Home</a> &rsaquo; <span>Location Not Found</span></nav>
+          <h1 style="color:#052659;">Location Not Found</h1>
+          <p>We could not find that suburb or area in our Zimbabwe directory. Return to <a href="/">BunkBy Home</a>${
+            cityDef ? ` or view all listings in <a href="/locations/${escapeHtml(cityDef.slug)}">${escapeHtml(cityDef.name)}</a>` : ""
+          }.</p>
+        </main>`,
+      };
+    }
+
+    const matchedListings = allAvailable.filter((l) => {
+      const resolved = resolveListingLocation(l);
+      if (resolved.city?.slug === cityDef.slug && resolved.suburb?.slug === suburbDef.slug) {
+        return true;
+      }
+      const fallbackCity = findCityBySlugOrName(l.city || "");
+      return (
+        (resolved.city?.slug === cityDef.slug || fallbackCity?.slug === cityDef.slug) &&
+        matchesSuburbName(l.suburb || "", suburbDef)
+      );
+    });
+
+    const canonicalUrl = `${SITE_URL}/locations/${cityDef.slug}/${suburbDef.slug}`;
+    const typeLabel = formatLocationTypeLabel(suburbDef.locationType);
+    const title =
+      suburbDef.seoTitle ||
+      `Rooms, Cottages & Accommodation in ${suburbDef.name}, ${cityDef.name} | BunkBy`;
+    const baseDesc =
+      suburbDef.seoDescription ||
+      `Browse rooms, cottages, flats, lodges, and commercial properties in ${suburbDef.name}, ${cityDef.name} (${cityDef.province}), Zimbabwe on BunkBy with direct landlord contact.`;
+    const description =
+      matchedListings.length > 0
+        ? `${baseDesc} ${matchedListings.length} active ${matchedListings.length === 1 ? "listing" : "listings"} available.`
+        : baseDesc;
+    const ogImage = selectFeaturedOgImage(matchedListings);
+
+    const jsonLd = {
+      "@context": "https://schema.org",
+      "@graph": [
+        {
+          "@type": "CollectionPage",
+          "@id": canonicalUrl,
+          url: canonicalUrl,
+          name: `Properties & Accommodation in ${suburbDef.name}, ${cityDef.name}`,
+          description,
+          isPartOf: { "@id": `${SITE_URL}/#website` },
+          inLanguage: "en-ZW",
+          about: {
+            "@type": "Place",
+            name: `${suburbDef.name}, ${cityDef.name}`,
+            address: {
+              "@type": "PostalAddress",
+              addressLocality: suburbDef.name,
+              addressRegion: cityDef.name,
+              addressCountry: "ZW",
+            },
+          },
+          mainEntity: {
+            "@type": "ItemList",
+            numberOfItems: matchedListings.length,
+            itemListElement: matchedListings.slice(0, 20).map((listing, index) => ({
+              "@type": "ListItem",
+              position: index + 1,
+              url: `${SITE_URL}/listing/${encodeURIComponent(String(listing.id))}`,
+              name: listing.title,
+            })),
+          },
+        },
+        {
+          "@type": "BreadcrumbList",
+          itemListElement: [
+            { "@type": "ListItem", position: 1, name: "Home", item: `${SITE_URL}/` },
+            {
+              "@type": "ListItem",
+              position: 2,
+              name: cityDef.name,
+              item: `${SITE_URL}/locations/${cityDef.slug}`,
+            },
+            { "@type": "ListItem", position: 3, name: suburbDef.name, item: canonicalUrl },
+          ],
+        },
+      ],
+    };
+
+    const siblingSuburbs = cityDef.suburbs
+      .filter((s) => s.slug !== suburbDef.slug)
+      .slice(0, 14)
+      .map(
+        (s) =>
+          `<a href="/locations/${escapeHtml(cityDef.slug)}/${escapeHtml(s.slug)}" style="margin-right:10px;color:#052659;">${escapeHtml(s.name)}</a>`
+      )
+      .join("");
+
+    const ssrHtml = `<main style="font-family:sans-serif;max-width:960px;margin:24px auto;padding:24px;background:#fff;color:#1e293b;border-radius:12px;">
+      <nav aria-label="Breadcrumb" style="font-size:13px;margin-bottom:14px;">
+        <a href="/">Home</a> &rsaquo; <a href="/locations/${escapeHtml(cityDef.slug)}">${escapeHtml(cityDef.name)}</a> &rsaquo; <span>${escapeHtml(suburbDef.name)}</span>
+      </nav>
+      <header style="margin-bottom:20px;border-bottom:1px solid #e2e8f0;padding-bottom:16px;">
+        <p style="font-size:12px;text-transform:uppercase;color:#FF7A00;font-weight:bold;margin:0 0 6px;">${escapeHtml(typeLabel)} &middot; ${escapeHtml(cityDef.name)}, ${escapeHtml(cityDef.province)}</p>
+        <h1 style="color:#052659;font-size:28px;margin:0 0 8px;">Accommodation &amp; Properties in ${escapeHtml(suburbDef.name)}, ${escapeHtml(cityDef.name)}</h1>
+        <p style="font-size:15px;line-height:1.6;margin:0 0 10px;">${escapeHtml(suburbDef.description || baseDesc)}</p>
+        <p style="font-size:13px;color:#475569;margin:0;"><strong>${matchedListings.length}</strong> active ${matchedListings.length === 1 ? "property" : "properties"} currently listed in ${escapeHtml(suburbDef.name)}.</p>
+      </header>
+      ${
+        matchedListings.length > 0
+          ? `<section><h2 style="font-size:19px;color:#052659;margin:0 0 12px;">Active Listings in ${escapeHtml(suburbDef.name)}</h2>${matchedListings
+              .slice(0, 30)
+              .map(buildListingCardSsrHtml)
+              .join("")}</section>`
+          : `<section style="padding:16px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;">
+              <h2 style="font-size:18px;color:#052659;margin:0 0 8px;">No active listings in ${escapeHtml(suburbDef.name)} yet</h2>
+              <p style="font-size:14px;margin:0;">Browse all properties in <a href="/locations/${escapeHtml(cityDef.slug)}">${escapeHtml(cityDef.name)}</a> or submit a property via <a href="/whatsapp">WhatsApp (${WHATSAPP_NUMBER_DISPLAY})</a>.</p>
+            </section>`
+      }
+      ${
+        siblingSuburbs
+          ? `<section style="margin-top:24px;padding-top:14px;border-top:1px solid #e2e8f0;">
+              <h2 style="font-size:16px;color:#052659;margin:0 0 8px;">Other Suburbs in ${escapeHtml(cityDef.name)}</h2>
+              <p style="font-size:13px;line-height:1.8;margin:0;">${siblingSuburbs}</p>
+            </section>`
+          : ""
+      }
+    </main>`;
+
+    return {
+      httpStatus: 200,
+      title,
+      description,
+      canonicalUrl,
+      robots: "index, follow, max-image-preview:large",
+      ogType: "website",
+      ogTitle: title,
+      ogDescription: description,
+      ogImage,
+      jsonLd,
+      ssrHtml,
+    };
+  }
+
+  // City / Town / Tourism Destination route: /locations/:city
+  if (cityDef) {
+    const matchedListings = allAvailable.filter((l) => {
+      const resolved = resolveListingLocation(l);
+      if (resolved.city?.slug === cityDef.slug) return true;
+      const fallbackCity = findCityBySlugOrName(l.city || "");
+      return fallbackCity?.slug === cityDef.slug;
+    });
+
+    const canonicalUrl = `${SITE_URL}/locations/${cityDef.slug}`;
+    const typeLabel = formatLocationTypeLabel(cityDef.locationType);
+    const title =
+      cityDef.seoTitle || `Properties & Accommodation in ${cityDef.name}, Zimbabwe | BunkBy`;
+    const baseDesc =
+      cityDef.seoDescription ||
+      `Find rooms, cottages, houses, student accommodation, guesthouses, and commercial properties in ${cityDef.name}, Zimbabwe on BunkBy.`;
+    const description =
+      matchedListings.length > 0
+        ? `${baseDesc} ${matchedListings.length} active ${matchedListings.length === 1 ? "listing" : "listings"} available.`
+        : baseDesc;
+    const ogImage = selectFeaturedOgImage(matchedListings);
+
+    const breadcrumbItems: Array<Record<string, any>> = [
+      { "@type": "ListItem", position: 1, name: "Home", item: `${SITE_URL}/` },
+    ];
+    if (cityDef.provinceSlug !== cityDef.slug) {
+      breadcrumbItems.push({
+        "@type": "ListItem",
+        position: 2,
+        name: cityDef.province,
+        item: `${SITE_URL}/locations/${cityDef.provinceSlug}`,
+      });
+      breadcrumbItems.push({
+        "@type": "ListItem",
+        position: 3,
+        name: cityDef.name,
+        item: canonicalUrl,
+      });
+    } else {
+      breadcrumbItems.push({
+        "@type": "ListItem",
+        position: 2,
+        name: cityDef.name,
+        item: canonicalUrl,
+      });
+    }
+
+    const jsonLd = {
+      "@context": "https://schema.org",
+      "@graph": [
+        {
+          "@type": "CollectionPage",
+          "@id": canonicalUrl,
+          url: canonicalUrl,
+          name: `Properties & Accommodation in ${cityDef.name}`,
+          description,
+          isPartOf: { "@id": `${SITE_URL}/#website` },
+          inLanguage: "en-ZW",
+          about: {
+            "@type": "Place",
+            name: cityDef.name,
+            address: {
+              "@type": "PostalAddress",
+              addressLocality: cityDef.name,
+              addressRegion: cityDef.province,
+              addressCountry: "ZW",
+            },
+          },
+          mainEntity: {
+            "@type": "ItemList",
+            numberOfItems: matchedListings.length,
+            itemListElement: matchedListings.slice(0, 20).map((listing, index) => ({
+              "@type": "ListItem",
+              position: index + 1,
+              url: `${SITE_URL}/listing/${encodeURIComponent(String(listing.id))}`,
+              name: listing.title,
+            })),
+          },
+        },
+        {
+          "@type": "BreadcrumbList",
+          itemListElement: breadcrumbItems,
+        },
+      ],
+    };
+
+    const suburbLinks = cityDef.suburbs
+      .slice(0, 24)
+      .map(
+        (s) =>
+          `<a href="/locations/${escapeHtml(cityDef.slug)}/${escapeHtml(s.slug)}" style="margin-right:10px;color:#052659;">${escapeHtml(s.name)}</a>`
+      )
+      .join("");
+
+    const ssrHtml = `<main style="font-family:sans-serif;max-width:960px;margin:24px auto;padding:24px;background:#fff;color:#1e293b;border-radius:12px;">
+      <nav aria-label="Breadcrumb" style="font-size:13px;margin-bottom:14px;">
+        <a href="/">Home</a> &rsaquo; ${
+          cityDef.provinceSlug !== cityDef.slug
+            ? `<a href="/locations/${escapeHtml(cityDef.provinceSlug)}">${escapeHtml(cityDef.province)}</a> &rsaquo; `
+            : ""
+        }<span>${escapeHtml(cityDef.name)}</span>
+      </nav>
+      <header style="margin-bottom:20px;border-bottom:1px solid #e2e8f0;padding-bottom:16px;">
+        <p style="font-size:12px;text-transform:uppercase;color:#FF7A00;font-weight:bold;margin:0 0 6px;">${escapeHtml(typeLabel)} &middot; ${escapeHtml(cityDef.province)}</p>
+        <h1 style="color:#052659;font-size:28px;margin:0 0 8px;">Accommodation &amp; Properties in ${escapeHtml(cityDef.name)}, Zimbabwe</h1>
+        <p style="font-size:15px;line-height:1.6;margin:0 0 8px;">${escapeHtml(cityDef.intro)}</p>
+        <p style="font-size:14px;color:#475569;margin:0 0 8px;">${escapeHtml(cityDef.highlights)}</p>
+        <p style="font-size:13px;color:#475569;margin:0;"><strong>${matchedListings.length}</strong> active ${matchedListings.length === 1 ? "property" : "properties"} currently listed in ${escapeHtml(cityDef.name)}.</p>
+      </header>
+      ${
+        matchedListings.length > 0
+          ? `<section><h2 style="font-size:19px;color:#052659;margin:0 0 12px;">Active Listings in ${escapeHtml(cityDef.name)}</h2>${matchedListings
+              .slice(0, 30)
+              .map(buildListingCardSsrHtml)
+              .join("")}</section>`
+          : `<section style="padding:16px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;">
+              <h2 style="font-size:18px;color:#052659;margin:0 0 8px;">No active listings in ${escapeHtml(cityDef.name)} right now</h2>
+              <p style="font-size:14px;margin:0;">Browse all Zimbabwe listings on <a href="/">BunkBy Home</a> or post your property via <a href="/whatsapp">WhatsApp (${WHATSAPP_NUMBER_DISPLAY})</a>.</p>
+            </section>`
+      }
+      ${
+        suburbLinks
+          ? `<section style="margin-top:24px;padding-top:14px;border-top:1px solid #e2e8f0;">
+              <h2 style="font-size:16px;color:#052659;margin:0 0 8px;">Suburbs &amp; Areas in ${escapeHtml(cityDef.name)}</h2>
+              <p style="font-size:13px;line-height:1.8;margin:0;">${suburbLinks}</p>
+            </section>`
+          : ""
+      }
+    </main>`;
+
+    return {
+      httpStatus: 200,
+      title,
+      description,
+      canonicalUrl,
+      robots: "index, follow, max-image-preview:large",
+      ogType: "website",
+      ogTitle: title,
+      ogDescription: description,
+      ogImage,
+      jsonLd,
+      ssrHtml,
+    };
+  }
+
+  // Province route: /locations/:province
+  const provinceDef = findProvinceBySlugOrName(cleanCitySlug);
+  if (provinceDef) {
+    const matchedListings = allAvailable.filter(
+      (l) => resolveListingLocation(l).provinceSlug === provinceDef.slug
+    );
+    const canonicalUrl = `${SITE_URL}/locations/${provinceDef.slug}`;
+    const title = provinceDef.seoTitle;
+    const description =
+      matchedListings.length > 0
+        ? `${provinceDef.seoDescription} ${matchedListings.length} active ${matchedListings.length === 1 ? "listing" : "listings"} available.`
+        : provinceDef.seoDescription;
+    const ogImage = selectFeaturedOgImage(matchedListings);
+
+    const citiesInProvince = getCitiesInProvince(provinceDef.slug);
+    const cityLinks = citiesInProvince
+      .map(
+        (c) =>
+          `<a href="/locations/${escapeHtml(c.slug)}" style="margin-right:12px;color:#052659;">${escapeHtml(c.name)}</a>`
+      )
+      .join("");
+
+    const jsonLd = {
+      "@context": "https://schema.org",
+      "@graph": [
+        {
+          "@type": "CollectionPage",
+          "@id": canonicalUrl,
+          url: canonicalUrl,
+          name: `Properties & Accommodation in ${provinceDef.name}`,
+          description,
+          isPartOf: { "@id": `${SITE_URL}/#website` },
+          inLanguage: "en-ZW",
+          mainEntity: {
+            "@type": "ItemList",
+            numberOfItems: matchedListings.length,
+            itemListElement: matchedListings.slice(0, 20).map((listing, index) => ({
+              "@type": "ListItem",
+              position: index + 1,
+              url: `${SITE_URL}/listing/${encodeURIComponent(String(listing.id))}`,
+              name: listing.title,
+            })),
+          },
+        },
+        {
+          "@type": "BreadcrumbList",
+          itemListElement: [
+            { "@type": "ListItem", position: 1, name: "Home", item: `${SITE_URL}/` },
+            { "@type": "ListItem", position: 2, name: provinceDef.name, item: canonicalUrl },
+          ],
+        },
+      ],
+    };
+
+    const ssrHtml = `<main style="font-family:sans-serif;max-width:960px;margin:24px auto;padding:24px;background:#fff;color:#1e293b;border-radius:12px;">
+      <nav aria-label="Breadcrumb" style="font-size:13px;margin-bottom:14px;"><a href="/">Home</a> &rsaquo; <span>${escapeHtml(provinceDef.name)}</span></nav>
+      <header style="margin-bottom:20px;border-bottom:1px solid #e2e8f0;padding-bottom:16px;">
+        <p style="font-size:12px;text-transform:uppercase;color:#FF7A00;font-weight:bold;margin:0 0 6px;">Province &middot; Capital: ${escapeHtml(provinceDef.capital)}</p>
+        <h1 style="color:#052659;font-size:28px;margin:0 0 8px;">Accommodation &amp; Properties in ${escapeHtml(provinceDef.name)}</h1>
+        <p style="font-size:15px;line-height:1.6;margin:0 0 8px;">${escapeHtml(provinceDef.intro)}</p>
+        <p style="font-size:14px;color:#475569;margin:0 0 8px;">${escapeHtml(provinceDef.highlights)}</p>
+        <p style="font-size:13px;color:#475569;margin:0;"><strong>${matchedListings.length}</strong> active ${matchedListings.length === 1 ? "property" : "properties"} currently listed across ${escapeHtml(provinceDef.name)}.</p>
+      </header>
+      ${
+        matchedListings.length > 0
+          ? `<section><h2 style="font-size:19px;color:#052659;margin:0 0 12px;">Active Listings in ${escapeHtml(provinceDef.name)}</h2>${matchedListings
+              .slice(0, 30)
+              .map(buildListingCardSsrHtml)
+              .join("")}</section>`
+          : `<section style="padding:16px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;">
+              <h2 style="font-size:18px;color:#052659;margin:0 0 8px;">No active listings in ${escapeHtml(provinceDef.name)} right now</h2>
+              <p style="font-size:14px;margin:0;">Search all Zimbabwe areas on <a href="/">BunkBy Home</a> or post via <a href="/whatsapp">WhatsApp (${WHATSAPP_NUMBER_DISPLAY})</a>.</p>
+            </section>`
+      }
+      ${
+        cityLinks
+          ? `<section style="margin-top:24px;padding-top:14px;border-top:1px solid #e2e8f0;">
+              <h2 style="font-size:16px;color:#052659;margin:0 0 8px;">Cities &amp; Towns in ${escapeHtml(provinceDef.name)}</h2>
+              <p style="font-size:13px;line-height:1.8;margin:0;">${cityLinks}</p>
+            </section>`
+          : ""
+      }
+    </main>`;
+
+    return {
+      httpStatus: 200,
+      title,
+      description,
+      canonicalUrl,
+      robots: "index, follow, max-image-preview:large",
+      ogType: "website",
+      ogTitle: title,
+      ogDescription: description,
+      ogImage,
+      jsonLd,
+      ssrHtml,
+    };
+  }
+
+  // Unknown location slug -> 404
+  const canonicalUrl = `${SITE_URL}/locations/${encodeURIComponent(cleanCitySlug || "unknown")}`;
+  return {
+    httpStatus: 404,
+    title: "Location Not Found | BunkBy Zimbabwe",
+    description: "This Zimbabwe location page could not be found on BunkBy.",
+    canonicalUrl,
+    robots: "noindex, nofollow",
+    ogType: "website",
+    ogTitle: "Location Not Found | BunkBy Zimbabwe",
+    ogDescription: "Browse active rentals, hospitality stays, student rooms, and commercial spaces across Zimbabwe on BunkBy.",
+    ogImage: `${SITE_URL}/og-image.png`,
+    jsonLd: null,
+    ssrHtml: `<main style="font-family:sans-serif;max-width:900px;margin:24px auto;padding:24px;background:#fff;color:#1e293b;border-radius:12px;">
+      <nav aria-label="Breadcrumb" style="font-size:13px;margin-bottom:14px;"><a href="/">Home</a> &rsaquo; <span>Location Not Found</span></nav>
+      <h1 style="color:#052659;">Location Not Found</h1>
+      <p>The requested location was not found in our Zimbabwe directory. Explore active listings on <a href="/">BunkBy Home</a>.</p>
+    </main>`,
+  };
+}
+
 export function buildSitemapXml(rawListings: any[], fallbackDate?: string): string {
   const today = fallbackDate || new Date().toISOString().slice(0, 10);
   const urlEntries = new Map<string, { lastmod: string; changefreq: string; priority: string }>();

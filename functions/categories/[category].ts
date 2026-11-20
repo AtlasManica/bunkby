@@ -1,10 +1,4 @@
-import {
-  CATEGORY_DEFINITIONS,
-  MarketplaceCategoryKey,
-  getListingCategoryKey,
-  buildCategorySeo,
-  toSlug,
-} from "../../shared/seoData";
+import { buildCategorySeo } from "../../shared/seoData";
 import { queryAllAvailableListings, renderSeoHtmlResponse } from "../_lib/pageSsr";
 
 export async function onRequestGet({
@@ -16,12 +10,8 @@ export async function onRequestGet({
   env: any;
   params: { category: string };
 }) {
-  const slug = toSlug(String(params?.category || "")) as MarketplaceCategoryKey;
-  const catDef = CATEGORY_DEFINITIONS[slug] || null;
-  if (!catDef) {
-    return renderSeoHtmlResponse(request, env, buildCategorySeo(null, []));
-  }
+  const category = String(params?.category || "").trim();
   const activeListings = await queryAllAvailableListings(env);
-  const filtered = activeListings.filter((l: any) => getListingCategoryKey(l) === catDef.key);
-  return renderSeoHtmlResponse(request, env, buildCategorySeo(catDef, filtered));
+  const seo = buildCategorySeo(category, activeListings);
+  return renderSeoHtmlResponse(request, env, seo);
 }

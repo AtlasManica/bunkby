@@ -451,6 +451,40 @@ function parsePageButtonId(payload: string): {
   };
 }
 
+function resolvePublicOrigin(baseUrl?: string): string {
+  const fallback = "https://bunkby.com";
+  if (!baseUrl) return fallback;
+  try {
+    const u = new URL(baseUrl);
+    if (u.hostname && u.hostname !== "localhost" && u.hostname !== "127.0.0.1") {
+      return `https://${u.host}`.replace(/\/+$/, "");
+    }
+  } catch (_) {}
+  return fallback;
+}
+
+function extractValidListingImages(rawImage: unknown): string[] {
+  if (!rawImage) return [];
+  const raw = String(rawImage).trim();
+  if (!raw) return [];
+
+  let candidates: string[] = [];
+  if (raw.startsWith("[")) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        candidates = parsed.map((item: any) => String(item || "").trim()).filter(Boolean);
+      }
+    } catch (_) {
+      candidates = [raw];
+    }
+  } else {
+    candidates = [raw];
+  }
+
+  return candidates.filter((img) => Boolean(img) && !isBrandingOrLogoImage(img));
+}
+
 /**
  * Uploads a listing photo directly to Meta Graph API media storage to obtain a native media_id.
  * This completely avoids external URL crawl failures from Meta's edge servers.
@@ -462,25 +496,18 @@ async function uploadListingPhotoToMeta(
 ): Promise<string | null> {
   if (!rawPhoto || !token || !phoneId) return null;
   try {
-    let normalized = rawPhoto.trim();
-    // If stored as a JSON array string of multiple photos, extract the primary photo
-    if (normalized.startsWith("[")) {
-      try {
-        const parsed = JSON.parse(normalized);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          normalized = String(parsed[0]).trim();
-        }
-      } catch (_) {}
-    }
+    const validPhotos = extractValidListingImages(rawPhoto);
+    let normalized = validPhotos[0] || "";
+    if (!normalized) return null;
 
     let fileBlob: Blob | null = null;
     let mimeType = "image/jpeg";
 
     if (normalized.startsWith("data:")) {
-      const match = normalized.match(/^data:([a-zA-Z0-9\/+-]+);base64,(.+)$/);
+      const match = normalized.match(/^data:([a-zA-Z0-9.+_-]+\/[a-zA-Z0-9.+_-]+)(?:;[a-zA-Z0-9=_-]+)*;base64,([\s\S]+)$/i);
       if (!match) return null;
       mimeType = match[1];
-      const b64 = match[2];
+      const b64 = match[2].replace(/\s+/g, "");
       const binaryStr = atob(b64);
       const len = binaryStr.length;
       const bytes = new Uint8Array(len);
@@ -488,27 +515,33 @@ async function uploadListingPhotoToMeta(
         bytes[i] = binaryStr.charCodeAt(i);
       }
       fileBlob = new Blob([bytes], { type: mimeType });
-    } else if (normalized.startsWith("http://") || normalized.startsWith("https://")) {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 6000);
-      try {
-        const resp = await fetch(normalized, { signal: controller.signal });
-        clearTimeout(timeoutId);
-        if (!resp.ok) return null;
-        fileBlob = await resp.blob();
-        mimeType = fileBlob.type || "image/jpeg";
-      } catch {
-        clearTimeout(timeoutId);
-        return null;
+    } else {
+      if (normalized.startsWith("/")) {
+        normalized = new URL(normalized, "https://bunkby.com").toString();
+      }
+      if (normalized.startsWith("http://") || normalized.startsWith("https://")) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 8000);
+        try {
+          const resp = await fetch(normalized, { signal: controller.signal });
+          clearTimeout(timeoutId);
+          if (!resp.ok) return null;
+          fileBlob = await resp.blob();
+          mimeType = fileBlob.type || resp.headers.get("content-type") || "image/jpeg";
+        } catch {
+          clearTimeout(timeoutId);
+          return null;
+        }
       }
     }
 
-    if (!fileBlob) return null;
+    if (!fileBlob || fileBlob.size === 0) return null;
 
+    const ext = mimeType.includes("png") ? "png" : mimeType.includes("webp") ? "webp" : "jpg";
     const formData = new FormData();
     formData.append("messaging_product", "whatsapp");
     formData.append("type", mimeType);
-    formData.append("file", fileBlob, "property.jpg");
+    formData.append("file", fileBlob, `property.${ext}`);
 
     const uploadRes = await fetch(`https://graph.facebook.com/v26.0/${phoneId}/media`, {
       method: "POST",
@@ -520,7 +553,7 @@ async function uploadListingPhotoToMeta(
 
     if (!uploadRes.ok) {
       const errText = await uploadRes.text();
-      console.warn(`[Meta Media Upload Notice]: HTTP ${uploadRes.status} - ${errText.slice(0, 80)}`);
+      console.warn(`[Meta Media Upload Notice]: HTTP ${uploadRes.status} - ${errText.slice(0, 120)}`);
       return null;
     }
 
@@ -532,10 +565,6 @@ async function uploadListingPhotoToMeta(
   }
 }
 
-/**
- * Resolves the public image URL for a listing photograph.
- * Handles HTTP/HTTPS URLs as well as base64 images served via /api/rooms/:id/photo
- */
 /**
  * Checks whether an image URL or data URI represents a branding logo, company watermark,
  * icon, or non-photographic graphic placeholder rather than an authentic room/property photo.
@@ -559,10 +588,7 @@ function isBrandingOrLogoImage(rawImage: string): boolean {
     return true;
   }
 
-  // 2. Exact match check for known static placeholder/branding assets in D1:
-  // Listing #4's specific branding placeholder graphic (exact byte length: 114,275 bytes, base64 length: 152,368 chars, sha256: fba8ec567cb5f69b...)
-  // We identify it specifically by its exact base64 payload characteristics (length 152,368 chars and its unique repetitive padding suffix)
-  // Listing #4's specific graphic placeholder (SHA256: fba8ec567cb5f69b..., length: 152391 chars, ends with repetitive pattern)
+  // 2. Exact match check for known static placeholder/branding assets in D1
   if (
     lower.includes("fba8ec567cb5f69b") ||
     (trimmed.length === 152391 && (trimmed.includes("AIiIAiIgCIiAIiIAiIg") || trimmed.includes("IiIAiIgCIiAIiIAiIg"))) ||
@@ -577,43 +603,34 @@ function isBrandingOrLogoImage(rawImage: string): boolean {
 
 function getListingPhotoUrl(listing: any, baseUrl: string): string | null {
   if (!listing) return null;
-  let raw = String(listing.image_url || "").trim();
+  const validPhotos = extractValidListingImages(listing.image_url);
+  const raw = validPhotos[0] || "";
   if (!raw) return null;
 
-  // If stored as a JSON array of image strings, extract the first photo
-  if (raw.startsWith("[")) {
-    try {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        raw = String(parsed[0]).trim();
-      }
-    } catch (_) {}
-  }
-
-  // Filter out explicit corporate branding logos
-  if (isBrandingOrLogoImage(raw)) {
-    return null;
-  }
+  const publicOrigin = resolvePublicOrigin(baseUrl);
 
   // 1. If standard HTTP/HTTPS URL
-  if (raw.startsWith("http://") || raw.startsWith("https://")) {
+  if (raw.startsWith("https://")) {
+    return raw;
+  }
+  if (raw.startsWith("http://")) {
+    try {
+      const u = new URL(raw);
+      if (u.hostname === "bunkby.com" || u.hostname.endsWith(".bunkby.com")) {
+        return `https://${u.host}${u.pathname}${u.search}`;
+      }
+    } catch (_) {}
     return raw;
   }
 
-  // 2. If base64 data URI or relative path, serve via public photo endpoint with .jpg suffix for Meta Media Parser
-  if (raw.startsWith("data:") || raw.startsWith("/")) {
-    // Ensure public production hostname https://bunkby.com is used so Meta servers can always download the image
-    let origin = "https://bunkby.com";
-    if (baseUrl && (baseUrl.startsWith("https://") || baseUrl.startsWith("http://"))) {
-      try {
-        const u = new URL(baseUrl);
-        if (u.hostname !== "localhost" && u.hostname !== "127.0.0.1") {
-          origin = u.origin;
-        }
-      } catch (_) {}
-    }
-    const cleanBase = origin.replace(/\/+$/, "");
-    return `${cleanBase}/api/rooms/${listing.id}/photo`;
+  // 2. If base64 data URI, serve via public photo endpoint with .jpg suffix for Meta Media Parser
+  if (raw.startsWith("data:") && listing.id !== undefined && listing.id !== null) {
+    return `${publicOrigin}/api/rooms/${encodeURIComponent(String(listing.id))}/photo.jpg`;
+  }
+
+  // 3. If relative asset path, resolve cleanly against public HTTPS origin
+  if (raw.startsWith("/")) {
+    return `${publicOrigin}${raw}`;
   }
 
   return null;
@@ -625,21 +642,29 @@ function getListingPhotoUrl(listing: any, baseUrl: string): string | null {
 function buildListingCardMessage(
   listing: any,
   baseUrl: string,
-  toPhone: string
-): { imageUrl: string | null; text: string } {
+  _toPhone: string,
+  resultNumber?: number
+): { imageUrl: string | null; rawPhoto: string | null; text: string } {
   const isHospitality = listing.category === "hospitality" || [
-    "Lodge / Guesthouse", "Hotel", "Lodge", "Guesthouse", "Bed & Breakfast"
+    "Lodge / Guesthouse", "Hotel", "Lodge", "Guesthouse", "Guest House", "Bed & Breakfast"
   ].includes(listing.property_type);
-  const cycle = listing.rent_cycle || (isHospitality ? "Night" : "Month");
-  const photoUrl = getListingPhotoUrl(listing, baseUrl);
-  const cleanBase = baseUrl.replace(/\/+$/, "");
-  const listingUrl = `${cleanBase}/#listing-${listing.id}`;
+  const isStudent = listing.category === "student" || [
+    "Student Hostel", "Boarding House", "Single Student Room", "Shared Student Room"
+  ].includes(listing.property_type) || listing.tenant_type === "Student";
+  const isCommercial = listing.category === "commercial" || [
+    "Commercial", "Shop", "Warehouse", "Table", "Office"
+  ].includes(listing.property_type);
 
-  const cleanPhone = (listing.contact_phone || "").replace(/\D/g, "");
-  const waContactLink = cleanPhone ? `https://wa.me/${cleanPhone.startsWith("0") ? "263" + cleanPhone.slice(1) : cleanPhone}` : null;
+  const cycle = listing.rent_cycle || (isHospitality ? "Night" : isStudent ? "Semester" : "Month");
+  const validPhotos = extractValidListingImages(listing.image_url);
+  const photoUrl = getListingPhotoUrl(listing, baseUrl);
+  const rawPhoto = validPhotos[0] || null;
+  const publicOrigin = resolvePublicOrigin(baseUrl);
+  const listingUrl = `${publicOrigin}/listing/${encodeURIComponent(String(listing.id))}`;
+  const numPrefix = resultNumber ? `${resultNumber}. ` : "";
 
   // Normalize landlord/host phone to international format starting with +263
-  const rawDigits = (listing.contact_phone || "").replace(/\D/g, "");
+  const rawDigits = String(listing.contact_phone || "").replace(/\D/g, "");
   let displayPhone = listing.contact_phone || "Contact via BunkBy";
   let waDigits = rawDigits;
   if (rawDigits.startsWith("263")) {
@@ -654,47 +679,40 @@ function buildListingCardMessage(
   } else if (rawDigits.length > 0 && !displayPhone.startsWith("+")) {
     displayPhone = `+${rawDigits}`;
   }
-  const formattedWaContactLink = waDigits ? `https://wa.me/${waDigits}` : waContactLink;
+  const formattedWaContactLink = waDigits ? `https://wa.me/${waDigits}` : null;
 
-  const isStudent = listing.category === "student" || [
-    "Student Hostel", "Boarding House", "Single Student Room", "Shared Student Room"
-  ].includes(listing.property_type) || listing.tenant_type === "Student";
-  const isCommercial = listing.category === "commercial" || [
-    "Commercial", "Shop", "Warehouse", "Table"
-  ].includes(listing.property_type);
-
-  let text = "";
+  let headerText = "";
   if (isHospitality) {
-    text += `🏨 *${listing.business_name || listing.title}*\n`;
+    headerText += `🏨 *${numPrefix}${listing.business_name || listing.title}*\n`;
     if (listing.business_name && listing.title && listing.business_name !== listing.title) {
-      text += `"${listing.title}"\n`;
+      headerText += `"${listing.title}"\n`;
     }
-    text += `✨ *${listing.property_type || "Hospitality & Guest Stay"}*\n\n`;
+    headerText += `✨ *${listing.property_type || "Hospitality & Guest Stay"}*\n\n`;
   } else if (isStudent) {
-    text += `🎓 *${listing.title}*\n`;
-    text += `🏷️ *${listing.property_type || "Student Accommodation"}*\n\n`;
+    headerText += `🎓 *${numPrefix}${listing.title}*\n`;
+    headerText += `🏷️ *${listing.property_type || "Student Accommodation"}*\n\n`;
   } else if (isCommercial) {
-    text += `🏢 *${listing.title}*\n`;
-    text += `🏷️ *${listing.property_type || "Commercial Space"}*\n\n`;
+    headerText += `🏢 *${numPrefix}${listing.title}*\n`;
+    headerText += `🏷️ *${listing.property_type || "Commercial Space"}*\n\n`;
   } else {
-    text += `🏠 *${listing.title}*\n`;
-    text += `🏷️ *${listing.property_type || "Residential Rental"}*\n\n`;
+    headerText += `🏠 *${numPrefix}${listing.title}*\n`;
+    headerText += `🏷️ *${listing.property_type || "Residential Rental"}*\n\n`;
   }
 
-  text += `📍 *Location:* ${listing.suburb}, ${listing.city || "Harare"}`;
+  headerText += `📍 *Location:* ${listing.suburb}, ${listing.city || "Harare"}`;
   if (listing.landmark) {
-    text += ` (${listing.landmark})`;
+    headerText += ` (${String(listing.landmark).slice(0, 70)})`;
   }
-  text += `\n`;
+  headerText += `\n`;
 
-  text += `💰 *Rate:* $${listing.price} / ${cycle}`;
+  headerText += `💰 *Rate:* $${listing.price} / ${cycle}`;
   if (!isHospitality && listing.deposit !== undefined && listing.deposit !== null) {
-    text += ` (Deposit: $${listing.deposit})`;
+    headerText += ` (Deposit: $${listing.deposit})`;
   }
-  text += `\n`;
+  headerText += `\n`;
 
   if (listing.tenant_type && !isHospitality) {
-    text += `👤 *Seeking:* ${listing.tenant_type}\n`;
+    headerText += `👤 *Seeking:* ${listing.tenant_type}\n`;
   }
 
   let amenitiesList: string[] = [];
@@ -708,35 +726,43 @@ function buildListingCardMessage(
     amenitiesList = listing.amenities;
   }
 
+  let extraSection = "";
   if (amenitiesList.length > 0) {
-    text += `\n✨ *Key Amenities:*\n`;
+    extraSection += `\n✨ *Key Amenities:*\n`;
     for (const am of amenitiesList.slice(0, 4)) {
-      text += `• ${am}\n`;
+      extraSection += `• ${am}\n`;
+    }
+  }
+  if (listing.description) {
+    const cleanDesc = String(listing.description).trim().replace(/\s+/g, " ");
+    if (cleanDesc) {
+      extraSection += `\n📝 ${cleanDesc.slice(0, 140)}${cleanDesc.length > 140 ? "..." : ""}\n`;
     }
   }
 
-  // Check total photos available
-  let totalAvailablePhotos = 1;
-  const rawImg = String(listing.image_url || "").trim();
-  if (rawImg.startsWith("[")) {
-    try {
-      const arr = JSON.parse(rawImg);
-      if (Array.isArray(arr) && arr.length > 0) totalAvailablePhotos = arr.length;
-    } catch (_) {}
-  }
-
-  text += `\n📞 *Landlord/Host Contact:* ${displayPhone}\n`;
+  const totalAvailablePhotos = validPhotos.length;
+  let footerText = `\n📞 *Landlord/Host Contact:* ${displayPhone}\n`;
   if (formattedWaContactLink) {
-    text += `💬 *WhatsApp Host Directly:* ${formattedWaContactLink}\n`;
+    footerText += `💬 *WhatsApp Host Directly:* ${formattedWaContactLink}\n`;
   }
   if (totalAvailablePhotos > 1) {
-    text += `📸 *Gallery:* ${totalAvailablePhotos} photos available (reply *photos ${listing.id}* to view all here!)\n`;
+    footerText += `📸 *Gallery:* ${totalAvailablePhotos} photos available (reply *photos ${listing.id}* to view all here!)\n`;
   }
-  text += `🔗 *Full Gallery & Map:* ${listingUrl}`;
+  footerText += `🔗 *Full Gallery & Details:* ${listingUrl}`;
+
+  let text = `${headerText}${extraSection}${footerText}`;
+  // Preserve full contact & listing link cleanly inside Meta's 1024-char image caption limit
+  if (photoUrl && text.length > 1020) {
+    text = `${headerText}${footerText}`;
+    if (text.length > 1020) {
+      const maxHeaderLen = Math.max(80, 1020 - footerText.length - 4);
+      text = `${headerText.slice(0, maxHeaderLen)}...\n${footerText}`;
+    }
+  }
 
   return {
     imageUrl: photoUrl,
-    rawPhoto: String(listing.image_url || "").trim() || null,
+    rawPhoto,
     text
   };
 }
@@ -1947,8 +1973,11 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
 
           for (let idx = 0; idx < results.length; idx++) {
             const room = results[idx];
+            const card = buildListingCardMessage(room, baseUrl, phone, idx + 1);
             outboundQueue.push({
-              text: buildConciseSearchCardText(room, baseUrl, idx + 1),
+              imageUrl: card.imageUrl,
+              rawPhoto: card.rawPhoto,
+              text: card.text,
               itemType: "listing_card",
               listingId: room.id
             });
@@ -3221,65 +3250,59 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
           ];
           actionTaken = "PHOTOS_NOT_FOUND";
         } else {
-          // Unpack all available photos
-          const raw = String(listing.image_url || "").trim();
-          let allPhotos: string[] = [];
-          if (raw.startsWith("[")) {
-            try {
-              const arr = JSON.parse(raw);
-              if (Array.isArray(arr)) {
-                allPhotos = arr.map((item: any) => String(item).trim()).filter(Boolean);
-              }
-            } catch (_) {}
-          }
-          if (allPhotos.length === 0 && raw) {
-            allPhotos = [raw];
-          }
-
+          const allPhotos = extractValidListingImages(listing.image_url);
           const baseUrl = new URL(request.url).origin || "https://bunkby.com";
+          const publicOrigin = resolvePublicOrigin(baseUrl);
           const totalPhotos = allPhotos.length;
-          const listingUrl = `${baseUrl.replace(/\/+$/, "")}/#listing-${listing.id}`;
+          const listingUrl = `${publicOrigin}/listing/${encodeURIComponent(String(listing.id))}`;
 
-          // Header message for the photo gallery
-          const title = listing.business_name || listing.title;
-          const headerMsg = `📸 *Photo Gallery for #${listing.id}: ${title}*\n📍 ${listing.suburb}, ${listing.city || "Harare"}\n💰 $${listing.price} / ${listing.rent_cycle || "month"}\n\nDisplaying ${totalPhotos} verified photo${totalPhotos === 1 ? "" : "s"} below:`;
-          outboundQueue.push({ text: headerMsg, itemType: "intro" });
-
-          // Send each photo directly into WhatsApp chat
-          for (let i = 0; i < totalPhotos; i++) {
-            const photoDataOrUrl = allPhotos[i];
-            const cleanBase = (baseUrl && (baseUrl.startsWith("https://") || baseUrl.startsWith("http://")))
-              ? baseUrl.replace(/\/+$/, "")
-              : "https://bunkby.com";
-            const photoUrl = `${cleanBase}/api/rooms/${listing.id}/photo?index=${i}`;
-            const photoCaption = `📸 Photo ${i + 1} of ${totalPhotos} · #${listing.id} ${title}`;
-
-            outboundQueue.push({
-              imageUrl: photoUrl,
-              rawPhoto: photoDataOrUrl,
-              text: photoCaption,
-              itemType: "card"
-            });
-          }
-
-          // Footer with contact and return to search
-          const cleanPhone = (listing.contact_phone || "").replace(/\D/g, "");
-          const waLink = cleanPhone ? `https://wa.me/${cleanPhone.startsWith("0") ? "263" + cleanPhone.slice(1) : cleanPhone}` : null;
-          let footerMsg = `✅ *All ${totalPhotos} photo${totalPhotos === 1 ? "" : "s"} shown for #${listing.id}.*\n\n`;
-          if (waLink) {
-            footerMsg += `💬 *Chat Landlord directly:* ${waLink}\n`;
-          }
-          footerMsg += `🔗 *View on Web & Map:* ${listingUrl}`;
-
-          outboundQueue.push({
-            text: footerMsg,
-            buttons: [
+          if (totalPhotos === 0) {
+            replyText = `📸 Listing #${listing.id} does not currently have any photos uploaded.\n🔗 *View listing:* ${listingUrl}`;
+            buttonsToSend = [
               { id: "CMD_SEARCH", title: "🔍 Back to Search" },
               { id: "CMD_LIST", title: "🏡 Add Listing" }
-            ],
-            itemType: "action_footer"
-          });
-          actionTaken = "PHOTOS_DELIVERED";
+            ];
+            actionTaken = "PHOTOS_EMPTY";
+          } else {
+            // Header message for the photo gallery
+            const title = listing.business_name || listing.title;
+            const headerMsg = `📸 *Photo Gallery for #${listing.id}: ${title}*\n📍 ${listing.suburb}, ${listing.city || "Harare"}\n💰 $${listing.price} / ${listing.rent_cycle || "month"}\n\nDisplaying ${totalPhotos} verified photo${totalPhotos === 1 ? "" : "s"} below:`;
+            outboundQueue.push({ text: headerMsg, itemType: "intro" });
+
+            // Send each photo directly into WhatsApp chat
+            for (let i = 0; i < totalPhotos; i++) {
+              const photoDataOrUrl = allPhotos[i];
+              const photoUrl = `${publicOrigin}/api/rooms/${encodeURIComponent(String(listing.id))}/photo.jpg?index=${i}`;
+              const photoCaption = `📸 Photo ${i + 1} of ${totalPhotos} · #${listing.id} ${title}`;
+
+              outboundQueue.push({
+                imageUrl: photoUrl,
+                rawPhoto: photoDataOrUrl,
+                text: photoCaption,
+                itemType: "card",
+                listingId: listing.id
+              });
+            }
+
+            // Footer with contact and return to search
+            const cleanPhone = (listing.contact_phone || "").replace(/\D/g, "");
+            const waLink = cleanPhone ? `https://wa.me/${cleanPhone.startsWith("0") ? "263" + cleanPhone.slice(1) : cleanPhone}` : null;
+            let footerMsg = `✅ *All ${totalPhotos} photo${totalPhotos === 1 ? "" : "s"} shown for #${listing.id}.*\n\n`;
+            if (waLink) {
+              footerMsg += `💬 *Chat Landlord directly:* ${waLink}\n`;
+            }
+            footerMsg += `🔗 *View on Web & Map:* ${listingUrl}`;
+
+            outboundQueue.push({
+              text: footerMsg,
+              buttons: [
+                { id: "CMD_SEARCH", title: "🔍 Back to Search" },
+                { id: "CMD_LIST", title: "🏡 Add Listing" }
+              ],
+              itemType: "action_footer"
+            });
+            actionTaken = "PHOTOS_DELIVERED";
+          }
         }
       } else {
         replyText = `📸 To view property photos, reply *photos [listing number]* (for example: *photos 105*) or tap a button on any property card.`;
@@ -3598,8 +3621,11 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
 
               for (let idx = 0; idx < results.length; idx++) {
                 const room = results[idx];
+                const card = buildListingCardMessage(room, baseUrl, phone, startNum + idx);
                 outboundQueue.push({
-                  text: buildConciseSearchCardText(room, baseUrl, startNum + idx),
+                  imageUrl: card.imageUrl,
+                  rawPhoto: card.rawPhoto,
+                  text: card.text,
                   itemType: "listing_card",
                   listingId: room.id
                 });
@@ -3703,9 +3729,14 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
         const phoneId = env.WHATSAPP_PHONE_NUMBER_ID?.trim();
 
         if (item.imageUrl && token && phoneId) {
-          const photoToUpload = rawPhoto || item.imageUrl;
           try {
-            const uploadedMediaId = await uploadListingPhotoToMeta(photoToUpload, token, phoneId);
+            let uploadedMediaId: string | null = null;
+            if (rawPhoto) {
+              uploadedMediaId = await uploadListingPhotoToMeta(rawPhoto, token, phoneId);
+            }
+            if (!uploadedMediaId && item.imageUrl !== rawPhoto) {
+              uploadedMediaId = await uploadListingPhotoToMeta(item.imageUrl, token, phoneId);
+            }
             if (uploadedMediaId) {
               effectiveImageUrl = `meta_id:${uploadedMediaId}`;
             }
