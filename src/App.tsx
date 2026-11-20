@@ -159,6 +159,26 @@ const normalizeRoutePath = (rawPath: string) => {
   return "/";
 };
 
+async function parseJsonResponse<T = any>(
+  res: Response
+): Promise<{ ok: boolean; status: number; data: T | null; isHtml: boolean }> {
+  const contentType = (res.headers.get("content-type") || "").toLowerCase();
+  if (!contentType.includes("application/json")) {
+    return {
+      ok: false,
+      status: res.status,
+      data: null,
+      isHtml: contentType.includes("text/html"),
+    };
+  }
+  try {
+    const data = (await res.json()) as T;
+    return { ok: res.ok, status: res.status, data, isHtml: false };
+  } catch {
+    return { ok: false, status: res.status, data: null, isHtml: false };
+  }
+}
+
 export default function App() {
   // Current active tab of the app
   const [currentPath, setCurrentPath] = useState<string>(() =>
@@ -210,14 +230,18 @@ export default function App() {
             return;
           }
         }
-        const res = await fetch("/api/listings");
-        if (res.ok) {
-          const data = await res.json();
-          const fresh = data.listings || [];
+        const res = await fetch("/api/listings", {
+          headers: { Accept: "application/json" },
+        });
+        const parsed = await parseJsonResponse<{ listings?: any[]; error?: string }>(res);
+        if (parsed.ok && parsed.data && Array.isArray(parsed.data.listings)) {
+          const fresh = parsed.data.listings;
           setListings(fresh);
           try {
             sessionStorage.setItem("bunkby_listings_v1", JSON.stringify(fresh));
           } catch {}
+        } else if (!parsed.isHtml && parsed.data?.error) {
+          console.error("Failed to load listings:", parsed.data.error);
         }
       } catch (e) {
         console.error("Failed to load listings", e);
@@ -227,12 +251,24 @@ export default function App() {
     };
     const loadLandlords = async () => {
       try {
-        const res = await fetch("/api/admin"); // Get listings and landlords from admin / or landlords API
-        if (res.ok) {
-          const data = await res.json();
-          if (data.landlords) {
-            setAllLandlords(data.landlords);
+        const res = await fetch("/api/landlords", {
+          headers: { Accept: "application/json" },
+        });
+        const parsed = await parseJsonResponse<{ landlords?: any[]; error?: string }>(res);
+        if (parsed.ok && parsed.data?.landlords) {
+          setAllLandlords(parsed.data.landlords);
+          return;
+        }
+        if (res.status === 404) {
+          const fallbackRes = await fetch("/api/admin", {
+            headers: { Accept: "application/json" },
+          });
+          const fallbackParsed = await parseJsonResponse<{ landlords?: any[]; error?: string }>(fallbackRes);
+          if (fallbackParsed.ok && fallbackParsed.data?.landlords) {
+            setAllLandlords(fallbackParsed.data.landlords);
           }
+        } else if (!parsed.isHtml && parsed.data?.error) {
+          console.error("Failed to load landlords:", parsed.data.error);
         }
       } catch (e) {
         console.error("Failed to load landlords", e);
@@ -753,8 +789,9 @@ export default function App() {
            },
            body: JSON.stringify(finalPayload)
         });
-        if (res.ok) {
-           const data = await res.json();
+        const parsed = await parseJsonResponse<{ id?: number | string; error?: string }>(res);
+        if (parsed.ok && parsed.data) {
+           const data = parsed.data;
            const newListing = {
               id: data.id,
               ...finalPayload,
@@ -766,8 +803,7 @@ export default function App() {
            setListings(prev => [newListing, ...prev]);
            showToast(makePremium ? "✨ Premium Listing activated for 30 Days successfully!" : "🎉 Listing published live on BunkBy!");
         } else {
-           const errData = await res.json().catch(() => ({}));
-          showToast(errData.error || "⚠️ Network issue, unable to list room right now");
+          showToast(parsed.data?.error || "⚠️ Network issue, unable to list room right now");
         }
       }
     } catch (e) {
@@ -833,9 +869,10 @@ export default function App() {
           pin: loginPin.trim()
         })
       });
-      const data = await res.json();
+      const parsed = await parseJsonResponse<any>(res);
+      const data = parsed.data || {};
       
-      if (res.ok && data.success) {
+      if (parsed.ok && data.success) {
         const profileName = data.landlord?.name || data.landlord?.full_name || loginName.trim();
         const profile = {
           id: data.landlord.id,
@@ -903,8 +940,9 @@ export default function App() {
           newPin: recoveryNewPin.trim()
         })
       });
-      const data = await res.json();
-      if (res.ok && data.success) {
+      const parsed = await parseJsonResponse<any>(res);
+      const data = parsed.data || {};
+      if (parsed.ok && data.success) {
         const profile = {
           id: data.landlord.id,
           name: data.landlord.name,
@@ -1042,8 +1080,9 @@ export default function App() {
           token: userProfile?.token
         })
       });
-      if (res.ok) {
-        const data = await res.json();
+      const parsed = await parseJsonResponse<{ status?: string; error?: string }>(res);
+      if (parsed.ok && parsed.data) {
+        const data = parsed.data;
         setListings(prev => prev.map(item => {
           if (String(item.id) === String(id)) {
             const nextStatus = data.status;
@@ -1053,8 +1092,7 @@ export default function App() {
           return item;
         }));
       } else {
-        const errData = await res.json().catch(() => ({}));
-        showToast(errData.error || "⚠️ Could not change room status.");
+        showToast(parsed.data?.error || "⚠️ Could not change room status.");
       }
     } catch (e) {
       console.error(e);

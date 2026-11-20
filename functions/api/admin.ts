@@ -1,6 +1,6 @@
 export async function onRequestGet({ env }) {
   try {
-    const landlordsResult = await env.DB.prepare("SELECT * FROM landlords").all();
+    const landlordsResult = await env.DB.prepare("SELECT id, full_name, national_id_url, rates_bill_url, verification_status FROM landlords").all();
     const listingsResult = await env.DB.prepare("SELECT * FROM listings").all();
     return new Response(JSON.stringify({ landlords: landlordsResult.results, listings: listingsResult.results }), { headers: { "Content-Type": "application/json" } });
   } catch (error) {

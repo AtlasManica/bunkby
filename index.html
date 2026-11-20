@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <script>(function(){var c=document.documentElement.classList;c.add("bunkby-js");var p=location.pathname;if(p!=="/"&&p!=="")c.add("bunkby-sub");window.__bunkbyListingsReq=fetch("/api/listings").then(function(r){return r.ok?r.json():null;}).catch(function(){return null;});})();</script>
+    <script>(function(){var c=document.documentElement.classList;c.add("bunkby-js");var p=location.pathname;if(p!=="/"&&p!=="")c.add("bunkby-sub");window.__bunkbyListingsReq=fetch("/api/listings",{headers:{"Accept":"application/json"}}).then(function(r){var ct=(r.headers&&r.headers.get("content-type"))||"";if(!r.ok||ct.toLowerCase().indexOf("application/json")===-1)return null;return r.json();}).catch(function(){return null;});})();</script>
     <link rel="preload" as="image" href="/hero-bg.webp" fetchpriority="high" />
     <link rel="preload" as="image" href="/bunkbylogo-nav.webp" fetchpriority="high" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />

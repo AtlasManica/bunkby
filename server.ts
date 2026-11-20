@@ -281,6 +281,15 @@ function getAuthenticatedLandlord(req: express.Request): { id: number; name: str
 }
 
 // REST API Endpoints: Landlord Account & Authentication
+app.get("/api/landlords", (_req, res) => {
+  try {
+    const landlords = db.prepare("SELECT id, full_name, verification_status FROM landlords").all();
+    res.json({ landlords });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post("/api/landlords", (req, res) => {
   const { action, name, phone, pin, newPin } = req.body; 
   if (!action || !phone) return res.status(400).json({ error: "Missing action or phone parameter." });
@@ -1165,6 +1174,11 @@ async function startServer() {
 
   // Serve public static assets with fast browser caching
   app.use(express.static(path.join(process.cwd(), "public"), { maxAge: "1d" }));
+
+  // Ensure unmatched /api/* routes always return JSON 404 instead of SPA HTML fallback
+  app.use("/api", (req, res) => {
+    res.status(404).json({ error: `API route not found: ${req.method} ${req.originalUrl}` });
+  });
 
   if (process.env.NODE_ENV !== "production") {
     // Dev Mode - integrate Vite

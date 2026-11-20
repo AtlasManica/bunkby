@@ -1,6 +1,6 @@
 export async function onRequestGet({ env }) {
   try {
-    const { results } = await env.DB.prepare("SELECT * FROM landlords").all();
+    const { results } = await env.DB.prepare("SELECT id, full_name, verification_status FROM landlords").all();
     return new Response(JSON.stringify({ landlords: results }), { headers: { "Content-Type": "application/json" } });
   } catch (error) {
     return new Response(JSON.stringify({ error: error.message }), { status: 500, headers: { "Content-Type": "application/json" } });

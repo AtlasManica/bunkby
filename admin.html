@@ -217,14 +217,15 @@
       const listingsTbody = document.getElementById("listings-tbody");
 
       try {
-        const response = await fetch("/api/admin");
-        if (response.ok) {
+        const response = await fetch("/api/admin", { headers: { Accept: "application/json" } });
+        const ct = (response.headers.get("content-type") || "").toLowerCase();
+        if (response.ok && ct.includes("application/json")) {
           const data = await response.json();
           localLandlords = data.landlords || [];
           localListings = data.listings || [];
           renderUI();
         } else {
-          throw new Error("API return code error");
+          throw new Error("API return code or content-type error");
         }
       } catch (err) {
         console.warn("Backend dynamic fetch had an error. Initializing empty array.", err);

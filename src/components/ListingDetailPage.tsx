@@ -76,7 +76,9 @@ export const ListingDetailPage: React.FC<ListingDetailPageProps> = ({
     }
 
     setAvailabilityState("loading");
-    fetch(`/api/rooms/${encodeURIComponent(listingId)}`)
+    fetch(`/api/rooms/${encodeURIComponent(listingId)}`, {
+      headers: { Accept: "application/json" },
+    })
       .then(async (res) => {
         if (cancelled) return;
         if (res.status === 404) {
@@ -85,7 +87,8 @@ export const ListingDetailPage: React.FC<ListingDetailPageProps> = ({
           applyClientSeo(buildListingSeo(null, listingId));
           return;
         }
-        const data = await res.json().catch(() => null);
+        const ct = (res.headers.get("content-type") || "").toLowerCase();
+        const data = ct.includes("application/json") ? await res.json().catch(() => null) : null;
         if (res.status === 410 || data?.available === false) {
           setListing(data?.listing || null);
           setAvailabilityState("unavailable");
