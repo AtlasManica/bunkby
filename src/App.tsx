@@ -23,6 +23,25 @@ export function getPrimaryListingPhoto(room: any): string {
   }
   return DEFAULT_ROOM_IMAGES[0];
 }
+
+export function getAllListingPhotos(room: any): string[] {
+  if (!room) return [];
+  if (Array.isArray(room.images) && room.images.length > 0) {
+    const cleaned = room.images.map((p: any) => String(p || "").trim()).filter(Boolean);
+    if (cleaned.length > 0) return cleaned;
+  }
+  const raw = String(room.image_url || "").trim();
+  if (raw.startsWith("[")) {
+    try {
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr)) {
+        const cleaned = arr.map((p: any) => String(p || "").trim()).filter(Boolean);
+        if (cleaned.length > 0) return cleaned;
+      }
+    } catch (_) {}
+  }
+  return raw ? [raw] : [];
+}
 import PrivacyPolicy from "./PrivacyPolicy";
 import { WhatsAppLandingPage } from "./components/WhatsAppLandingPage";
 import { ListingDetailPage } from "./components/ListingDetailPage";
@@ -69,6 +88,8 @@ import {
   TrendingUp, 
   SlidersHorizontal,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
   RefreshCw,
   X,
   Clock,
@@ -386,6 +407,18 @@ export default function App() {
   const [selectedListingDetail, setSelectedListingDetail] = useState<RoomListing | null>(null);
   const [detailActivePhotoIdx, setDetailActivePhotoIdx] = useState(0);
 
+  // Inline Home Card Expansion State
+  const [expandedCardIds, setExpandedCardIds] = useState<Record<string, boolean>>({});
+  const [cardActivePhotoIdx, setCardActivePhotoIdx] = useState<Record<string, number>>({});
+  const [copiedListingId, setCopiedListingId] = useState<string | null>(null);
+
+  const toggleCardExpanded = (listingId: string) => {
+    setExpandedCardIds((prev) => ({
+      ...prev,
+      [listingId]: !prev[listingId],
+    }));
+  };
+
   // Report Suspicious Listing Modal State
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [reportingListing, setReportingListing] = useState<RoomListing | null>(null);
@@ -441,7 +474,7 @@ export default function App() {
   const [isAuthLoading, setIsAuthLoading] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
 
-  // Floating WhatsApp CTA visibility: appears only after user scrolls a bit, then hides after 5 seconds
+  // Floating WhatsApp CTA visibility: appears only after user scrolls a bit, then hides after 2 seconds
   const [showFloatingWhatsapp, setShowFloatingWhatsapp] = useState(false);
   const floatingWhatsappTimerRef = useRef<number | null>(null);
   const isFloatingWhatsappHoveredRef = useRef(false);
@@ -456,7 +489,7 @@ export default function App() {
           setShowFloatingWhatsapp(false);
         }
         floatingWhatsappTimerRef.current = null;
-      }, 5000);
+      }, 2000);
     };
 
     const handleScroll = () => {
@@ -2162,31 +2195,34 @@ export default function App() {
                 </div>
               </div>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5 sm:gap-5 lg:gap-6" id="rooms-grid">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5 sm:gap-5 lg:gap-6 items-start" id="rooms-grid">
                 {displayedListings.map((room) => {
                   const isHospitality = room.category === "hospitality" || ["Lodge / Guesthouse", "Hotel", "Lodge", "Guesthouse", "Bed & Breakfast"].includes(room.propertyType);
                   const businessName = room.business_name || room.businessName;
+                  const cardKey = String(room.id);
+                  const isExpanded = Boolean(expandedCardIds[cardKey]);
+                  const allPhotos = getAllListingPhotos(room);
+                  const activePhotoIdx = cardActivePhotoIdx[cardKey] || 0;
+                  const activeCardPhoto = allPhotos[activePhotoIdx] || getPrimaryListingPhoto(room);
 
                   return (
-                    <motion.div 
+                    <div
                       key={room.id}
-                      layoutId={room.id}
                       id={`room-card-${room.id}`}
-                      className="bg-white rounded-2xl overflow-hidden border border-slate-200/90 shadow-xs hover:shadow-md hover:border-slate-300 transition-all flex flex-col group relative"
+                      className={`bg-white rounded-2xl overflow-hidden border transition-all flex flex-col group relative ${
+                        isExpanded
+                          ? "border-[#052659]/30 shadow-lg ring-1 ring-[#052659]/10"
+                          : "border-slate-200/90 shadow-xs hover:shadow-md hover:border-slate-300"
+                      }`}
                     >
                       {/* Room Image with overlay tags - Compact aspect-ratio */}
-                      <a
-                        href={`/listing/${encodeURIComponent(String(room.id))}`}
-                        onClick={(e) => {
-                          if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-                          e.preventDefault();
-                          navigateTo(`/listing/${encodeURIComponent(String(room.id))}`);
-                        }}
+                      <div
+                        onClick={() => toggleCardExpanded(cardKey)}
                         className="relative aspect-16/10 sm:aspect-16/9 w-full overflow-hidden bg-slate-100 shrink-0 flex items-center justify-center cursor-pointer"
                       >
-                        {getPrimaryListingPhoto(room) ? (
+                        {activeCardPhoto ? (
                           <img 
-                            src={getPrimaryListingPhoto(room)} 
+                            src={activeCardPhoto} 
                             alt={`${room.title} - ${room.propertyType} in ${room.suburb}, ${room.city}`}
                             className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
                             referrerPolicy="no-referrer"
@@ -2243,9 +2279,9 @@ export default function App() {
                             <span className="text-[8.5px] text-emerald-600 block font-mono font-bold leading-none">No Deposit</span>
                           )}
                         </div>
-                      </a>
+                      </div>
 
-                      {/* Room Metadata - Tightly structured, readable, no excess padding */}
+                      {/* Room Metadata - Tightly structured, readable, expands inline when Details is clicked */}
                       <div className="p-3.5 sm:p-4 flex-grow flex flex-col space-y-2.5">
                         
                         {/* Heading & Subtitle */}
@@ -2257,27 +2293,25 @@ export default function App() {
                             </div>
                           )}
 
-                          <h3 className="text-sm sm:text-base font-bold text-slate-800 leading-snug line-clamp-1">
-                            <a
-                              href={`/listing/${encodeURIComponent(String(room.id))}`}
-                              onClick={(e) => {
-                                if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-                                e.preventDefault();
-                                navigateTo(`/listing/${encodeURIComponent(String(room.id))}`);
-                              }}
-                              className="hover:text-[#052659] cursor-pointer transition-colors"
+                          <h3 className={`text-sm sm:text-base font-bold text-slate-800 leading-snug ${isExpanded ? "" : "line-clamp-1"}`}>
+                            <button
+                              type="button"
+                              onClick={() => toggleCardExpanded(cardKey)}
+                              className="text-left hover:text-[#052659] cursor-pointer transition-colors w-full"
                               title={room.title}
                             >
                               {room.title}
-                            </a>
+                            </button>
                           </h3>
                           
                           {/* Location lines */}
-                          <div className="flex items-center gap-1 text-xs text-slate-600 font-medium">
-                            <MapPin className="w-3 h-3 text-[#FF7A00] shrink-0" />
-                            <span className="truncate">{room.city}, {room.suburb}</span>
+                          <div className={`flex items-start gap-1 text-xs text-slate-600 font-medium ${isExpanded ? "flex-wrap" : "items-center"}`}>
+                            <MapPin className="w-3 h-3 text-[#FF7A00] shrink-0 mt-0.5" />
+                            <span className={isExpanded ? "" : "truncate"}>{room.city}, {room.suburb}</span>
                             {room.landmark && (
-                              <span className="text-slate-400 italic text-[11px] truncate hidden xs:inline">• "{room.landmark}"</span>
+                              <span className={`text-slate-400 italic text-[11px] ${isExpanded ? "" : "truncate hidden xs:inline"}`}>
+                                • "{room.landmark}"
+                              </span>
                             )}
                           </div>
                         </div>
@@ -2297,10 +2331,10 @@ export default function App() {
                           ) : null}
                         </div>
 
-                        {/* List of amenities - concise badges */}
+                        {/* List of amenities - concise in collapsed state, full in expanded state */}
                         {room.amenities.length > 0 && (
                           <div className="flex flex-wrap gap-1 shrink-0 pt-0.5">
-                            {room.amenities.slice(0, 3).map((amenity, idx) => (
+                            {(isExpanded ? room.amenities : room.amenities.slice(0, 3)).map((amenity, idx) => (
                               <span 
                                 key={idx}
                                 className={`text-[9.5px] font-medium py-0.5 px-2 rounded-md border ${
@@ -2312,7 +2346,7 @@ export default function App() {
                                 {amenity}
                               </span>
                             ))}
-                            {room.amenities.length > 3 && (
+                            {!isExpanded && room.amenities.length > 3 && (
                               <span className="text-[9px] text-slate-400 py-0.5 px-1 font-mono">
                                 +{room.amenities.length - 3} more
                               </span>
@@ -2320,20 +2354,188 @@ export default function App() {
                           </div>
                         )}
 
-                        {/* Bottom action panel with View Details & direct contact */}
+                        {/* Expanded inline details section */}
+                        <AnimatePresence initial={false}>
+                          {isExpanded && (
+                            <motion.div
+                              key={`expanded-${room.id}`}
+                              initial={{ opacity: 0, height: 0 }}
+                              animate={{ opacity: 1, height: "auto" }}
+                              exit={{ opacity: 0, height: 0 }}
+                              transition={{ duration: 0.22, ease: "easeOut" }}
+                              className="overflow-hidden"
+                            >
+                              <div className="pt-2.5 mt-1 border-t border-slate-100 space-y-3 text-left">
+                                {/* Gallery thumbnails if multiple photos exist */}
+                                {allPhotos.length > 1 && (
+                                  <div className="space-y-1">
+                                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 font-mono block">
+                                      Photos ({allPhotos.length})
+                                    </span>
+                                    <div className="flex gap-2 overflow-x-auto pb-1">
+                                      {allPhotos.map((photoSrc, idx) => (
+                                        <button
+                                          key={idx}
+                                          type="button"
+                                          onClick={() =>
+                                            setCardActivePhotoIdx((prev) => ({
+                                              ...prev,
+                                              [cardKey]: idx,
+                                            }))
+                                          }
+                                          className={`relative w-16 h-12 rounded-lg overflow-hidden border-2 transition-all shrink-0 cursor-pointer ${
+                                            activePhotoIdx === idx
+                                              ? "border-[#FF7A00] ring-2 ring-[#FF7A00]/20"
+                                              : "border-slate-200 hover:opacity-85"
+                                          }`}
+                                        >
+                                          <img
+                                            src={photoSrc}
+                                            alt={`${room.title} photo ${idx + 1}`}
+                                            className="w-full h-full object-cover"
+                                            referrerPolicy="no-referrer"
+                                          />
+                                        </button>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Pricing & Status breakdown */}
+                                <div className="bg-slate-50 rounded-xl p-3 border border-slate-200/80 grid grid-cols-2 gap-2 text-xs">
+                                  <div>
+                                    <span className="text-[10px] font-mono font-bold uppercase text-slate-400 block">
+                                      {isHospitality ? "Rate" : "Rent & Deposit"}
+                                    </span>
+                                    <span className="font-bold text-slate-800">
+                                      ${room.price}/{room.frequency}
+                                    </span>
+                                    {!isHospitality && (
+                                      <span className="block text-[11px] text-slate-500">
+                                        {room.deposit > 0 ? `Deposit: $${room.deposit}` : "No deposit required"}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div>
+                                    <span className="text-[10px] font-mono font-bold uppercase text-slate-400 block">
+                                      Availability
+                                    </span>
+                                    <span className="font-bold text-emerald-700">
+                                      {room.status || "Active"}
+                                    </span>
+                                    <span className="block text-[11px] text-slate-500">
+                                      {isHospitality ? "Hospitality Stay" : `${room.tenantType} sought`}
+                                    </span>
+                                  </div>
+                                </div>
+
+                                {/* Description if present */}
+                                {room.description && (
+                                  <div className="space-y-1">
+                                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 font-mono block">
+                                      Description
+                                    </span>
+                                    <p className="text-xs text-slate-600 leading-relaxed bg-slate-50 p-2.5 rounded-xl border border-slate-200/70">
+                                      {room.description}
+                                    </p>
+                                  </div>
+                                )}
+
+                                {/* Advertiser details */}
+                                <div className="bg-slate-50 rounded-xl p-3 border border-slate-200/80 flex items-center justify-between gap-2 flex-wrap">
+                                  <div className="min-w-0">
+                                    <span className="text-[10px] font-mono font-bold uppercase text-slate-400 block">
+                                      Advertiser
+                                    </span>
+                                    <p className="text-xs font-bold text-slate-800 truncate">
+                                      {businessName || room.landlordName || "Property Advertiser"}
+                                    </p>
+                                    <p className="text-[11px] text-slate-500">
+                                      Contact via {room.contactMethod || "Call / WhatsApp"}
+                                    </p>
+                                  </div>
+                                  {room.isVerifiedLandlord ? (
+                                    <span className="bg-emerald-100 text-emerald-800 font-bold uppercase text-[9.5px] px-2 py-1 rounded-full flex items-center gap-1 font-mono shrink-0">
+                                      <CheckCircle className="w-3 h-3 text-emerald-600" />
+                                      <span>Verified</span>
+                                    </span>
+                                  ) : (
+                                    <span className="bg-slate-200/80 text-slate-600 font-medium text-[9.5px] px-2 py-1 rounded-full font-mono shrink-0">
+                                      Direct Listing
+                                    </span>
+                                  )}
+                                </div>
+
+                                {/* Trust notice + Share / Report utilities */}
+                                <div className="p-2.5 bg-amber-50/80 border border-amber-200/70 rounded-xl space-y-2">
+                                  <p className="text-[11px] text-amber-900 leading-snug">
+                                    <span className="font-bold">Safety tip:</span> Inspect the property in person before paying any deposit or booking fee.
+                                  </p>
+                                  <div className="flex items-center justify-between gap-2 pt-0.5">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const shareUrl = `${window.location.origin}/listing/${encodeURIComponent(cardKey)}`;
+                                        if (navigator.clipboard?.writeText) {
+                                          navigator.clipboard.writeText(shareUrl).catch(() => {});
+                                        }
+                                        setCopiedListingId(cardKey);
+                                        window.setTimeout(() => {
+                                          setCopiedListingId((curr) => (curr === cardKey ? null : curr));
+                                        }, 2000);
+                                      }}
+                                      className="text-[11px] font-bold text-[#052659] hover:underline flex items-center gap-1 cursor-pointer"
+                                    >
+                                      {copiedListingId === cardKey ? (
+                                        <>
+                                          <Check className="w-3 h-3 text-emerald-600" />
+                                          <span className="text-emerald-700">Link Copied</span>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Share2 className="w-3 h-3" />
+                                          <span>Copy Share Link</span>
+                                        </>
+                                      )}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setReportingListing(room);
+                                        setIsReportModalOpen(true);
+                                      }}
+                                      className="text-[11px] font-bold text-red-600 hover:text-red-700 hover:underline flex items-center gap-1 cursor-pointer"
+                                    >
+                                      <AlertTriangle className="w-3 h-3" />
+                                      <span>Report Listing</span>
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+
+                        {/* Bottom action panel with inline Expand/Collapse Details & direct contact */}
                         <div className="pt-2.5 border-t border-slate-100 flex items-center justify-between gap-2 mt-auto shrink-0">
-                          <a
-                            href={`/listing/${encodeURIComponent(String(room.id))}`}
-                            onClick={(e) => {
-                              if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-                              e.preventDefault();
-                              navigateTo(`/listing/${encodeURIComponent(String(room.id))}`);
-                            }}
-                            className="text-xs font-bold text-slate-700 hover:text-[#052659] bg-slate-100 hover:bg-slate-200 py-2 px-2.5 sm:px-3 rounded-xl transition-all cursor-pointer flex items-center gap-1 min-h-[38px]"
+                          <button
+                            type="button"
+                            onClick={() => toggleCardExpanded(cardKey)}
+                            aria-expanded={isExpanded}
+                            className={`text-xs font-bold py-2 px-2.5 sm:px-3 rounded-xl transition-all cursor-pointer flex items-center gap-1 min-h-[38px] ${
+                              isExpanded
+                                ? "bg-[#052659] text-white hover:bg-[#052659]/90"
+                                : "text-slate-700 hover:text-[#052659] bg-slate-100 hover:bg-slate-200"
+                            }`}
                           >
                             <Eye className="w-3.5 h-3.5 shrink-0" />
-                            <span>Details</span>
-                          </a>
+                            <span>{isExpanded ? "Hide Details" : "Details"}</span>
+                            {isExpanded ? (
+                              <ChevronUp className="w-3.5 h-3.5 shrink-0" />
+                            ) : (
+                              <ChevronDown className="w-3.5 h-3.5 shrink-0" />
+                            )}
+                          </button>
 
                           <button 
                             type="button"
@@ -2347,7 +2549,7 @@ export default function App() {
                         </div>
 
                       </div>
-                    </motion.div>
+                    </div>
                   );
                 })}
               </div>
@@ -4706,7 +4908,7 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* Floating WhatsApp Assistant Button (appears after scrolling, auto-hides after 5 seconds) */}
+      {/* Floating WhatsApp Assistant Button (appears after scrolling, auto-hides after 2 seconds) */}
       <AnimatePresence>
         {showFloatingWhatsapp && (
           <motion.a
@@ -4735,7 +4937,7 @@ export default function App() {
               floatingWhatsappTimerRef.current = window.setTimeout(() => {
                 setShowFloatingWhatsapp(false);
                 floatingWhatsappTimerRef.current = null;
-              }, 5000);
+              }, 2000);
             }}
             className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-40 inline-flex items-center justify-center gap-2 w-12 h-12 sm:w-auto sm:h-11 sm:pl-2 sm:pr-4 rounded-full bg-[#25D366] sm:bg-[#15803d] hover:bg-[#166534] text-white font-bold text-xs sm:text-sm shadow-lg shadow-emerald-950/25 hover:shadow-xl hover:-translate-y-0.5 active:translate-y-0 transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#021024]"
           >
