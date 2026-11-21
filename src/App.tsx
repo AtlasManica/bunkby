@@ -44,12 +44,12 @@ export function getAllListingPhotos(room: any): string[] {
 }
 import PrivacyPolicy from "./PrivacyPolicy";
 import { WhatsAppLandingPage } from "./components/WhatsAppLandingPage";
-import { ListingDetailPage } from "./components/ListingDetailPage";
 import { AdminReportsPanel } from "./components/AdminReportsPanel";
 import { applyClientSeo } from "./utils/seoClient";
 import {
   CatalogLocationEntry,
   buildHomeSeo,
+  buildListingSeo,
   buildWhatsAppSeo,
   findCityBySlugOrName,
   findProvinceBySlugOrName,
@@ -112,6 +112,8 @@ import {
   Copy,
   Check,
   Eye,
+  EyeOff,
+  RotateCcw,
   Flag,
   Filter
 } from "lucide-react";
@@ -201,11 +203,117 @@ async function parseJsonResponse<T = any>(
   }
 }
 
+const ADMIN_SESSION_STORAGE_KEY = "bunkby_admin_session";
+const LANDLORD_LOCAL_STORAGE_KEY = "bunkby_landlord_profile";
+
+function extractSharedListingIdFromLocation(pathname?: string, search?: string): string | null {
+  if (typeof window === "undefined") return null;
+  const p = pathname ?? window.location.pathname;
+  const s = search ?? window.location.search;
+  const pathMatch = normalizeRoutePath(p).match(/^\/listing\/([^/]+)\/?$/);
+  if (pathMatch && pathMatch[1]) {
+    try {
+      return decodeURIComponent(pathMatch[1]).trim() || null;
+    } catch {
+      return pathMatch[1].trim() || null;
+    }
+  }
+  try {
+    const qId = new URLSearchParams(s).get("listing");
+    return qId ? qId.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveUserProfileSession(profile: any) {
+  try {
+    if (profile?.role === "Admin") {
+      // Strictly isolate Admin sessions to the current browser tab only (never persist to localStorage)
+      sessionStorage.setItem(ADMIN_SESSION_STORAGE_KEY, JSON.stringify(profile));
+      localStorage.removeItem(LANDLORD_LOCAL_STORAGE_KEY);
+    } else {
+      sessionStorage.removeItem(ADMIN_SESSION_STORAGE_KEY);
+      localStorage.setItem(LANDLORD_LOCAL_STORAGE_KEY, JSON.stringify(profile));
+    }
+  } catch {}
+}
+
+function clearUserProfileSession() {
+  try {
+    sessionStorage.removeItem(ADMIN_SESSION_STORAGE_KEY);
+    localStorage.removeItem(LANDLORD_LOCAL_STORAGE_KEY);
+  } catch {}
+}
+
+function loadStoredUserProfile(): any | null {
+  if (typeof window === "undefined") return null;
+  // Purge any legacy Admin session previously saved in persistent localStorage
+  try {
+    const rawLocal = localStorage.getItem(LANDLORD_LOCAL_STORAGE_KEY);
+    if (rawLocal) {
+      const parsedLocal = JSON.parse(rawLocal);
+      if (parsedLocal?.role === "Admin") {
+        localStorage.removeItem(LANDLORD_LOCAL_STORAGE_KEY);
+      }
+    }
+  } catch {
+    try {
+      localStorage.removeItem(LANDLORD_LOCAL_STORAGE_KEY);
+    } catch {}
+  }
+
+  // 1. Check tab-scoped Admin session first (NEVER auto-login as Admin when opening a shared property link)
+  try {
+    if (extractSharedListingIdFromLocation()) {
+      sessionStorage.removeItem(ADMIN_SESSION_STORAGE_KEY);
+    } else {
+      const rawAdmin = sessionStorage.getItem(ADMIN_SESSION_STORAGE_KEY);
+      if (rawAdmin) {
+        const parsed = JSON.parse(rawAdmin);
+        if (parsed && typeof parsed === "object" && parsed.token && parsed.phone) {
+          return parsed;
+        }
+        sessionStorage.removeItem(ADMIN_SESSION_STORAGE_KEY);
+      }
+    }
+  } catch {}
+
+  // 2. Check standard non-admin landlord session
+  try {
+    const rawLocal = localStorage.getItem(LANDLORD_LOCAL_STORAGE_KEY);
+    if (rawLocal) {
+      const parsed = JSON.parse(rawLocal);
+      if (parsed && typeof parsed === "object" && parsed.role !== "Admin" && (parsed.phone || parsed.token)) {
+        return parsed;
+      }
+      localStorage.removeItem(LANDLORD_LOCAL_STORAGE_KEY);
+    }
+  } catch {}
+
+  return null;
+}
+
+function hasStoredUserSession(): boolean {
+  return loadStoredUserProfile() !== null;
+}
+
 export default function App() {
-  // Current active tab of the app
-  const [currentPath, setCurrentPath] = useState<string>(() =>
-    typeof window !== "undefined" ? normalizeRoutePath(window.location.pathname) : "/"
+  // Shared property direct link state (works for both /?listing=:id and /listing/:id right on the Browse page)
+  const [sharedListingId, setSharedListingId] = useState<string | null>(() =>
+    extractSharedListingIdFromLocation()
   );
+  const [sharedListingFetched, setSharedListingFetched] = useState<RoomListing | null>(null);
+  const [sharedListingStatus, setSharedListingStatus] = useState<
+    "idle" | "loading" | "found" | "unavailable" | "not_found"
+  >(() => (extractSharedListingIdFromLocation() ? "loading" : "idle"));
+
+  // Current active tab of the app (normalize /listing/:id directly into "/" Browse page)
+  const [currentPath, setCurrentPath] = useState<string>(() => {
+    if (typeof window === "undefined") return "/";
+    const normalized = normalizeRoutePath(window.location.pathname);
+    return /^\/listing\/[^/]+\/?$/.test(normalized) ? "/" : normalized;
+  });
   const [activeTab, setActiveTab] = useState<"browse" | "landlord" | "account" | "help">("browse");
 
   // Room Listings State (hydrated instantaneously from sessionStorage cache when available)
@@ -320,7 +428,6 @@ export default function App() {
   const [maxPrice, setMaxPrice] = useState<number | "">("");
   const [sortBy, setSortBy] = useState<"newest" | "price_asc" | "price_desc" | "leads">("newest");
   const [showMobileFilters, setShowMobileFilters] = useState(false);
-  const [pendingDirectListingId, setPendingDirectListingId] = useState<string | null>(null);
 
   const locationSuggestions = useMemo(() => {
     const q = locationInput.trim();
@@ -408,8 +515,11 @@ export default function App() {
   const [selectedListingDetail, setSelectedListingDetail] = useState<RoomListing | null>(null);
   const [detailActivePhotoIdx, setDetailActivePhotoIdx] = useState(0);
 
-  // Inline Home Card Expansion State
-  const [expandedCardIds, setExpandedCardIds] = useState<Record<string, boolean>>({});
+  // Inline Home Card Expansion State (auto-expand immediately when opening a shared property link)
+  const [expandedCardIds, setExpandedCardIds] = useState<Record<string, boolean>>(() => {
+    const linkedId = extractSharedListingIdFromLocation();
+    return linkedId ? { [String(linkedId)]: true } : {};
+  });
   const [cardActivePhotoIdx, setCardActivePhotoIdx] = useState<Record<string, number>>({});
   const [copiedListingId, setCopiedListingId] = useState<string | null>(null);
 
@@ -433,10 +543,40 @@ export default function App() {
   const [adminSubTab, setAdminSubTab] = useState<"reports" | "landlords" | "listings">("reports");
   const [adminListings, setAdminListings] = useState<any[]>([]);
   const [adminOpenReportsCount, setAdminOpenReportsCount] = useState<number>(0);
+  const [actionCardModal, setActionCardModal] = useState<{
+    type:
+      | "delete_property"
+      | "admin_restore_listing"
+      | "admin_hide_listing"
+      | "admin_remove_listing"
+      | "admin_verify_landlord"
+      | "admin_delete_landlord";
+    targetId: string | number;
+    targetTitle: string;
+    targetSubtitle?: string;
+    phase: "confirm" | "loading" | "success" | "error";
+    successTitle?: string;
+    successDetail?: string;
+    errorDetail?: string;
+  } | null>(null);
+  const [adminActionBanner, setAdminActionBanner] = useState<{
+    title: string;
+    detail: string;
+    tone: "emerald" | "amber" | "red";
+  } | null>(null);
+  const actionCardTimerRef = useRef<number | null>(null);
+  const adminBannerTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (actionCardTimerRef.current) window.clearTimeout(actionCardTimerRef.current);
+      if (adminBannerTimerRef.current) window.clearTimeout(adminBannerTimerRef.current);
+    };
+  }, []);
 
 
 
-  // Simulated Account State (Supports phone number accounts for landlords, starts null for flow)
+  // Account State (Admin sessions are strictly tab-scoped via sessionStorage and verified against the backend)
   const [userProfile, setUserProfile] = useState<{
     id?: number;
     name: string;
@@ -446,17 +586,13 @@ export default function App() {
     hasPin?: boolean;
     whatsappLinked?: boolean;
     role?: string;
-  } | null>(() => {
-    const saved = localStorage.getItem("bunkby_landlord_profile");
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (err) {
-        return null;
-      }
+  } | null>(() => loadStoredUserProfile());
+
+  useEffect(() => {
+    if (!userProfile && activeTab === "account") {
+      setActiveTab("browse");
     }
-    return null;
-  });
+  }, [userProfile, activeTab]);
 
   useEffect(() => {
     if (userProfile?.role !== "Admin" || !userProfile?.token) {
@@ -473,6 +609,14 @@ export default function App() {
             "x-landlord-token": userProfile.token || "",
           },
         });
+        if (!cancelled && (res.status === 401 || res.status === 403)) {
+          // Immediately revoke invalid or expired Admin session
+          clearUserProfileSession();
+          setUserProfile(null);
+          setAdminListings([]);
+          setAdminOpenReportsCount(0);
+          return;
+        }
         const parsed = await parseJsonResponse<{
           landlords?: any[];
           listings?: any[];
@@ -572,11 +716,25 @@ export default function App() {
   useEffect(() => {
     const handlePopState = () => {
       const normalized = normalizeRoutePath(window.location.pathname);
+      const linkedListingId = extractSharedListingIdFromLocation(window.location.pathname, window.location.search);
+      if (linkedListingId) {
+        setCurrentPath("/");
+        setActiveTab("browse");
+        setSharedListingId(linkedListingId);
+        return;
+      }
+      setSharedListingId(null);
+      setSharedListingFetched(null);
+      setSharedListingStatus("idle");
       setCurrentPath(normalized);
       const params = new URLSearchParams(window.location.search);
       const tab = params.get("tab");
       if (tab && ["browse", "landlord", "account", "help"].includes(tab)) {
-        setActiveTab(tab as any);
+        if (tab === "account" && !hasStoredUserSession()) {
+          setActiveTab("browse");
+        } else {
+          setActiveTab(tab as any);
+        }
       } else if (normalized === "/") {
         setActiveTab("browse");
       }
@@ -585,23 +743,58 @@ export default function App() {
     return () => window.removeEventListener("popstate", handlePopState);
   }, []);
 
+  const clearSharedListing = () => {
+    setSharedListingId(null);
+    setSharedListingFetched(null);
+    setSharedListingStatus("idle");
+    setSelectedListingDetail(null);
+    try {
+      window.history.replaceState(null, "", "/");
+    } catch {}
+  };
+
   const navigateTo = (path: string, tab?: "browse" | "landlord" | "account" | "help") => {
     try {
+      const listingPathMatch = path.match(/^\/listing\/([^/?#]+)/);
+      if (listingPathMatch && listingPathMatch[1]) {
+        const targetId = decodeURIComponent(listingPathMatch[1]).trim();
+        setCurrentPath("/");
+        setActiveTab("browse");
+        setSharedListingId(targetId);
+        window.history.pushState(null, "", `/?listing=${encodeURIComponent(targetId)}`);
+        return;
+      }
+
       if (path === "/" || path.startsWith("/?")) {
         let targetTab = tab || "browse";
+        let qListing: string | null = null;
         if (path.startsWith("/?")) {
           const params = new URLSearchParams(path.slice(1));
           const qTab = params.get("tab");
+          qListing = params.get("listing");
           if (qTab && ["browse", "landlord", "account", "help"].includes(qTab)) {
             targetTab = qTab as "browse" | "landlord" | "account" | "help";
           }
         }
+        if (qListing) {
+          setSharedListingId(qListing.trim());
+          setActiveTab("browse");
+          setCurrentPath("/");
+          window.history.pushState(null, "", `/?listing=${encodeURIComponent(qListing.trim())}`);
+          return;
+        }
+        setSharedListingId(null);
+        setSharedListingFetched(null);
+        setSharedListingStatus("idle");
         setActiveTab(targetTab);
         setCurrentPath("/");
         const search = targetTab !== "browse" ? `?tab=${targetTab}` : "";
         window.history.pushState(null, "", `/${search}`);
         window.scrollTo({ top: 0, behavior: "smooth" });
       } else {
+        setSharedListingId(null);
+        setSharedListingFetched(null);
+        setSharedListingStatus("idle");
         window.history.pushState(null, "", path);
         setCurrentPath(path);
         window.scrollTo({ top: 0, behavior: "smooth" });
@@ -625,7 +818,17 @@ export default function App() {
       const max = params.get("max");
       const sort = params.get("sort");
       const tab = params.get("tab");
-      const listingId = params.get("listing");
+      const linkedListingId = extractSharedListingIdFromLocation();
+
+      if (linkedListingId) {
+        setSharedListingId(linkedListingId);
+        setCurrentPath("/");
+        setActiveTab("browse");
+        try {
+          window.history.replaceState(null, "", `/?listing=${encodeURIComponent(linkedListingId)}`);
+        } catch {}
+        return;
+      }
 
       if (q) setSearchTerm(q);
       if (province) {
@@ -648,65 +851,127 @@ export default function App() {
       if (min) setMinPrice(Number(min));
       if (max) setMaxPrice(Number(max));
       if (sort && ["newest", "price_asc", "price_desc", "leads"].includes(sort)) setSortBy(sort as any);
-      if (tab && ["browse", "landlord", "account", "help"].includes(tab)) setActiveTab(tab as any);
-      if (listingId) setPendingDirectListingId(listingId);
+      if (tab && ["browse", "landlord", "account", "help"].includes(tab)) {
+        if (tab === "account" && !hasStoredUserSession()) {
+          setActiveTab("browse");
+        } else {
+          setActiveTab(tab as any);
+        }
+      }
     } catch (e) {
       console.warn("Could not parse URL params", e);
     }
   }, []);
 
-  // When listings load and pendingDirectListingId is present, auto-open that listing detail modal
+  // Resolve shared property link right on the Browse page (auto-expand card + scroll directly to it)
   useEffect(() => {
-    if (pendingDirectListingId && listings.length > 0) {
-      const found = listings.find(l => String(l.id) === String(pendingDirectListingId));
-      if (found) {
-        setSelectedListingDetail(found);
-        setPendingDirectListingId(null);
-      }
+    if (!sharedListingId) {
+      setSharedListingStatus("idle");
+      setSharedListingFetched(null);
+      return;
     }
-  }, [pendingDirectListingId, listings]);
+
+    let cancelled = false;
+    const idKey = String(sharedListingId);
+    setExpandedCardIds((prev) => (prev[idKey] ? prev : { ...prev, [idKey]: true }));
+
+    const fromFeed = listings.find((l) => String(l.id) === idKey);
+    if (fromFeed) {
+      setSharedListingFetched(fromFeed);
+      setSharedListingStatus(isListingAvailable(fromFeed) ? "found" : "unavailable");
+      window.setTimeout(() => {
+        document.getElementById("shared-property-focus")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 120);
+      return;
+    }
+
+    setSharedListingStatus("loading");
+    fetch(`/api/rooms/${encodeURIComponent(idKey)}`, {
+      headers: { Accept: "application/json" },
+    })
+      .then(async (res) => {
+        if (cancelled) return;
+        if (res.status === 404) {
+          setSharedListingFetched(null);
+          setSharedListingStatus("not_found");
+          return;
+        }
+        const ct = (res.headers.get("content-type") || "").toLowerCase();
+        const data = ct.includes("application/json") ? await res.json().catch(() => null) : null;
+        if (res.status === 410 || data?.available === false) {
+          setSharedListingFetched(data?.listing || null);
+          setSharedListingStatus("unavailable");
+          return;
+        }
+        if (data?.listing) {
+          setSharedListingFetched(data.listing);
+          setSharedListingStatus(isListingAvailable(data.listing) ? "found" : "unavailable");
+          window.setTimeout(() => {
+            document.getElementById("shared-property-focus")?.scrollIntoView({ behavior: "smooth", block: "start" });
+          }, 120);
+        } else {
+          setSharedListingFetched(null);
+          setSharedListingStatus("not_found");
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setSharedListingStatus("not_found");
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [sharedListingId, listings]);
 
   // Keep URL search query updated ONLY when on the homepage "/"
   useEffect(() => {
     if (currentPath !== "/") return;
     try {
       const params = new URLSearchParams();
-      if (searchTerm) params.set("q", searchTerm);
-      if (selectedProvinceSlug) params.set("province", selectedProvinceSlug);
-      if (selectedCity) params.set("city", selectedCity);
-      if (selectedSuburb) params.set("suburb", selectedSuburb);
-      if (selectedCategory !== "all") params.set("cat", selectedCategory);
-      if (selectedPropertyType) params.set("type", selectedPropertyType);
-      if (selectedAmenity) params.set("amenity", selectedAmenity);
-      if (selectedTenantType) params.set("tenant", selectedTenantType);
-      if (minPrice !== "") params.set("min", String(minPrice));
-      if (maxPrice !== "") params.set("max", String(maxPrice));
-      if (sortBy !== "newest") params.set("sort", sortBy);
-      if (activeTab !== "browse") params.set("tab", activeTab);
-      if (selectedListingDetail) params.set("listing", String(selectedListingDetail.id));
+      if (sharedListingId && activeTab === "browse") {
+        params.set("listing", String(sharedListingId));
+      } else {
+        if (searchTerm) params.set("q", searchTerm);
+        if (selectedProvinceSlug) params.set("province", selectedProvinceSlug);
+        if (selectedCity) params.set("city", selectedCity);
+        if (selectedSuburb) params.set("suburb", selectedSuburb);
+        if (selectedCategory !== "all") params.set("cat", selectedCategory);
+        if (selectedPropertyType) params.set("type", selectedPropertyType);
+        if (selectedAmenity) params.set("amenity", selectedAmenity);
+        if (selectedTenantType) params.set("tenant", selectedTenantType);
+        if (minPrice !== "") params.set("min", String(minPrice));
+        if (maxPrice !== "") params.set("max", String(maxPrice));
+        if (sortBy !== "newest") params.set("sort", sortBy);
+        if (activeTab !== "browse") params.set("tab", activeTab);
+      }
 
       const newSearch = params.toString();
       const newUrl = newSearch ? `/?${newSearch}` : "/";
       window.history.replaceState(null, "", newUrl);
     } catch (_) {}
   }, [
-    currentPath, searchTerm, selectedProvinceSlug, selectedCity, selectedSuburb, selectedCategory,
+    currentPath, sharedListingId, searchTerm, selectedProvinceSlug, selectedCity, selectedSuburb, selectedCategory,
     selectedPropertyType, selectedAmenity, selectedTenantType,
-    minPrice, maxPrice, sortBy, activeTab, selectedListingDetail
+    minPrice, maxPrice, sortBy, activeTab
   ]);
 
   // Synchronize document title, meta tags, canonical URL, and Schema.org JSON-LD across routes
   useEffect(() => {
     if (currentPath === "/privacy-policy") return;
-    if (currentPath.startsWith("/listing/")) return; // Handled directly by ListingDetailPage
-
-    const active = listings.filter((r) => isListingAvailable(r));
 
     if (currentPath === "/whatsapp") {
       applyClientSeo(buildWhatsAppSeo());
       return;
     }
 
+    if (sharedListingId && currentPath === "/" && activeTab === "browse") {
+      const matched =
+        listings.find((r) => String(r.id) === String(sharedListingId)) || sharedListingFetched || null;
+      applyClientSeo(buildListingSeo(matched, sharedListingId));
+      return;
+    }
+
+    const active = listings.filter((r) => isListingAvailable(r));
     if (currentPath === "/") {
       const homeSeo = buildHomeSeo(active);
       if (activeTab !== "browse") {
@@ -714,7 +979,7 @@ export default function App() {
       }
       applyClientSeo(homeSeo);
     }
-  }, [currentPath, listings, activeTab]);
+  }, [currentPath, listings, activeTab, sharedListingId, sharedListingFetched]);
 
 
 
@@ -744,7 +1009,7 @@ export default function App() {
     contactMethod: "Call / Whatsapp" as ContactMethod,
     phone: "",
     landlordName: "",
-    imageUrl: DEFAULT_ROOM_IMAGES[0]
+    imageUrl: ""
   });
   const [uploadedImages, setUploadedImages] = useState<string[]>([]);
 
@@ -763,14 +1028,14 @@ export default function App() {
         if (isApproved !== userProfile.isVerified) {
           const updated = { ...userProfile, isVerified: isApproved };
           setUserProfile(updated);
-          localStorage.setItem("bunkby_landlord_profile", JSON.stringify(updated));
+          saveUserProfileSession(updated);
         }
       } else {
         setVerificationStatus("unverified");
         if (userProfile.isVerified) {
           const updated = { ...userProfile, isVerified: false };
           setUserProfile(updated);
-          localStorage.setItem("bunkby_landlord_profile", JSON.stringify(updated));
+          saveUserProfileSession(updated);
         }
       }
     } else {
@@ -795,7 +1060,13 @@ export default function App() {
       return;
     }
 
-    const allImgs = uploadedImages.length > 0 ? uploadedImages : [newRoomForm.imageUrl || DEFAULT_ROOM_IMAGES[0]];
+    const realUploadedImages = uploadedImages.filter((img) => img && !DEFAULT_ROOM_IMAGES.includes(img));
+    if (realUploadedImages.length === 0) {
+      showToast("📸 Please upload at least 1 real photo of your property before publishing.");
+      return;
+    }
+
+    const allImgs = realUploadedImages;
     const resolvedImageUrl = allImgs.length > 1 ? JSON.stringify(allImgs) : allImgs[0];
     const isHospitality = newRoomForm.category === "hospitality" || 
       HOSPITALITY_PROPERTY_TYPES.includes(newRoomForm.propertyType) ||
@@ -825,8 +1096,15 @@ export default function App() {
     const isHospitality = payload.category === "hospitality" || 
       HOSPITALITY_PROPERTY_TYPES.includes(payload.propertyType);
 
-    const allImgs = uploadedImages.length > 0 ? uploadedImages : (payload.images && payload.images.length > 0 ? payload.images : [payload.image_url || DEFAULT_ROOM_IMAGES[0]]);
-    const resolvedImageUrl = allImgs.length > 1 ? JSON.stringify(allImgs) : (allImgs[0] || payload.image_url || null);
+    const candidateImgs: string[] = uploadedImages.length > 0
+      ? uploadedImages
+      : (Array.isArray(payload.images) ? payload.images : []);
+    const allImgs = candidateImgs.filter((img) => Boolean(img) && !DEFAULT_ROOM_IMAGES.includes(img));
+    if (allImgs.length === 0) {
+      showToast("📸 At least 1 real property photo is required to publish a listing.");
+      return;
+    }
+    const resolvedImageUrl = allImgs.length > 1 ? JSON.stringify(allImgs) : allImgs[0];
 
     const finalPayload = {
       ...payload,
@@ -920,7 +1198,7 @@ export default function App() {
       contactMethod: "Call / Whatsapp",
       phone: userProfile?.phone || "",
       landlordName: userProfile?.name || "",
-      imageUrl: DEFAULT_ROOM_IMAGES[0]
+      imageUrl: ""
     });
   };
 
@@ -971,7 +1249,7 @@ export default function App() {
           role: data.landlord.role || (profileName === "Tatenda E. Chikura" ? "Admin" : "Landlord")
         };
         setUserProfile(profile);
-        localStorage.setItem("bunkby_landlord_profile", JSON.stringify(profile));
+        saveUserProfileSession(profile);
         showToast(authMode === "login" 
           ? `🎉 Welcome back, ${profile.name}! Account authenticated.` 
           : `🎉 Welcome ${profile.name}! Your account was created successfully.`
@@ -1075,7 +1353,7 @@ export default function App() {
           role: data.landlord.role || "Landlord"
         };
         setUserProfile(profile);
-        localStorage.setItem("bunkby_landlord_profile", JSON.stringify(profile));
+        saveUserProfileSession(profile);
         showToast("🎉 Security PIN updated! You are now logged in.");
         setIsRecoveryModalOpen(false);
         setRecoveryCode("");
@@ -1108,7 +1386,10 @@ export default function App() {
       }).catch(() => {});
     }
     setUserProfile(null);
-    localStorage.removeItem("bunkby_landlord_profile");
+    clearUserProfileSession();
+    if (activeTab === "account") {
+      navigateTo("/", "browse");
+    }
     showToast("🔑 Successfully logged out.");
   };
 
@@ -1228,29 +1509,279 @@ export default function App() {
     }
   };
 
-  // Permanent Delete listing
-  const handleDeleteListing = async (id: string | number) => {
-    if (!confirm("Are you sure you want to permanently delete this listing from BunkBy?")) return;
+  const closeActionCardModal = () => {
+    if (actionCardTimerRef.current) {
+      window.clearTimeout(actionCardTimerRef.current);
+      actionCardTimerRef.current = null;
+    }
+    setActionCardModal(null);
+  };
+
+  const triggerAdminBanner = (
+    title: string,
+    detail: string,
+    tone: "emerald" | "amber" | "red" = "emerald"
+  ) => {
+    setAdminActionBanner({ title, detail, tone });
+    if (adminBannerTimerRef.current) window.clearTimeout(adminBannerTimerRef.current);
+    adminBannerTimerRef.current = window.setTimeout(() => {
+      setAdminActionBanner(null);
+      adminBannerTimerRef.current = null;
+    }, 6000);
+  };
+
+  const openActionCard = (config: {
+    type:
+      | "delete_property"
+      | "admin_restore_listing"
+      | "admin_hide_listing"
+      | "admin_remove_listing"
+      | "admin_verify_landlord"
+      | "admin_delete_landlord";
+    targetId: string | number;
+    targetTitle: string;
+    targetSubtitle?: string;
+  }) => {
+    if (actionCardTimerRef.current) {
+      window.clearTimeout(actionCardTimerRef.current);
+      actionCardTimerRef.current = null;
+    }
+    setActionCardModal({
+      ...config,
+      phase: "confirm",
+    });
+  };
+
+  const executeActionCard = async () => {
+    if (!actionCardModal || actionCardModal.phase === "loading") return;
+    const { type, targetId, targetTitle } = actionCardModal;
+    setActionCardModal((prev) => (prev ? { ...prev, phase: "loading", errorDetail: undefined } : null));
+
+    const finishSuccess = (
+      successTitle: string,
+      successDetail: string,
+      toastText: string,
+      bannerTone?: "emerald" | "amber" | "red"
+    ) => {
+      showToast(toastText);
+      if (bannerTone) {
+        triggerAdminBanner(successTitle, successDetail, bannerTone);
+      }
+      setActionCardModal((prev) =>
+        prev
+          ? {
+              ...prev,
+              phase: "success",
+              successTitle,
+              successDetail,
+            }
+          : null
+      );
+      if (actionCardTimerRef.current) window.clearTimeout(actionCardTimerRef.current);
+      actionCardTimerRef.current = window.setTimeout(() => {
+        setActionCardModal(null);
+        actionCardTimerRef.current = null;
+      }, 1350);
+    };
+
+    const failCard = (errorMessage: string) => {
+      showToast(`⚠️ ${errorMessage}`);
+      setActionCardModal((prev) =>
+        prev ? { ...prev, phase: "error", errorDetail: errorMessage } : null
+      );
+    };
+
     try {
-      const res = await fetch(`/api/rooms/${id}`, { 
-        method: "DELETE",
-        headers: {
-          "Content-Type": "application/json",
-          "x-landlord-token": userProfile?.token || "",
-          "Authorization": userProfile?.token ? `Bearer ${userProfile.token}` : ""
+      if (type === "delete_property") {
+        const res = await fetch(`/api/rooms/${targetId}`, {
+          method: "DELETE",
+          headers: {
+            "Content-Type": "application/json",
+            "x-landlord-token": userProfile?.token || "",
+            Authorization: userProfile?.token ? `Bearer ${userProfile.token}` : "",
+          },
+        });
+        if (res.ok) {
+          setListings((prev) => prev.filter((item) => String(item.id) !== String(targetId)));
+          setAdminListings((prev) => prev.filter((item) => String(item.id) !== String(targetId)));
+          finishSuccess(
+            "Property Deleted Successfully",
+            `${targetTitle} (#${targetId}) has been permanently deleted from BunkBy.`,
+            "🗑️ Listing deleted permanently."
+          );
+        } else {
+          const errData = await res.json().catch(() => ({}));
+          failCard(errData.error || "Could not delete listing.");
         }
-      });
-      if (res.ok) {
-        setListings(prev => prev.filter(item => String(item.id) !== String(id)));
-        showToast("🗑️ Listing deleted permanently.");
-      } else {
-        const errData = await res.json().catch(() => ({}));
-        showToast(errData.error || "⚠️ Could not delete listing");
+        return;
+      }
+
+      if (type === "admin_restore_listing") {
+        const res = await fetch(`/api/admin/listings/${targetId}/moderate`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-landlord-token": userProfile?.token || "",
+          },
+          body: JSON.stringify({ action: "restore_listing", notes: "Restored from All Listings view" }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) {
+          setAdminListings((prev) =>
+            prev.map((l) =>
+              String(l.id) === String(targetId)
+                ? { ...l, verification_status: data.newListingStatus || "Active" }
+                : l
+            )
+          );
+          try {
+            const pubRes = await fetch("/api/listings", { headers: { Accept: "application/json" } });
+            if (pubRes.ok) {
+              const pubData = await pubRes.json();
+              if (Array.isArray(pubData.listings)) {
+                setListings(pubData.listings);
+                try {
+                  sessionStorage.setItem("bunkby_listings_v1", JSON.stringify(pubData.listings));
+                } catch {}
+              }
+            }
+          } catch (_) {}
+          finishSuccess(
+            "Property Restored Successfully",
+            `${targetTitle} (#${targetId}) is now live again across website and WhatsApp search.`,
+            "🔄 Listing restored.",
+            "emerald"
+          );
+        } else {
+          failCard(data?.error || "Failed to restore property.");
+        }
+        return;
+      }
+
+      if (type === "admin_hide_listing") {
+        const res = await fetch(`/api/admin/listings/${targetId}/moderate`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-landlord-token": userProfile?.token || "",
+          },
+          body: JSON.stringify({ action: "hide_listing", notes: "Temporarily hidden from All Listings view" }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) {
+          setListings((prev) => prev.filter((l) => String(l.id) !== String(targetId)));
+          setAdminListings((prev) =>
+            prev.map((l) => (String(l.id) === String(targetId) ? { ...l, verification_status: "Hidden" } : l))
+          );
+          finishSuccess(
+            "Property Hidden Successfully",
+            `${targetTitle} (#${targetId}) has been temporarily hidden from public search.`,
+            "🙈 Listing hidden.",
+            "amber"
+          );
+        } else {
+          failCard(data?.error || "Failed to hide property.");
+        }
+        return;
+      }
+
+      if (type === "admin_remove_listing") {
+        const res = await fetch(`/api/admin/listings/${targetId}/moderate`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-landlord-token": userProfile?.token || "",
+          },
+          body: JSON.stringify({
+            action: "remove_listing",
+            notes: "Removed from All Listings admin view (report history preserved)",
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) {
+          setListings((prev) => prev.filter((l) => String(l.id) !== String(targetId)));
+          setAdminListings((prev) =>
+            prev.map((l) => (String(l.id) === String(targetId) ? { ...l, verification_status: "Removed" } : l))
+          );
+          finishSuccess(
+            "Property Removed Successfully",
+            `${targetTitle} (#${targetId}) has been removed from website and WhatsApp search.`,
+            "🚫 Listing removed from website & WhatsApp search.",
+            "red"
+          );
+        } else {
+          failCard(data?.error || "Failed to remove property.");
+        }
+        return;
+      }
+
+      if (type === "admin_verify_landlord") {
+        const res = await fetch("/api/admin", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-landlord-token": userProfile?.token || "",
+          },
+          body: JSON.stringify({ action: "verify", id: targetId }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) {
+          setAllLandlords((prev) =>
+            prev.map((l) =>
+              String(l.id) === String(targetId)
+                ? { ...l, verification_status: "verified", isVerified: true }
+                : l
+            )
+          );
+          finishSuccess(
+            "Landlord Verified Successfully",
+            `${targetTitle} (#${targetId}) is now verified on BunkBy.`,
+            "✅ Landlord verified successfully.",
+            "emerald"
+          );
+        } else {
+          failCard(data?.error || "Failed to verify landlord.");
+        }
+        return;
+      }
+
+      if (type === "admin_delete_landlord") {
+        const res = await fetch("/api/admin", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-landlord-token": userProfile?.token || "",
+          },
+          body: JSON.stringify({ action: "deleteLandlord", id: targetId }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) {
+          setAllLandlords((prev) => prev.filter((l) => String(l.id) !== String(targetId)));
+          finishSuccess(
+            "Landlord Deleted Successfully",
+            `${targetTitle} (#${targetId}) has been removed from BunkBy.`,
+            "✅ Landlord deleted.",
+            "red"
+          );
+        } else {
+          failCard(data?.error || "Failed to delete landlord.");
+        }
       }
     } catch (e) {
       console.error(e);
-      showToast("⚠️ Could not delete listing");
+      failCard("Network error. Please try again.");
     }
+  };
+
+  // Permanent Delete listing (opens confirmation + success card)
+  const handleDeleteListing = (id: string | number, title?: string) => {
+    const matched = listings.find((item) => String(item.id) === String(id));
+    openActionCard({
+      type: "delete_property",
+      targetId: id,
+      targetTitle: title || matched?.title || `Listing #${id}`,
+      targetSubtitle: matched ? `${matched.suburb}, ${matched.city}` : undefined,
+    });
   };
 
   // Handle tenant sending inquiry ("Building traffic & direct WhatsApp connection")
@@ -1470,6 +2001,9 @@ export default function App() {
   });
 
   const clearAllFilters = () => {
+    setSharedListingId(null);
+    setSharedListingFetched(null);
+    setSharedListingStatus("idle");
     setSearchTerm("");
     setSelectedCity("");
     setSelectedSuburb("");
@@ -1549,13 +2083,15 @@ export default function App() {
               Landlords Portal
             </button>
 
-            <button 
-              onClick={() => navigateTo("/", "account")}
-              className={`px-2.5 py-1.5 rounded-lg transition-all ${currentPath === "/" && activeTab === "account" ? "bg-[#021024] text-white font-extrabold shadow-xs border border-white/10" : "hover:text-white text-slate-200 hover:bg-[#021024]/40 font-semibold"}`}
-              id="nav-account"
-            >
-              Account
-            </button>
+            {userProfile && (
+              <button 
+                onClick={() => navigateTo("/", "account")}
+                className={`px-2.5 py-1.5 rounded-lg transition-all ${currentPath === "/" && activeTab === "account" ? "bg-[#021024] text-white font-extrabold shadow-xs border border-white/10" : "hover:text-white text-slate-200 hover:bg-[#021024]/40 font-semibold"}`}
+                id="nav-account"
+              >
+                Account
+              </button>
+            )}
             <button 
               onClick={() => navigateTo("/", "help")}
               className={`px-2.5 py-1.5 rounded-lg transition-all whitespace-nowrap shrink-0 ${currentPath === "/" && activeTab === "help" ? "bg-[#021024] text-white font-extrabold shadow-xs border border-white/10" : "hover:text-white text-slate-200 hover:bg-[#021024]/40 font-semibold"}`}
@@ -1649,13 +2185,15 @@ export default function App() {
           <span className="leading-tight mt-0.5">Portal</span>
         </button>
 
-        <button 
-          onClick={() => navigateTo("/", "account")}
-          className={`flex flex-col items-center justify-center py-1 px-2 rounded-md min-h-[44px] min-w-[56px] transition-colors ${currentPath === "/" && activeTab === "account" ? "text-white font-extrabold bg-[#021024]/50" : "text-[#E2E8F0] hover:text-white"}`}
-        >
-          <Settings className="w-4 h-4 shrink-0" />
-          <span className="leading-tight mt-0.5">Account</span>
-        </button>
+        {userProfile && (
+          <button 
+            onClick={() => navigateTo("/", "account")}
+            className={`flex flex-col items-center justify-center py-1 px-2 rounded-md min-h-[44px] min-w-[56px] transition-colors ${currentPath === "/" && activeTab === "account" ? "text-white font-extrabold bg-[#021024]/50" : "text-[#E2E8F0] hover:text-white"}`}
+          >
+            <Settings className="w-4 h-4 shrink-0" />
+            <span className="leading-tight mt-0.5">Account</span>
+          </button>
+        )}
         <button 
           onClick={() => navigateTo("/", "help")}
           className={`flex flex-col items-center justify-center py-1 px-2 rounded-md min-h-[44px] min-w-[52px] transition-colors ${currentPath === "/" && activeTab === "help" ? "text-white font-extrabold bg-[#021024]/50" : "text-[#E2E8F0] hover:text-white"}`}
@@ -1688,31 +2226,10 @@ export default function App() {
       {/* Application Body Content */}
       <main className="flex-grow max-w-7xl w-full mx-auto px-3 sm:px-5 lg:px-8 py-3.5 sm:py-6">
 
-        {/* DEDICATED ROUTES: /whatsapp and /listing/:id */}
-        {(() => {
-          if (currentPath === "/whatsapp") {
-            return <WhatsAppLandingPage onNavigate={(p) => navigateTo(p)} />;
-          }
-
-          const listingMatch = currentPath.match(/^\/listing\/([^/]+)\/?$/);
-          if (listingMatch) {
-            return (
-              <ListingDetailPage
-                listingId={decodeURIComponent(listingMatch[1])}
-                cachedListings={listings}
-                onNavigate={(p) => navigateTo(p)}
-                onContactLandlord={handleContactLandlord}
-                onReportListing={(room) => {
-                  setReportingListing(room);
-                  setIsReportModalOpen(true);
-                }}
-                showToast={showToast}
-              />
-            );
-          }
-
-          return null;
-        })()}
+        {/* DEDICATED ROUTE: /whatsapp */}
+        {currentPath === "/whatsapp" && (
+          <WhatsAppLandingPage onNavigate={(p) => navigateTo(p)} />
+        )}
 
         {/* TAB 1: BROWSER / ROOM DIRECTORY */}
         {currentPath === "/" && activeTab === "browse" && (
@@ -1790,6 +2307,7 @@ export default function App() {
                   <button
                     type="button"
                     onClick={() => {
+                      if (sharedListingId) clearSharedListing();
                       setSelectedCategory("all");
                       setSelectedPropertyType("");
                     }}
@@ -1809,6 +2327,7 @@ export default function App() {
                   <button
                     type="button"
                     onClick={() => {
+                      if (sharedListingId) clearSharedListing();
                       setSelectedCategory("residential");
                       setSelectedPropertyType("");
                     }}
@@ -1828,6 +2347,7 @@ export default function App() {
                   <button
                     type="button"
                     onClick={() => {
+                      if (sharedListingId) clearSharedListing();
                       setSelectedCategory("hospitality");
                       setSelectedPropertyType("");
                     }}
@@ -1846,6 +2366,7 @@ export default function App() {
                   <button
                     type="button"
                     onClick={() => {
+                      if (sharedListingId) clearSharedListing();
                       setSelectedCategory("commercial");
                       setSelectedPropertyType("");
                     }}
@@ -1864,6 +2385,7 @@ export default function App() {
                   <button
                     type="button"
                     onClick={() => {
+                      if (sharedListingId) clearSharedListing();
                       setSelectedCategory("student");
                       setSelectedPropertyType("");
                     }}
@@ -1886,6 +2408,7 @@ export default function App() {
               <form
                 onSubmit={(e) => {
                   e.preventDefault();
+                  if (sharedListingId) clearSharedListing();
                   if (isLocationDropdownOpen && activeSuggestionIndex >= 0 && locationSuggestions[activeSuggestionIndex]) {
                     selectCatalogLocation(locationSuggestions[activeSuggestionIndex]);
                   } else {
@@ -2268,71 +2791,147 @@ export default function App() {
               </div>
             </section>
 
-            {/* Mobile result count header when filter panel is collapsed */}
-            <div className="sm:hidden flex items-center justify-between px-1 text-xs text-slate-600 font-medium">
-              <span>Showing <strong className="text-slate-900">{displayedListings.length}</strong> active accommodations</span>
-              <button
-                type="button"
-                onClick={() => setShowMobileFilters(!showMobileFilters)}
-                className="text-xs text-orange-600 font-bold flex items-center gap-1 hover:underline"
-              >
-                <Filter className="w-3.5 h-3.5" />
-                <span>{showMobileFilters ? "Hide Filters" : "Filter Stays"}</span>
-              </button>
-            </div>
+            {/* Mobile result count header when filter panel is collapsed (hidden in focused shared-property view) */}
+            {!sharedListingId && (
+              <div className="sm:hidden flex items-center justify-between px-1 text-xs text-slate-600 font-medium">
+                <span>Showing <strong className="text-slate-900">{displayedListings.length}</strong> active accommodations</span>
+                <button
+                  type="button"
+                  onClick={() => setShowMobileFilters(!showMobileFilters)}
+                  className="text-xs text-orange-600 font-bold flex items-center gap-1 hover:underline"
+                >
+                  <Filter className="w-3.5 h-3.5" />
+                  <span>{showMobileFilters ? "Hide Filters" : "Filter Stays"}</span>
+                </button>
+              </div>
+            )}
 
-            {/* Rooms Cards Directory list - Compact, Responsive Grid */}
+            {/* Rooms Cards Directory list - Compact, Responsive Grid (or focused single card when opened from a shared link) */}
             <div id="results-anchor" className="scroll-mt-20">
-            {isLoading ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5 sm:gap-5 lg:gap-6" aria-busy="true">
-                {[0, 1, 2, 3, 4, 5].map((idx) => (
-                  <div key={idx} className="bg-white rounded-2xl overflow-hidden border border-slate-200/90 shadow-xs flex flex-col animate-pulse">
-                    <div className="aspect-16/10 sm:aspect-16/9 w-full bg-slate-200" />
-                    <div className="p-4 space-y-2.5">
-                      <div className="h-4 bg-slate-200 rounded w-3/4" />
-                      <div className="h-3 bg-slate-100 rounded w-1/2" />
-                      <div className="h-6 bg-slate-200 rounded w-1/3 mt-2" />
+            {(() => {
+              const activeSharedListing = sharedListingId
+                ? listings.find((l) => String(l.id) === String(sharedListingId)) || sharedListingFetched
+                : null;
+              const isSharedView = Boolean(sharedListingId);
+              const cardsToRender = isSharedView
+                ? activeSharedListing && sharedListingStatus !== "unavailable" && sharedListingStatus !== "not_found"
+                  ? [activeSharedListing]
+                  : []
+                : displayedListings;
+
+              if (isSharedView && sharedListingStatus === "loading" && !activeSharedListing) {
+                return (
+                  <div id="shared-property-focus" className="max-w-lg mx-auto bg-white rounded-2xl border border-slate-200 p-8 text-center space-y-3 shadow-xs scroll-mt-24">
+                    <RefreshCw className="w-6 h-6 text-orange-500 animate-spin mx-auto" />
+                    <p className="text-xs sm:text-sm text-slate-600 font-medium">Loading shared property...</p>
+                  </div>
+                );
+              }
+
+              if (isSharedView && (sharedListingStatus === "not_found" || sharedListingStatus === "unavailable" || cardsToRender.length === 0)) {
+                return (
+                  <div id="shared-property-focus" className="max-w-lg mx-auto bg-white rounded-2xl p-7 sm:p-9 text-center border border-slate-200 space-y-3 shadow-xs scroll-mt-24">
+                    <h3 className="text-base sm:text-lg font-bold text-[#052659] font-display">
+                      {sharedListingStatus === "unavailable"
+                        ? "This Shared Property Is No Longer Available"
+                        : "Shared Property Not Found"}
+                    </h3>
+                    <p className="text-xs sm:text-sm text-slate-500">
+                      {sharedListingStatus === "unavailable" && activeSharedListing?.title
+                        ? `${activeSharedListing.title} is no longer accepting enquiries on BunkBy.`
+                        : "This listing may have been removed or rented out. Browse other active properties below."}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={clearSharedListing}
+                      className="bg-[#052659] hover:bg-[#021024] text-white text-xs font-bold px-5 py-2.5 rounded-xl transition-colors cursor-pointer"
+                    >
+                      Browse All Properties
+                    </button>
+                  </div>
+                );
+              }
+
+              if (!isSharedView && isLoading) {
+                return (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5 sm:gap-5 lg:gap-6" aria-busy="true">
+                    {[0, 1, 2, 3, 4, 5].map((idx) => (
+                      <div key={idx} className="bg-white rounded-2xl overflow-hidden border border-slate-200/90 shadow-xs flex flex-col animate-pulse">
+                        <div className="aspect-16/10 sm:aspect-16/9 w-full bg-slate-200" />
+                        <div className="p-4 space-y-2.5">
+                          <div className="h-4 bg-slate-200 rounded w-3/4" />
+                          <div className="h-3 bg-slate-100 rounded w-1/2" />
+                          <div className="h-6 bg-slate-200 rounded w-1/3 mt-2" />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                );
+              }
+
+              if (!isSharedView && cardsToRender.length === 0) {
+                return (
+                  <div className="bg-white rounded-2xl p-8 sm:p-12 text-center border border-slate-200 space-y-3 max-w-lg mx-auto shadow-xs">
+                    <div className="w-12 h-12 sm:w-16 sm:h-16 bg-slate-100 rounded-full flex items-center justify-center mx-auto text-slate-400">
+                      <SlidersHorizontal className="w-6 h-6 sm:w-8 sm:h-8" />
+                    </div>
+                    <h3 className="text-base sm:text-lg font-bold text-slate-800 font-display">
+                      {committedLocationLabel
+                        ? `No Active Properties in ${committedLocationLabel}`
+                        : "No Listings Found"}
+                    </h3>
+                    <p className="text-xs sm:text-sm text-slate-500">
+                      {committedLocationLabel
+                        ? `No active properties are currently listed in ${committedLocationLabel} matching your search criteria. Try searching another location, clearing filters, or checking availability on WhatsApp.`
+                        : "No listings matched your criteria. Try widening your search or clearing filters. Landlords can list rooms instantly for free!"}
+                    </p>
+                    <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+                      <button
+                        onClick={clearAllFilters}
+                        className="bg-orange-50 text-orange-600 hover:bg-orange-100 text-xs font-bold px-4 py-2 rounded-xl transition-colors cursor-pointer"
+                      >
+                        Clear Filters
+                      </button>
+                      {committedLocationLabel && (
+                        <a
+                          href={getBunkByWhatsAppUrl(`Hi BunkBy! I am looking for accommodation in ${committedLocationLabel}.`)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="bg-[#15803d] hover:bg-[#166534] text-white text-xs font-bold px-4 py-2 rounded-xl transition-colors"
+                        >
+                          Search on WhatsApp
+                        </a>
+                      )}
                     </div>
                   </div>
-                ))}
-              </div>
-            ) : displayedListings.length === 0 ? (
-              <div className="bg-white rounded-2xl p-8 sm:p-12 text-center border border-slate-200 space-y-3 max-w-lg mx-auto shadow-xs">
-                <div className="w-12 h-12 sm:w-16 sm:h-16 bg-slate-100 rounded-full flex items-center justify-center mx-auto text-slate-400">
-                  <SlidersHorizontal className="w-6 h-6 sm:w-8 sm:h-8" />
-                </div>
-                <h3 className="text-base sm:text-lg font-bold text-slate-800 font-display">
-                  {committedLocationLabel
-                    ? `No Active Properties in ${committedLocationLabel}`
-                    : "No Listings Found"}
-                </h3>
-                <p className="text-xs sm:text-sm text-slate-500">
-                  {committedLocationLabel
-                    ? `No active properties are currently listed in ${committedLocationLabel} matching your search criteria. Try searching another location, clearing filters, or checking availability on WhatsApp.`
-                    : "No listings matched your criteria. Try widening your search or clearing filters. Landlords can list rooms instantly for free!"}
-                </p>
-                <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
-                  <button
-                    onClick={clearAllFilters}
-                    className="bg-orange-50 text-orange-600 hover:bg-orange-100 text-xs font-bold px-4 py-2 rounded-xl transition-colors cursor-pointer"
-                  >
-                    Clear Filters
-                  </button>
-                  {committedLocationLabel && (
-                    <a
-                      href={getBunkByWhatsAppUrl(`Hi BunkBy! I am looking for accommodation in ${committedLocationLabel}.`)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="bg-[#15803d] hover:bg-[#166534] text-white text-xs font-bold px-4 py-2 rounded-xl transition-colors"
-                    >
-                      Search on WhatsApp
-                    </a>
+                );
+              }
+
+              return (
+                <div id={isSharedView ? "shared-property-focus" : undefined} className={isSharedView ? "space-y-3 max-w-lg mx-auto scroll-mt-24" : ""}>
+                  {isSharedView && (
+                    <div className="flex items-center justify-between gap-2 bg-white border border-slate-200 rounded-xl px-3.5 py-2.5 shadow-2xs">
+                      <span className="text-xs font-bold text-[#052659]">
+                        Shared Property
+                      </span>
+                      <button
+                        type="button"
+                        onClick={clearSharedListing}
+                        className="text-xs font-bold text-orange-600 hover:text-orange-700 hover:underline cursor-pointer"
+                      >
+                        Browse All Properties
+                      </button>
+                    </div>
                   )}
-                </div>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5 sm:gap-5 lg:gap-6 items-start" id="rooms-grid">
-                {displayedListings.map((room) => {
+                  <div
+                    className={
+                      isSharedView
+                        ? "grid grid-cols-1 gap-4 items-start"
+                        : "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5 sm:gap-5 lg:gap-6 items-start"
+                    }
+                    id="rooms-grid"
+                  >
+                {cardsToRender.map((room) => {
                   const isHospitality = room.category === "hospitality" || ["Lodge / Guesthouse", "Hotel", "Lodge", "Guesthouse", "Bed & Breakfast"].includes(room.propertyType);
                   const businessName = room.business_name || room.businessName;
                   const cardKey = String(room.id);
@@ -2611,7 +3210,7 @@ export default function App() {
                                     <button
                                       type="button"
                                       onClick={() => {
-                                        const shareUrl = `${window.location.origin}/listing/${encodeURIComponent(cardKey)}`;
+                                        const shareUrl = `${window.location.origin}/?listing=${encodeURIComponent(cardKey)}`;
                                         if (navigator.clipboard?.writeText) {
                                           navigator.clipboard.writeText(shareUrl).catch(() => {});
                                         }
@@ -2688,8 +3287,10 @@ export default function App() {
                     </div>
                   );
                 })}
-              </div>
-            )}
+                  </div>
+                </div>
+              );
+            })()}
             </div>
 
             {/* Highlighted BunkBy Promo Section - Responsive & Compact */}
@@ -3073,7 +3674,9 @@ export default function App() {
                                         }
                                         return raw ? [raw] : [];
                                       })();
-                                      setUploadedImages(existingRoomPhotos);
+                                      setUploadedImages(
+                                        existingRoomPhotos.filter((img: string) => Boolean(img) && !DEFAULT_ROOM_IMAGES.includes(img))
+                                      );
                                       setIsEditing(room.id);
                                       setIsCreateModalOpen(true);
                                     }}
@@ -3094,9 +3697,9 @@ export default function App() {
                                 )}
 
                                 <button 
-                                  onClick={() => handleDeleteListing(room.id)}
-                                  className="text-red-500 hover:text-red-700 p-1.5 rounded-lg hover:bg-red-50 transition-all shrink-0"
-                                  title="Permanently remove listings"
+                                  onClick={() => handleDeleteListing(room.id, room.title)}
+                                  className="text-red-500 hover:text-red-700 p-1.5 rounded-lg hover:bg-red-50 transition-all shrink-0 cursor-pointer"
+                                  title="Permanently remove listing"
                                 >
                                   <Trash2 className="w-4 h-4" />
                                 </button>
@@ -3550,6 +4153,44 @@ export default function App() {
                     </div>
                   </div>
 
+                  {adminActionBanner && (
+                    <div
+                      className={`flex items-start justify-between gap-3 px-4 py-3 rounded-2xl border shadow-xs animate-fade-in ${
+                        adminActionBanner.tone === "red"
+                          ? "bg-red-50 border-red-200 text-red-900"
+                          : adminActionBanner.tone === "amber"
+                          ? "bg-amber-50 border-amber-200 text-amber-900"
+                          : "bg-emerald-50 border-emerald-200 text-emerald-900"
+                      }`}
+                    >
+                      <div className="flex items-start gap-2.5">
+                        <div
+                          className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${
+                            adminActionBanner.tone === "red"
+                              ? "bg-red-100 text-red-700"
+                              : adminActionBanner.tone === "amber"
+                              ? "bg-amber-100 text-amber-700"
+                              : "bg-emerald-100 text-emerald-700"
+                          }`}
+                        >
+                          <CheckCircle className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <div className="text-xs font-extrabold">{adminActionBanner.title}</div>
+                          <div className="text-[11px] opacity-85 mt-0.5">{adminActionBanner.detail}</div>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setAdminActionBanner(null)}
+                        className="p-1 rounded-lg hover:bg-black/5 cursor-pointer shrink-0"
+                        aria-label="Dismiss confirmation"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  )}
+
                   {adminSubTab === "reports" && (
                     <AdminReportsPanel
                       authToken={userProfile?.token || ""}
@@ -3609,7 +4250,7 @@ export default function App() {
                           {allLandlords.map((landlord: any) => (
                             <tr key={landlord.id} className="hover:bg-slate-50">
                               <td className="px-4 py-3 font-medium text-slate-800">{landlord.full_name || landlord.name}</td>
-                              <td className="px-4 py-3 font-mono text-slate-600">{landlord.id}</td>
+                              <td className="px-4 py-3 font-sans text-slate-600">{landlord.id}</td>
                               <td className="px-4 py-3">
                                 {landlord.verification_status === "verified" || landlord.isVerified ? (
                                   <span className="px-2 py-1 rounded bg-emerald-100 text-emerald-800 text-[9px] font-bold uppercase tracking-wider">Verified</span>
@@ -3619,39 +4260,35 @@ export default function App() {
                               </td>
                               <td className="px-4 py-3 space-x-2">
                                 {(landlord.verification_status !== "verified" && landlord.verification_status !== "admin" && !landlord.isVerified) && (
-                                  <button onClick={async () => {
-                                    try {
-                                      const res = await fetch("/api/admin", { 
-                                        method: 'POST', 
-                                        headers: { 
-                                          'Content-Type': 'application/json',
-                                          'x-landlord-token': userProfile?.token || ''
-                                        }, 
-                                        body: JSON.stringify({ action: 'verify', id: landlord.id }) 
-                                      });
-                                      if (res.ok) {
-                                        showToast("✅ Landlord verified successfully.");
-                                        setAllLandlords(prev => prev.map(l => l.id === landlord.id ? { ...l, verification_status: 'verified', isVerified: true } : l));
-                                      }
-                                    } catch(e) { console.error(e); }
-                                  }} className="bg-emerald-50 text-emerald-600 font-medium px-2 py-1 rounded border border-emerald-200">Verify</button>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      openActionCard({
+                                        type: "admin_verify_landlord",
+                                        targetId: landlord.id,
+                                        targetTitle: landlord.full_name || landlord.name || `Landlord #${landlord.id}`,
+                                        targetSubtitle: `Landlord ID: #${landlord.id}`,
+                                      })
+                                    }
+                                    className="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold px-2.5 py-1 rounded border border-emerald-200 cursor-pointer transition-colors"
+                                  >
+                                    Verify
+                                  </button>
                                 )}
-                                <button onClick={async () => {
-                                    try {
-                                      const res = await fetch("/api/admin", { 
-                                        method: 'POST', 
-                                        headers: { 
-                                          'Content-Type': 'application/json',
-                                          'x-landlord-token': userProfile?.token || ''
-                                        }, 
-                                        body: JSON.stringify({ action: 'deleteLandlord', id: landlord.id }) 
-                                      });
-                                      if (res.ok) {
-                                        showToast("✅ Landlord deleted.");
-                                        setAllLandlords(prev => prev.filter(l => l.id !== landlord.id));
-                                      }
-                                    } catch(e) { console.error(e); }
-                                }} className="bg-red-50 text-red-600 font-medium px-2 py-1 rounded border border-red-200">Delete</button>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    openActionCard({
+                                      type: "admin_delete_landlord",
+                                      targetId: landlord.id,
+                                      targetTitle: landlord.full_name || landlord.name || `Landlord #${landlord.id}`,
+                                      targetSubtitle: `Landlord ID: #${landlord.id}`,
+                                    })
+                                  }
+                                  className="bg-red-50 hover:bg-red-100 text-red-600 font-bold px-2.5 py-1 rounded border border-red-200 cursor-pointer transition-colors"
+                                >
+                                  Delete
+                                </button>
                               </td>
                             </tr>
                           ))}
@@ -3666,7 +4303,7 @@ export default function App() {
                   <div className="space-y-2">
                     <h4 className="text-sm font-bold text-slate-800">Manage All Listings (Including Hidden &amp; Removed)</h4>
                     <div className="overflow-x-auto bg-white border border-slate-200 rounded-xl -mx-1 sm:mx-0 shadow-2xs">
-                      <table className="w-full min-w-[600px] text-left text-xs align-middle">
+                      <table className="w-full min-w-[640px] text-left text-xs align-middle">
                         <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-mono text-[9px]">
                           <tr>
                             <th className="px-4 py-3">ID / Title</th>
@@ -3682,8 +4319,15 @@ export default function App() {
                             return (
                             <tr key={list.id} className="hover:bg-slate-50">
                               <td className="px-4 py-3 font-medium text-slate-800">
-                                <span className="font-mono text-[10px] text-slate-400 mr-1.5">#{list.id}</span>
-                                {list.title}
+                                <div>
+                                  <span className="font-mono text-[10px] text-slate-400 mr-1.5">#{list.id}</span>
+                                  {list.title}
+                                </div>
+                                {list.landlord_id && (
+                                  <div className="text-[10.5px] text-slate-500 mt-0.5">
+                                    Owner ID: <span className="font-mono font-semibold text-slate-700">#{list.landlord_id}</span>
+                                  </div>
+                                )}
                               </td>
                               <td className="px-4 py-3 text-slate-600">{list.city}, {list.suburb}</td>
                               <td className="px-4 py-3 font-mono text-sky-700 font-bold">${list.price}</td>
@@ -3697,60 +4341,51 @@ export default function App() {
                               </td>
                               <td className="px-4 py-3 space-x-1.5 whitespace-nowrap">
                                 {(curStatus === "Hidden" || curStatus === "Removed") ? (
-                                  <button onClick={async () => {
-                                    const res = await fetch(`/api/admin/listings/${list.id}/moderate`, {
-                                      method: "POST",
-                                      headers: { "Content-Type": "application/json", "x-landlord-token": userProfile?.token || "" },
-                                      body: JSON.stringify({ action: "restore_listing", notes: "Restored from All Listings view" }),
-                                    });
-                                    if (res.ok) {
-                                      showToast("🔄 Listing restored.");
-                                      const data = await res.json();
-                                      setAdminListings(prev => prev.map(l => l.id === list.id ? { ...l, verification_status: data.newListingStatus } : l));
-                                      try {
-                                        const pubRes = await fetch("/api/listings", { headers: { Accept: "application/json" } });
-                                        if (pubRes.ok) {
-                                          const pubData = await pubRes.json();
-                                          if (Array.isArray(pubData.listings)) setListings(pubData.listings);
-                                        }
-                                      } catch (_) {}
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      openActionCard({
+                                        type: "admin_restore_listing",
+                                        targetId: list.id,
+                                        targetTitle: list.title || `Listing #${list.id}`,
+                                        targetSubtitle: `${list.suburb || ""}, ${list.city || ""}`.replace(/^,\s*|,\s*$/g, ""),
+                                      })
                                     }
-                                  }} className="bg-emerald-50 text-emerald-700 font-bold px-2 py-1 rounded border border-emerald-200 cursor-pointer">Restore</button>
+                                    className="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold px-2.5 py-1 rounded border border-emerald-200 cursor-pointer transition-colors"
+                                  >
+                                    Restore
+                                  </button>
                                 ) : (
-                                  <button onClick={async () => {
-                                    const res = await fetch(`/api/admin/listings/${list.id}/moderate`, {
-                                      method: "POST",
-                                      headers: { "Content-Type": "application/json", "x-landlord-token": userProfile?.token || "" },
-                                      body: JSON.stringify({ action: "hide_listing", notes: "Temporarily hidden from All Listings view" }),
-                                    });
-                                    if (res.ok) {
-                                      showToast("🙈 Listing hidden.");
-                                      setListings(prev => prev.filter(l => String(l.id) !== String(list.id)));
-                                      setAdminListings(prev => prev.map(l => l.id === list.id ? { ...l, verification_status: "Hidden" } : l));
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      openActionCard({
+                                        type: "admin_hide_listing",
+                                        targetId: list.id,
+                                        targetTitle: list.title || `Listing #${list.id}`,
+                                        targetSubtitle: `${list.suburb || ""}, ${list.city || ""}`.replace(/^,\s*|,\s*$/g, ""),
+                                      })
                                     }
-                                  }} className="bg-amber-50 text-amber-800 font-bold px-2 py-1 rounded border border-amber-200 cursor-pointer">Hide</button>
+                                    className="bg-amber-50 hover:bg-amber-100 text-amber-800 font-bold px-2.5 py-1 rounded border border-amber-200 cursor-pointer transition-colors"
+                                  >
+                                    Hide
+                                  </button>
                                 )}
                                 {curStatus !== "Removed" && (
-                                  <button onClick={async () => {
-                                      try {
-                                        const res = await fetch(`/api/admin/listings/${list.id}/moderate`, {
-                                          method: "POST",
-                                          headers: {
-                                            "Content-Type": "application/json",
-                                            "x-landlord-token": userProfile?.token || "",
-                                          },
-                                          body: JSON.stringify({
-                                            action: "remove_listing",
-                                            notes: "Removed from All Listings admin view (report history preserved)",
-                                          }),
-                                        });
-                                        if (res.ok) {
-                                          showToast("🚫 Listing removed from website & WhatsApp search.");
-                                          setListings(prev => prev.filter(l => String(l.id) !== String(list.id)));
-                                          setAdminListings(prev => prev.map(l => String(l.id) === String(list.id) ? { ...l, verification_status: "Removed" } : l));
-                                        }
-                                      } catch(e) { console.error(e); }
-                                  }} className="bg-red-50 text-red-600 font-medium px-2 py-1 rounded border border-red-200 cursor-pointer">Remove</button>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      openActionCard({
+                                        type: "admin_remove_listing",
+                                        targetId: list.id,
+                                        targetTitle: list.title || `Listing #${list.id}`,
+                                        targetSubtitle: `${list.suburb || ""}, ${list.city || ""}`.replace(/^,\s*|,\s*$/g, ""),
+                                      })
+                                    }
+                                    className="bg-red-50 hover:bg-red-100 text-red-600 font-bold px-2.5 py-1 rounded border border-red-200 cursor-pointer transition-colors"
+                                  >
+                                    Remove
+                                  </button>
                                 )}
                               </td>
                             </tr>
@@ -3824,7 +4459,7 @@ export default function App() {
 
       {/* FOOTER */}
       <footer className="bg-[#021024] text-white pt-3.5 sm:pt-6 border-t border-[#052659] mt-auto select-none shrink-0 text-left">
-        <div className="max-w-7xl mx-auto px-3.5 sm:px-6 lg:px-8 pb-3.5 sm:pb-6">
+        <div className="w-full px-3.5 pb-3.5 sm:pb-6">
           {/* Brand Info */}
           <div className="max-w-2xl">
             <div className="flex items-center gap-1.5 sm:gap-2">
@@ -3841,7 +4476,7 @@ export default function App() {
 
         {/* Bottom Copyright & Privacy Policy Strip */}
         <div className="bg-[#052659] py-2.5 sm:py-3.5 border-t border-[#052659]/50 text-left">
-          <div className="max-w-7xl mx-auto px-3.5 sm:px-6 lg:px-8 flex flex-row items-center justify-between gap-3 sm:gap-6">
+          <div className="w-full px-3.5 flex flex-row items-center justify-between gap-3 sm:gap-6">
             <p className="text-[8.5px] sm:text-[11px] text-slate-300 font-normal leading-tight min-w-0">
               © 2026 BunkBy. BunkBy is an accommodation marketplace operated by ATLAS MANICA GROUP LTD.
             </p>
@@ -4217,8 +4852,12 @@ export default function App() {
                 {/* Real Landlord Pictures and Live Camera Snapping Module */}
                 <div className="space-y-3 bg-slate-50 border border-slate-200/80 p-4 rounded-2xl">
                   <div>
-                    <label className="text-xs font-bold text-slate-700 uppercase tracking-wide block">Room Photos (Select Up To 3)</label>
-                    <p className="text-[10px] text-slate-400 font-medium">Add real property photos to attract renters, or use fallback draft images below.</p>
+                    <label className="text-xs font-bold text-slate-700 uppercase tracking-wide block">
+                      Property Photos * (Required, 1 to 3 Photos)
+                    </label>
+                    <p className="text-[10px] text-slate-500 font-medium">
+                      Upload at least 1 real photo of your property from your device or camera to publish.
+                    </p>
                   </div>
 
                   {/* Pictures Preview Grid */}
@@ -4296,26 +4935,10 @@ export default function App() {
                     )
                   )}
 
-                  {/* Fallback presets if no photos uploaded */}
+                  {/* Mandatory Photo Requirement Notice */}
                   {uploadedImages.length === 0 && (
-                    <div className="space-y-1 pt-1.5 border-t border-slate-200/60 mt-1">
-                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Or select fallback draft image</label>
-                      <div className="grid grid-cols-5 gap-1.5">
-                        {DEFAULT_ROOM_IMAGES.map((img, index) => (
-                          <div 
-                            key={index}
-                            onClick={() => setNewRoomForm(prev => ({ ...prev, imageUrl: img }))}
-                            className={`border rounded-xl h-10 w-full cursor-pointer overflow-hidden transition-all relative ${newRoomForm.imageUrl === img ? "border-orange-500 ring-2 ring-orange-500/10 scale-95" : "border-slate-200 hover:opacity-85"}`}
-                          >
-                            <img src={img} alt="Bedroom Draft" className="h-full w-full object-cover" />
-                            {newRoomForm.imageUrl === img && (
-                              <div className="absolute inset-0 bg-sky-950/45 flex items-center justify-center">
-                                <span className="text-[8px] font-mono font-bold text-white uppercase bg-orange-500 px-1 py-0.5 rounded leading-none">Active</span>
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                      </div>
+                    <div className="rounded-xl bg-amber-50 border border-amber-200 px-3 py-2 text-[11px] font-semibold text-amber-800">
+                      Please upload at least 1 real property photo above to continue. Listings cannot be published without real photos.
                     </div>
                   )}
                 </div>
@@ -4380,8 +5003,9 @@ export default function App() {
                   </button>
                   <button 
                     type="submit" 
-                    disabled={isPublishing}
-                    className="w-1/2 bg-orange-500 hover:bg-orange-600 disabled:bg-slate-300 text-white font-bold py-3.5 rounded-2xl text-sm shadow-md transition-all text-center select-none cursor-pointer flex items-center justify-center gap-2"
+                    disabled={isPublishing || uploadedImages.length === 0}
+                    className="w-1/2 bg-orange-500 hover:bg-orange-600 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-bold py-3.5 rounded-2xl text-sm shadow-md transition-all text-center select-none cursor-pointer flex items-center justify-center gap-2"
+                    title={uploadedImages.length === 0 ? "Upload at least 1 property photo to publish" : undefined}
                   >
                     {isPublishing ? (
                       <div className="flex items-center gap-1.5 justify-center py-1">
@@ -4389,6 +5013,8 @@ export default function App() {
                         <span className="w-2 h-2 bg-white rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
                         <span className="w-2 h-2 bg-white rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
                       </div>
+                    ) : uploadedImages.length === 0 ? (
+                      "Upload Photo to Publish"
                     ) : (
                       isEditing ? "Save Specifications" : "Publish Free Listing"
                     )}
@@ -5254,6 +5880,187 @@ export default function App() {
             </motion.div>
           </div>
         )}
+
+        {/* Admin & Property Action Confirmation + Auto-Closing Success Card */}
+        {actionCardModal && (() => {
+          const isDestructive =
+            actionCardModal.type === "delete_property" ||
+            actionCardModal.type === "admin_remove_listing" ||
+            actionCardModal.type === "admin_delete_landlord";
+          const isWarning = actionCardModal.type === "admin_hide_listing";
+          const isPositive =
+            actionCardModal.type === "admin_restore_listing" ||
+            actionCardModal.type === "admin_verify_landlord";
+
+          const headerTitles: Record<typeof actionCardModal.type, string> = {
+            delete_property: "Delete Property",
+            admin_restore_listing: "Restore Property",
+            admin_hide_listing: "Hide Property",
+            admin_remove_listing: "Remove Property",
+            admin_verify_landlord: "Verify Landlord",
+            admin_delete_landlord: "Delete Landlord",
+          };
+          const descriptions: Record<typeof actionCardModal.type, string> = {
+            delete_property: "This will permanently delete this property listing from BunkBy.",
+            admin_restore_listing: "This will restore the property so tenants can find it again on website and WhatsApp search.",
+            admin_hide_listing: "This will temporarily hide the property from website and WhatsApp search until restored.",
+            admin_remove_listing: "This will remove the property from public search while keeping the moderation audit record.",
+            admin_verify_landlord: "This will mark this landlord account as Verified across BunkBy.",
+            admin_delete_landlord: "This will remove this landlord account from the BunkBy directory.",
+          };
+          const buttonLabels: Record<typeof actionCardModal.type, { idle: string; busy: string }> = {
+            delete_property: { idle: "Yes, Delete Property", busy: "Deleting..." },
+            admin_restore_listing: { idle: "Yes, Restore Property", busy: "Restoring..." },
+            admin_hide_listing: { idle: "Yes, Hide Property", busy: "Hiding..." },
+            admin_remove_listing: { idle: "Yes, Remove Property", busy: "Removing..." },
+            admin_verify_landlord: { idle: "Yes, Verify Landlord", busy: "Verifying..." },
+            admin_delete_landlord: { idle: "Yes, Delete Landlord", busy: "Deleting..." },
+          };
+
+          return (
+            <div className="fixed inset-0 z-55 bg-slate-950/75 flex items-center justify-center p-4">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.94, y: 10 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.94, y: 10 }}
+                className="bg-white rounded-3xl max-w-md w-full border border-slate-200 shadow-2xl overflow-hidden"
+              >
+                {actionCardModal.phase === "success" ? (
+                  <div className="p-7 text-center space-y-4">
+                    <div
+                      className={`w-16 h-16 rounded-full mx-auto flex items-center justify-center ring-8 ${
+                        isDestructive
+                          ? "bg-red-100 text-red-600 ring-red-50"
+                          : isWarning
+                          ? "bg-amber-100 text-amber-600 ring-amber-50"
+                          : "bg-emerald-100 text-emerald-600 ring-emerald-50"
+                      }`}
+                    >
+                      <CheckCircle className="w-9 h-9" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <h3 className="text-lg font-display font-black text-slate-900">
+                        {actionCardModal.successTitle || "Action Completed"}
+                      </h3>
+                      <p className="text-xs text-slate-600 leading-relaxed">
+                        {actionCardModal.successDetail}
+                      </p>
+                    </div>
+                    <div className="pt-1 flex flex-col items-center gap-2">
+                      <span className="text-[11px] text-slate-400 font-medium">
+                        Closing card...
+                      </span>
+                      <button
+                        type="button"
+                        onClick={closeActionCardModal}
+                        className="bg-[#052659] hover:bg-[#021024] text-white font-bold text-xs px-5 py-2 rounded-xl cursor-pointer transition-colors"
+                      >
+                        Done
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-6 space-y-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-center gap-3">
+                        <div
+                          className={`w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 ${
+                            isDestructive
+                              ? "bg-red-100 text-red-600"
+                              : isWarning
+                              ? "bg-amber-100 text-amber-700"
+                              : "bg-emerald-100 text-emerald-700"
+                          }`}
+                        >
+                          {isDestructive ? (
+                            <Trash2 className="w-5 h-5" />
+                          ) : isWarning ? (
+                            <EyeOff className="w-5 h-5" />
+                          ) : isPositive && actionCardModal.type === "admin_restore_listing" ? (
+                            <RotateCcw className="w-5 h-5" />
+                          ) : (
+                            <ShieldCheck className="w-5 h-5" />
+                          )}
+                        </div>
+                        <div>
+                          <h3 className="text-base font-display font-black text-slate-900">
+                            {headerTitles[actionCardModal.type]}
+                          </h3>
+                          <p className="text-[11px] font-mono text-slate-500">
+                            ID #{actionCardModal.targetId}
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        disabled={actionCardModal.phase === "loading"}
+                        onClick={closeActionCardModal}
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer disabled:opacity-40"
+                        aria-label="Close confirmation card"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3.5 space-y-1">
+                      <div className="text-xs font-extrabold text-slate-900">
+                        {actionCardModal.targetTitle}
+                      </div>
+                      {actionCardModal.targetSubtitle && (
+                        <div className="text-[11px] text-slate-500">
+                          {actionCardModal.targetSubtitle}
+                        </div>
+                      )}
+                    </div>
+
+                    <p className="text-xs text-slate-600 leading-relaxed">
+                      {descriptions[actionCardModal.type]}
+                    </p>
+
+                    {actionCardModal.phase === "error" && actionCardModal.errorDetail && (
+                      <div className="bg-red-50 border border-red-200 text-red-700 text-xs font-semibold px-3 py-2.5 rounded-xl flex items-center gap-2">
+                        <AlertTriangle className="w-4 h-4 shrink-0" />
+                        <span>{actionCardModal.errorDetail}</span>
+                      </div>
+                    )}
+
+                    <div className="pt-1 flex gap-2.5">
+                      <button
+                        type="button"
+                        disabled={actionCardModal.phase === "loading"}
+                        onClick={closeActionCardModal}
+                        className="w-1/3 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 text-slate-700 font-bold py-2.5 rounded-xl text-xs transition-all cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        disabled={actionCardModal.phase === "loading"}
+                        onClick={executeActionCard}
+                        className={`w-2/3 text-white font-bold py-2.5 rounded-xl text-xs shadow-sm transition-all inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60 ${
+                          isDestructive
+                            ? "bg-red-600 hover:bg-red-700"
+                            : isWarning
+                            ? "bg-amber-500 hover:bg-amber-600"
+                            : "bg-emerald-600 hover:bg-emerald-700"
+                        }`}
+                      >
+                        {actionCardModal.phase === "loading" && (
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        )}
+                        <span>
+                          {actionCardModal.phase === "loading"
+                            ? buttonLabels[actionCardModal.type].busy
+                            : buttonLabels[actionCardModal.type].idle}
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </motion.div>
+            </div>
+          );
+        })()}
       </AnimatePresence>
 
       {/* Floating WhatsApp Assistant Button (disappears at once 2 seconds after initial appearance) */}

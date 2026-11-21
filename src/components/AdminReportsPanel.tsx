@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -11,6 +11,7 @@ import {
   Search,
   ShieldAlert,
   Trash2,
+  UserCheck,
   X,
   XCircle,
 } from "lucide-react";
@@ -45,7 +46,7 @@ const DEFAULT_STATS: ReportStats = {
 };
 
 function formatDateTime(value?: string | null): string {
-  if (!value) return "—";
+  if (!value) return "-";
   const d = new Date(value.includes("T") ? value : value.replace(" ", "T") + "Z");
   if (Number.isNaN(d.getTime())) return value;
   return d.toLocaleString([], {
@@ -170,6 +171,55 @@ export const AdminReportsPanel: React.FC<AdminReportsPanelProps> = ({
   const [isDetailLoading, setIsDetailLoading] = useState<boolean>(false);
   const [moderationNotes, setModerationNotes] = useState<string>("");
   const [isMutating, setIsMutating] = useState<boolean>(false);
+  const [pendingAction, setPendingAction] = useState<string | null>(null);
+  const [rowBusyKey, setRowBusyKey] = useState<string | null>(null);
+  const [highlightedReportId, setHighlightedReportId] = useState<number | null>(null);
+  const [actionBanner, setActionBanner] = useState<{
+    title: string;
+    detail: string;
+    tone: "emerald" | "amber" | "red" | "sky";
+  } | null>(null);
+  const [modalInlineNotice, setModalInlineNotice] = useState<string | null>(null);
+  const [modalSuccessCard, setModalSuccessCard] = useState<{
+    title: string;
+    detail: string;
+    tone: "emerald" | "amber" | "red" | "sky";
+  } | null>(null);
+
+  const modalCloseTimerRef = useRef<number | null>(null);
+  const bannerTimerRef = useRef<number | null>(null);
+  const rowHighlightTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (modalCloseTimerRef.current) window.clearTimeout(modalCloseTimerRef.current);
+      if (bannerTimerRef.current) window.clearTimeout(bannerTimerRef.current);
+      if (rowHighlightTimerRef.current) window.clearTimeout(rowHighlightTimerRef.current);
+    };
+  }, []);
+
+  const showActionBanner = (
+    title: string,
+    detail: string,
+    tone: "emerald" | "amber" | "red" | "sky" = "emerald"
+  ) => {
+    setActionBanner({ title, detail, tone });
+    if (bannerTimerRef.current) window.clearTimeout(bannerTimerRef.current);
+    bannerTimerRef.current = window.setTimeout(() => {
+      setActionBanner(null);
+      bannerTimerRef.current = null;
+    }, 6000);
+  };
+
+  const closeReportModal = () => {
+    if (modalCloseTimerRef.current) {
+      window.clearTimeout(modalCloseTimerRef.current);
+      modalCloseTimerRef.current = null;
+    }
+    setModalSuccessCard(null);
+    setModalInlineNotice(null);
+    setSelectedReport(null);
+  };
 
   const loadReports = useCallback(async () => {
     if (!authToken) return;
@@ -207,6 +257,12 @@ export const AdminReportsPanel: React.FC<AdminReportsPanelProps> = ({
   }, [loadReports]);
 
   const openReportDetail = async (report: ListingReport) => {
+    if (modalCloseTimerRef.current) {
+      window.clearTimeout(modalCloseTimerRef.current);
+      modalCloseTimerRef.current = null;
+    }
+    setModalSuccessCard(null);
+    setModalInlineNotice(null);
     setSelectedReport(report);
     setModerationNotes(report.moderation_notes || "");
     setIsDetailLoading(true);
@@ -243,10 +299,16 @@ export const AdminReportsPanel: React.FC<AdminReportsPanelProps> = ({
       | "resolve_report"
       | "add_note",
     report: ListingReport,
-    customReason?: string
+    customReason?: string,
+    triggeredFromRow?: boolean
   ) => {
     if (!authToken || isMutating) return;
     setIsMutating(true);
+    setPendingAction(action);
+    if (triggeredFromRow) {
+      setRowBusyKey(`${action}-${report.id}`);
+    }
+    setModalInlineNotice(null);
     try {
       const res = await fetch(`/api/admin/reports/${report.id}`, {
         method: "POST",
@@ -266,32 +328,113 @@ export const AdminReportsPanel: React.FC<AdminReportsPanelProps> = ({
         return;
       }
 
-      const labels: Record<string, string> = {
-        mark_under_review: "🔎 Report marked under investigation.",
-        dismiss_report: "✅ Report dismissed; listing stays active.",
-        hide_listing: "🙈 Listing temporarily hidden from website & WhatsApp search.",
-        restore_listing: "🔄 Listing restored to active search.",
-        remove_listing: "🚫 Listing removed from website & WhatsApp search.",
-        resolve_report: "✅ Report marked as resolved.",
-        add_note: "📝 Moderation note saved.",
+      const listingLabel = report.listing_title
+        ? `${report.listing_title} (#${report.listing_id})`
+        : `Listing #${report.listing_id}`;
+
+      const feedbackMeta: Record<
+        string,
+        { toast: string; title: string; detail: string; tone: "emerald" | "amber" | "red" | "sky"; closesModal: boolean }
+      > = {
+        mark_under_review: {
+          toast: "🔎 Report marked under investigation.",
+          title: "Marked Under Investigation",
+          detail: `Report #${report.id} on ${listingLabel} is now under review.`,
+          tone: "sky",
+          closesModal: false,
+        },
+        dismiss_report: {
+          toast: "✅ Report dismissed; listing stays active.",
+          title: "Report Dismissed Successfully",
+          detail: `Report #${report.id} was dismissed and ${listingLabel} remains live.`,
+          tone: "emerald",
+          closesModal: true,
+        },
+        hide_listing: {
+          toast: "🙈 Listing temporarily hidden from website & WhatsApp search.",
+          title: "Property Hidden Successfully",
+          detail: `${listingLabel} has been hidden from public search and WhatsApp results.`,
+          tone: "amber",
+          closesModal: true,
+        },
+        restore_listing: {
+          toast: "🔄 Listing restored to active search.",
+          title: "Property Restored Successfully",
+          detail: `${listingLabel} is now live again on website and WhatsApp search.`,
+          tone: "emerald",
+          closesModal: true,
+        },
+        remove_listing: {
+          toast: "🚫 Listing removed from website & WhatsApp search.",
+          title: "Property Removed Successfully",
+          detail: `${listingLabel} has been removed from public listings (audit record preserved).`,
+          tone: "red",
+          closesModal: true,
+        },
+        resolve_report: {
+          toast: "✅ Report marked as resolved.",
+          title: "Report Resolved Successfully",
+          detail: `Report #${report.id} for ${listingLabel} has been marked resolved.`,
+          tone: "emerald",
+          closesModal: true,
+        },
+        add_note: {
+          toast: "📝 Moderation note saved.",
+          title: "Moderation Note Saved",
+          detail: `Internal note added to Report #${report.id}.`,
+          tone: "sky",
+          closesModal: false,
+        },
       };
-      showToast(labels[action] || "✅ Moderation updated.");
+
+      const meta = feedbackMeta[action] || {
+        toast: "✅ Moderation updated.",
+        title: "Action Completed",
+        detail: `Updated Report #${report.id}.`,
+        tone: "emerald" as const,
+        closesModal: false,
+      };
+
+      showToast(meta.toast);
+      showActionBanner(meta.title, meta.detail, meta.tone);
+      setHighlightedReportId(report.id);
+      if (rowHighlightTimerRef.current) window.clearTimeout(rowHighlightTimerRef.current);
+      rowHighlightTimerRef.current = window.setTimeout(() => {
+        setHighlightedReportId(null);
+        rowHighlightTimerRef.current = null;
+      }, 2800);
 
       await loadReports();
       await onModerationComplete();
 
-      // Refresh open modal details
       if (selectedReport && selectedReport.id === report.id) {
-        await openReportDetail({
-          ...selectedReport,
-          status: data.reportStatus || selectedReport.status,
-          listing_status: data.newListingStatus || selectedReport.listing_status,
-        });
+        if (meta.closesModal) {
+          setModalSuccessCard({
+            title: meta.title,
+            detail: meta.detail,
+            tone: meta.tone,
+          });
+          if (modalCloseTimerRef.current) window.clearTimeout(modalCloseTimerRef.current);
+          modalCloseTimerRef.current = window.setTimeout(() => {
+            setModalSuccessCard(null);
+            setSelectedReport(null);
+            modalCloseTimerRef.current = null;
+          }, 1400);
+        } else {
+          setModalInlineNotice(meta.title);
+          await openReportDetail({
+            ...selectedReport,
+            status: data.reportStatus || selectedReport.status,
+            listing_status: data.newListingStatus || selectedReport.listing_status,
+          });
+        }
       }
     } catch {
       showToast("⚠️ Network error updating moderation state.");
     } finally {
       setIsMutating(false);
+      setPendingAction(null);
+      setRowBusyKey(null);
     }
   };
 
@@ -355,13 +498,13 @@ export const AdminReportsPanel: React.FC<AdminReportsPanelProps> = ({
         </div>
 
         <div className="flex items-center gap-2">
-          <div className="relative flex-1 sm:w-60">
+          <div className="relative flex-1 sm:w-64">
             <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search reason, title, suburb..."
+              placeholder="Search tenant ID, phone, listing, reason..."
               className="w-full pl-8 pr-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50 text-xs font-medium focus:outline-none focus:border-[#052659]"
             />
           </div>
@@ -377,6 +520,48 @@ export const AdminReportsPanel: React.FC<AdminReportsPanelProps> = ({
         </div>
       </div>
 
+      {actionBanner && (
+        <div
+          className={`flex items-start justify-between gap-3 px-4 py-3 rounded-2xl border shadow-xs animate-fade-in ${
+            actionBanner.tone === "red"
+              ? "bg-red-50 border-red-200 text-red-900"
+              : actionBanner.tone === "amber"
+              ? "bg-amber-50 border-amber-200 text-amber-900"
+              : actionBanner.tone === "sky"
+              ? "bg-sky-50 border-sky-200 text-sky-900"
+              : "bg-emerald-50 border-emerald-200 text-emerald-900"
+          }`}
+        >
+          <div className="flex items-start gap-2.5">
+            <div
+              className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${
+                actionBanner.tone === "red"
+                  ? "bg-red-100 text-red-700"
+                  : actionBanner.tone === "amber"
+                  ? "bg-amber-100 text-amber-700"
+                  : actionBanner.tone === "sky"
+                  ? "bg-sky-100 text-sky-700"
+                  : "bg-emerald-100 text-emerald-700"
+              }`}
+            >
+              <CheckCircle2 className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="text-xs font-extrabold">{actionBanner.title}</div>
+              <div className="text-[11px] opacity-85 mt-0.5">{actionBanner.detail}</div>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setActionBanner(null)}
+            className="p-1 rounded-lg hover:bg-black/5 cursor-pointer shrink-0"
+            aria-label="Dismiss status message"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {errorMsg && (
         <div className="bg-red-50 border border-red-200 text-red-700 text-xs font-semibold px-4 py-3 rounded-xl">
           {errorMsg}
@@ -385,10 +570,10 @@ export const AdminReportsPanel: React.FC<AdminReportsPanelProps> = ({
 
       {/* Reports Queue Table */}
       <div className="overflow-x-auto bg-white border border-slate-200 rounded-2xl shadow-2xs">
-        <table className="w-full min-w-[760px] text-left text-xs align-middle">
+        <table className="w-full min-w-[820px] text-left text-xs align-middle">
           <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-mono text-[9.5px]">
             <tr>
-              <th className="px-4 py-3">Report</th>
+              <th className="px-4 py-3">Report &amp; Tenant ID</th>
               <th className="px-4 py-3">Listing &amp; Visibility</th>
               <th className="px-4 py-3">Reason &amp; Details</th>
               <th className="px-4 py-3">Report Status</th>
@@ -410,23 +595,48 @@ export const AdminReportsPanel: React.FC<AdminReportsPanelProps> = ({
                 </td>
               </tr>
             ) : (
-              reports.map((rep) => (
-                <tr key={rep.id} className="hover:bg-slate-50/80 transition-colors">
-                  <td className="px-4 py-3 font-mono font-bold text-slate-800 whitespace-nowrap">
-                    #{rep.id}
+              reports.map((rep) => {
+                const tenantIdLabel = rep.reporter_id || `TEN-${rep.id}`;
+                const isRowHighlighted = highlightedReportId === rep.id;
+                const isRowRestoring = rowBusyKey === `restore_listing-${rep.id}`;
+                const isRowHiding = rowBusyKey === `hide_listing-${rep.id}`;
+                return (
+                <tr
+                  key={rep.id}
+                  className={`transition-colors ${
+                    isRowHighlighted ? "bg-emerald-50/90" : "hover:bg-slate-50/80"
+                  }`}
+                >
+                  <td className="px-4 py-3 whitespace-nowrap">
+                    <div className="font-mono font-bold text-slate-800">Report #{rep.id}</div>
+                    <div className="mt-1 inline-flex items-center gap-1 bg-indigo-50 text-indigo-800 border border-indigo-200/80 px-1.5 py-0.5 rounded font-mono text-[10px] font-bold">
+                      <UserCheck className="w-3 h-3 shrink-0" />
+                      <span>{tenantIdLabel}</span>
+                    </div>
                     {rep.reporter_name && (
-                      <div className="text-[10px] font-sans font-medium text-slate-500 truncate max-w-[110px]">
+                      <div className="text-[10.5px] font-sans font-medium text-slate-600 truncate max-w-[140px] mt-0.5">
                         {rep.reporter_name}
                       </div>
                     )}
+                    {rep.reporter_phone && (
+                      <div className="text-[10.5px] font-sans text-slate-500">
+                        {rep.reporter_phone}
+                      </div>
+                    )}
                   </td>
-                  <td className="px-4 py-3 max-w-[230px]">
+                  <td className="px-4 py-3 max-w-[240px]">
                     <div className="font-bold text-slate-900 truncate">
                       {rep.listing_title || `Listing #${rep.listing_id}`}
                     </div>
                     <div className="text-[11px] text-slate-500 truncate">
-                      #{rep.listing_id} • {rep.listing_suburb || "—"}, {rep.listing_city || "—"}
+                      Listing #{rep.listing_id} • {rep.listing_suburb || "-"}, {rep.listing_city || "-"}
                     </div>
+                    {rep.listing_landlord_id && (
+                      <div className="text-[10.5px] text-slate-500 truncate mt-0.5">
+                        Owner ID: <strong className="text-slate-700">#{rep.listing_landlord_id}</strong>
+                        {rep.listing_landlord_name ? ` (${rep.listing_landlord_name})` : ""}
+                      </div>
+                    )}
                     <div className="mt-1 flex items-center gap-1.5 flex-wrap">
                       {getListingStatusBadge(rep.listing_status)}
                       {Number(rep.listing_reports_count || 0) > 1 && (
@@ -480,24 +690,27 @@ export const AdminReportsPanel: React.FC<AdminReportsPanelProps> = ({
                       <button
                         type="button"
                         disabled={isMutating}
-                        onClick={() => runModerationAction("restore_listing", rep)}
-                        className="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 font-bold px-2.5 py-1.5 rounded-lg text-[11px] cursor-pointer"
+                        onClick={() => runModerationAction("restore_listing", rep, undefined, true)}
+                        className="bg-emerald-50 hover:bg-emerald-100 disabled:opacity-60 text-emerald-700 border border-emerald-200 font-bold px-2.5 py-1.5 rounded-lg text-[11px] inline-flex items-center gap-1 cursor-pointer"
                       >
-                        Restore
+                        {isRowRestoring && <RefreshCw className="w-3 h-3 animate-spin" />}
+                        <span>{isRowRestoring ? "Restoring..." : "Restore"}</span>
                       </button>
                     ) : (
                       <button
                         type="button"
                         disabled={isMutating}
-                        onClick={() => runModerationAction("hide_listing", rep)}
-                        className="bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 font-bold px-2.5 py-1.5 rounded-lg text-[11px] cursor-pointer"
+                        onClick={() => runModerationAction("hide_listing", rep, undefined, true)}
+                        className="bg-amber-50 hover:bg-amber-100 disabled:opacity-60 text-amber-800 border border-amber-200 font-bold px-2.5 py-1.5 rounded-lg text-[11px] inline-flex items-center gap-1 cursor-pointer"
                       >
-                        Hide
+                        {isRowHiding && <RefreshCw className="w-3 h-3 animate-spin" />}
+                        <span>{isRowHiding ? "Hiding..." : "Hide"}</span>
                       </button>
                     )}
                   </td>
                 </tr>
-              ))
+                );
+              })
             )}
           </tbody>
         </table>
@@ -552,26 +765,73 @@ export const AdminReportsPanel: React.FC<AdminReportsPanelProps> = ({
           <div className="bg-white rounded-3xl max-w-2xl w-full border border-slate-200 shadow-2xl overflow-hidden my-auto max-h-[90vh] flex flex-col">
             <div className="bg-[#052659] text-white px-5 py-4 flex items-center justify-between shrink-0">
               <div className="flex items-center gap-2">
-                <AlertTriangle className="w-5 h-5 text-[#FF7A00]" />
+                {modalSuccessCard ? (
+                  <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                ) : (
+                  <AlertTriangle className="w-5 h-5 text-[#FF7A00]" />
+                )}
                 <div>
                   <h3 className="font-display font-black text-base">
-                    Report #{selectedReport.id} — Moderation Review
+                    Report #{selectedReport.id} · Moderation Review
                   </h3>
                   <p className="text-[11px] text-slate-300">
-                    Listing #{selectedReport.listing_id} • Submitted {formatDateTime(selectedReport.created_at)}
+                    Listing #{selectedReport.listing_id} • Tenant ID {selectedReport.reporter_id || `TEN-${selectedReport.id}`} • Submitted {formatDateTime(selectedReport.created_at)}
                   </p>
                 </div>
               </div>
               <button
                 type="button"
-                onClick={() => setSelectedReport(null)}
+                onClick={closeReportModal}
                 className="p-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-white/10 cursor-pointer"
+                aria-label="Close report review"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
+            {modalSuccessCard ? (
+              <div className="p-8 sm:p-10 text-center space-y-4 bg-white">
+                <div
+                  className={`w-16 h-16 rounded-full mx-auto flex items-center justify-center ring-8 ${
+                    modalSuccessCard.tone === "red"
+                      ? "bg-red-100 text-red-600 ring-red-50"
+                      : modalSuccessCard.tone === "amber"
+                      ? "bg-amber-100 text-amber-600 ring-amber-50"
+                      : "bg-emerald-100 text-emerald-600 ring-emerald-50"
+                  }`}
+                >
+                  <CheckCircle2 className="w-9 h-9" />
+                </div>
+                <div className="space-y-1.5">
+                  <h4 className="text-lg font-display font-black text-slate-900">
+                    {modalSuccessCard.title}
+                  </h4>
+                  <p className="text-xs sm:text-sm text-slate-600 max-w-md mx-auto leading-relaxed">
+                    {modalSuccessCard.detail}
+                  </p>
+                </div>
+                <div className="pt-2 flex flex-col items-center gap-2">
+                  <span className="text-[11px] font-medium text-slate-400">
+                    Closing review card...
+                  </span>
+                  <button
+                    type="button"
+                    onClick={closeReportModal}
+                    className="bg-[#052659] hover:bg-[#021024] text-white font-bold text-xs px-5 py-2 rounded-xl cursor-pointer transition-colors"
+                  >
+                    Done
+                  </button>
+                </div>
+              </div>
+            ) : (
             <div className="p-5 overflow-y-auto space-y-4 text-left flex-grow">
+              {modalInlineNotice && (
+                <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 px-3.5 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>{modalInlineNotice}</span>
+                </div>
+              )}
+
               {/* Listing summary card */}
               <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-2">
                 <div className="flex flex-wrap items-start justify-between gap-2">
@@ -583,14 +843,29 @@ export const AdminReportsPanel: React.FC<AdminReportsPanelProps> = ({
                       {selectedReport.listing_title || `Listing #${selectedReport.listing_id}`}
                     </h4>
                     <p className="text-xs text-slate-600">
-                      {selectedReport.listing_suburb || "—"}, {selectedReport.listing_city || "—"} • $
+                      {selectedReport.listing_suburb || "-"}, {selectedReport.listing_city || "-"} • $
                       {selectedReport.listing_price ?? 0}/{selectedReport.listing_frequency || "Month"}
                     </p>
-                    {selectedReport.listing_landlord_name && (
-                      <p className="text-[11px] text-slate-500 mt-0.5">
-                        Landlord/Host: <strong>{selectedReport.listing_landlord_name}</strong>
-                      </p>
-                    )}
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-600 mt-1">
+                      <span>
+                        Listing ID: <strong className="font-mono text-slate-900">#{selectedReport.listing_id}</strong>
+                      </span>
+                      {selectedReport.listing_landlord_id && (
+                        <span>
+                          Landlord ID: <strong className="font-mono text-slate-900">#{selectedReport.listing_landlord_id}</strong>
+                        </span>
+                      )}
+                      {selectedReport.listing_landlord_name && (
+                        <span>
+                          Host: <strong className="text-slate-900">{selectedReport.listing_landlord_name}</strong>
+                        </span>
+                      )}
+                      {selectedReport.listing_contact_phone && (
+                        <span>
+                          Host Phone: <strong className="font-sans text-slate-900">{selectedReport.listing_contact_phone}</strong>
+                        </span>
+                      )}
+                    </div>
                   </div>
                   <div className="flex flex-col items-end gap-1">
                     {getListingStatusBadge(selectedReport.listing_status)}
@@ -599,31 +874,51 @@ export const AdminReportsPanel: React.FC<AdminReportsPanelProps> = ({
                 </div>
               </div>
 
-              {/* Report details */}
-              <div className="bg-red-50/60 border border-red-200/80 rounded-2xl p-4 space-y-1.5">
-                <div className="text-[10px] font-mono font-bold uppercase text-red-700">
-                  Reported Reason
+              {/* Report details + Reported Tenant Identity */}
+              <div className="bg-red-50/60 border border-red-200/80 rounded-2xl p-4 space-y-2.5">
+                <div>
+                  <div className="text-[10px] font-mono font-bold uppercase text-red-700">
+                    Reported Reason
+                  </div>
+                  <div className="text-sm font-bold text-red-900 mt-0.5">{selectedReport.reason}</div>
+                  <p className="text-xs text-slate-700 leading-relaxed mt-1">
+                    {selectedReport.details || "No additional description provided by reporter."}
+                  </p>
                 </div>
-                <div className="text-sm font-bold text-red-900">{selectedReport.reason}</div>
-                <p className="text-xs text-slate-700 leading-relaxed">
-                  {selectedReport.details || "No additional description provided by reporter."}
-                </p>
-                <div className="pt-1 text-[11px] text-slate-500 flex flex-wrap gap-3">
-                  <span>
-                    Reporter:{" "}
-                    <strong>{selectedReport.reporter_name || "Anonymous Reporter"}</strong>
-                  </span>
-                  {selectedReport.reporter_phone && (
-                    <span>
-                      Contact: <strong>{selectedReport.reporter_phone}</strong>
+
+                <div className="bg-white/90 border border-red-200/70 rounded-xl p-3 grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-[11px]">
+                  <div>
+                    <span className="block text-[9.5px] font-mono uppercase text-slate-400 font-bold">
+                      Reported Tenant ID
                     </span>
-                  )}
-                  {Number(selectedReport.same_ip_reports_count || 0) > 1 && (
-                    <span className="text-amber-800 font-semibold">
-                      Network signal: {selectedReport.same_ip_reports_count} reports on this listing share the same network hash
+                    <span className="inline-flex items-center gap-1 mt-0.5 bg-indigo-50 text-indigo-800 border border-indigo-200 px-2 py-0.5 rounded font-mono text-[11px] font-extrabold">
+                      <UserCheck className="w-3 h-3 shrink-0" />
+                      {selectedReport.reporter_id || `TEN-${selectedReport.id}`}
                     </span>
-                  )}
+                  </div>
+                  <div>
+                    <span className="block text-[9.5px] font-mono uppercase text-slate-400 font-bold">
+                      Tenant / Reporter Name
+                    </span>
+                    <strong className="text-slate-800 mt-0.5 block">
+                      {selectedReport.reporter_name || "Anonymous Tenant"}
+                    </strong>
+                  </div>
+                  <div>
+                    <span className="block text-[9.5px] font-mono uppercase text-slate-400 font-bold">
+                      Tenant Contact Phone
+                    </span>
+                    <strong className="font-sans text-slate-800 mt-0.5 block">
+                      {selectedReport.reporter_phone || "Not provided"}
+                    </strong>
+                  </div>
                 </div>
+
+                {Number(selectedReport.same_ip_reports_count || 0) > 1 && (
+                  <div className="text-[11px] text-amber-800 font-semibold">
+                    Network signal: {selectedReport.same_ip_reports_count} reports on this listing share the same network hash
+                  </div>
+                )}
               </div>
 
               {/* Sibling reports on same listing */}
@@ -632,11 +927,14 @@ export const AdminReportsPanel: React.FC<AdminReportsPanelProps> = ({
                   <div className="text-[10px] font-mono font-bold uppercase text-slate-500">
                     All Reports For This Listing ({siblingReports.length})
                   </div>
-                  <div className="bg-slate-50 border border-slate-200 rounded-xl divide-y divide-slate-200/70 max-h-32 overflow-y-auto">
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl divide-y divide-slate-200/70 max-h-36 overflow-y-auto">
                     {siblingReports.map((sib) => (
                       <div key={sib.id} className="p-2.5 text-xs flex items-center justify-between gap-2">
-                        <div>
+                        <div className="min-w-0">
                           <span className="font-mono font-bold text-slate-700">#{sib.id}</span>{" "}
+                          <span className="inline-flex items-center bg-indigo-50 text-indigo-800 border border-indigo-200/80 px-1.5 py-0.2 rounded font-mono text-[10px] font-bold mr-1">
+                            {sib.reporter_id || `TEN-${sib.id}`}
+                          </span>
                           <span className="font-semibold text-slate-800">{sib.reason}</span>
                         </div>
                         {getReportStatusBadge(sib.status)}
@@ -670,30 +968,42 @@ export const AdminReportsPanel: React.FC<AdminReportsPanelProps> = ({
                     type="button"
                     disabled={isMutating}
                     onClick={() => runModerationAction("mark_under_review", selectedReport)}
-                    className="bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-200 font-bold py-2 px-3 rounded-xl text-xs inline-flex items-center justify-center gap-1.5 cursor-pointer"
+                    className="bg-sky-50 hover:bg-sky-100 disabled:opacity-60 text-sky-800 border border-sky-200 font-bold py-2 px-3 rounded-xl text-xs inline-flex items-center justify-center gap-1.5 cursor-pointer"
                   >
-                    <Eye className="w-3.5 h-3.5" />
-                    <span>Investigate</span>
+                    {pendingAction === "mark_under_review" ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Eye className="w-3.5 h-3.5" />
+                    )}
+                    <span>{pendingAction === "mark_under_review" ? "Updating..." : "Investigate"}</span>
                   </button>
 
                   <button
                     type="button"
                     disabled={isMutating}
                     onClick={() => runModerationAction("dismiss_report", selectedReport)}
-                    className="bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 font-bold py-2 px-3 rounded-xl text-xs inline-flex items-center justify-center gap-1.5 cursor-pointer"
+                    className="bg-slate-100 hover:bg-slate-200 disabled:opacity-60 text-slate-700 border border-slate-200 font-bold py-2 px-3 rounded-xl text-xs inline-flex items-center justify-center gap-1.5 cursor-pointer"
                   >
-                    <XCircle className="w-3.5 h-3.5" />
-                    <span>Dismiss Report</span>
+                    {pendingAction === "dismiss_report" ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <XCircle className="w-3.5 h-3.5" />
+                    )}
+                    <span>{pendingAction === "dismiss_report" ? "Dismissing..." : "Dismiss Report"}</span>
                   </button>
 
                   <button
                     type="button"
                     disabled={isMutating}
                     onClick={() => runModerationAction("resolve_report", selectedReport)}
-                    className="bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 font-bold py-2 px-3 rounded-xl text-xs inline-flex items-center justify-center gap-1.5 cursor-pointer"
+                    className="bg-emerald-50 hover:bg-emerald-100 disabled:opacity-60 text-emerald-800 border border-emerald-200 font-bold py-2 px-3 rounded-xl text-xs inline-flex items-center justify-center gap-1.5 cursor-pointer"
                   >
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    <span>Mark Resolved</span>
+                    {pendingAction === "resolve_report" ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                    )}
+                    <span>{pendingAction === "resolve_report" ? "Resolving..." : "Mark Resolved"}</span>
                   </button>
 
                   {isListingHiddenOrRemoved(selectedReport.listing_status) ? (
@@ -701,20 +1011,28 @@ export const AdminReportsPanel: React.FC<AdminReportsPanelProps> = ({
                       type="button"
                       disabled={isMutating}
                       onClick={() => runModerationAction("restore_listing", selectedReport)}
-                      className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-3 rounded-xl text-xs inline-flex items-center justify-center gap-1.5 cursor-pointer"
+                      className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white font-bold py-2 px-3 rounded-xl text-xs inline-flex items-center justify-center gap-1.5 cursor-pointer"
                     >
-                      <RotateCcw className="w-3.5 h-3.5" />
-                      <span>Restore Listing</span>
+                      {pendingAction === "restore_listing" ? (
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <RotateCcw className="w-3.5 h-3.5" />
+                      )}
+                      <span>{pendingAction === "restore_listing" ? "Restoring..." : "Restore Listing"}</span>
                     </button>
                   ) : (
                     <button
                       type="button"
                       disabled={isMutating}
                       onClick={() => runModerationAction("hide_listing", selectedReport)}
-                      className="bg-amber-500 hover:bg-amber-600 text-white font-bold py-2 px-3 rounded-xl text-xs inline-flex items-center justify-center gap-1.5 cursor-pointer"
+                      className="bg-amber-500 hover:bg-amber-600 disabled:opacity-60 text-white font-bold py-2 px-3 rounded-xl text-xs inline-flex items-center justify-center gap-1.5 cursor-pointer"
                     >
-                      <EyeOff className="w-3.5 h-3.5" />
-                      <span>Temporarily Hide</span>
+                      {pendingAction === "hide_listing" ? (
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <EyeOff className="w-3.5 h-3.5" />
+                      )}
+                      <span>{pendingAction === "hide_listing" ? "Hiding..." : "Temporarily Hide"}</span>
                     </button>
                   )}
 
@@ -724,18 +1042,26 @@ export const AdminReportsPanel: React.FC<AdminReportsPanelProps> = ({
                     onClick={() => runModerationAction("remove_listing", selectedReport)}
                     className="bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-bold py-2 px-3 rounded-xl text-xs inline-flex items-center justify-center gap-1.5 cursor-pointer"
                   >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    <span>Remove Listing</span>
+                    {pendingAction === "remove_listing" ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Trash2 className="w-3.5 h-3.5" />
+                    )}
+                    <span>{pendingAction === "remove_listing" ? "Removing..." : "Remove Listing"}</span>
                   </button>
 
                   <button
                     type="button"
                     disabled={isMutating}
                     onClick={() => runModerationAction("add_note", selectedReport)}
-                    className="bg-[#052659] hover:bg-[#021024] text-white font-bold py-2 px-3 rounded-xl text-xs inline-flex items-center justify-center gap-1.5 cursor-pointer"
+                    className="bg-[#052659] hover:bg-[#021024] disabled:opacity-60 text-white font-bold py-2 px-3 rounded-xl text-xs inline-flex items-center justify-center gap-1.5 cursor-pointer"
                   >
-                    <FileText className="w-3.5 h-3.5" />
-                    <span>Save Note</span>
+                    {pendingAction === "add_note" ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <FileText className="w-3.5 h-3.5" />
+                    )}
+                    <span>{pendingAction === "add_note" ? "Saving..." : "Save Note"}</span>
                   </button>
                 </div>
               </div>
@@ -775,6 +1101,7 @@ export const AdminReportsPanel: React.FC<AdminReportsPanelProps> = ({
                 )}
               </div>
             </div>
+            )}
           </div>
         </div>
       )}

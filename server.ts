@@ -673,9 +673,52 @@ app.get("/api/listings", (req, res) => {
 
 app.post("/api/listings", (req, res) => {
   const {
-    title, suburb, price, landlord_id, verification_status, image_url, landmark, city, deposit, property_type, tenant_type, rent_cycle, contact_method, contact_phone, amenities,
+    title, suburb, price, landlord_id, verification_status, image_url, images, landmark, city, deposit, property_type, tenant_type, rent_cycle, contact_method, contact_phone, amenities,
     category, business_name, businessName, is_premium, isPremium, listing_tier, listingTier, expiry_date, expiryDate
   } = req.body;
+
+  const placeholderIds = [
+    "photo-1522771739844-6a9f6d5f14af",
+    "photo-1586023492125-27b2c045efd7",
+    "photo-1598928506311-c55ded91a20c",
+    "photo-1505691938895-1758d7feb511",
+    "photo-1560185007-cde436f6a4d0",
+    "photo-1566073771259-6a8506099945",
+    "photo-1497366216548-37526070297c",
+  ];
+  const collectedImgs: string[] = [];
+  if (Array.isArray(images)) {
+    for (const item of images) {
+      if (typeof item === "string" && item.trim()) collectedImgs.push(item.trim());
+    }
+  }
+  if (collectedImgs.length === 0 && typeof image_url === "string" && image_url.trim()) {
+    const trimmed = image_url.trim();
+    if (trimmed.startsWith("[")) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) {
+          for (const item of parsed) {
+            if (typeof item === "string" && item.trim()) collectedImgs.push(item.trim());
+          }
+        }
+      } catch (_) {}
+    } else {
+      collectedImgs.push(trimmed);
+    }
+  }
+  const realImgs = collectedImgs.filter(
+    (img) =>
+      (img.startsWith("data:image/") || img.startsWith("https://") || img.startsWith("http://") || img.startsWith("/")) &&
+      !placeholderIds.some((id) => img.includes(id))
+  );
+  if (realImgs.length === 0) {
+    return res.status(400).json({
+      error: "At least one real property photo is required to publish a listing.",
+      code: "IMAGE_REQUIRED",
+    });
+  }
+  const sanitizedImageUrl = realImgs.length > 1 ? JSON.stringify(realImgs) : realImgs[0];
 
   const resolvedCategory = category || (
     ["Lodge / Guesthouse", "Hotel", "Lodge", "Guesthouse", "Bed & Breakfast"].includes(property_type)
@@ -700,7 +743,7 @@ app.post("/api/listings", (req, res) => {
 
     const result = stmt.run(
       title, suburb, Number(price), landlord_id || null, verification_status || 'Active', 
-      image_url || null, landmark || null, city || null, Number(deposit || 0), 
+      sanitizedImageUrl, landmark || null, city || null, Number(deposit || 0), 
       property_type || null, tenant_type || null, rent_cycle || 'Month', 
       contact_method || null, contact_phone || null, typeof amenities === "string" ? amenities : JSON.stringify(amenities || []),
       resolvedCategory, resolvedBusinessName, resolvedIsPremium, resolvedTier, resolvedExpiry
@@ -986,12 +1029,18 @@ app.get("/api/admin", (req, res) => {
     const reports = db.prepare(`
       SELECT
         r.id, r.listing_id, r.reason, r.details, r.reporter_name, r.reporter_phone,
+        CASE
+          WHEN r.reporter_token_hash IS NOT NULL AND r.reporter_token_hash != ''
+            THEN 'TEN-' || UPPER(SUBSTR(r.reporter_token_hash, 1, 8))
+          ELSE 'TEN-' || r.id
+        END AS reporter_id,
         r.status, r.created_at, r.reviewed_at, r.reviewed_by, r.reviewed_by_name,
         r.moderation_notes,
         l.title AS listing_title, l.city AS listing_city, l.suburb AS listing_suburb,
         l.price AS listing_price, l.rent_cycle AS listing_frequency,
         l.property_type AS listing_property_type, l.category AS listing_category,
         l.verification_status AS listing_status, l.landlord_id AS listing_landlord_id,
+        l.contact_phone AS listing_contact_phone,
         l.reports_count AS listing_reports_count,
         ld.full_name AS listing_landlord_name,
         (
@@ -1043,21 +1092,28 @@ app.get("/api/admin/reports", (req, res) => {
       params.push(Number(listingIdParam));
     }
     if (searchQuery) {
-      whereClauses.push("(r.reason LIKE ? OR r.details LIKE ? OR l.title LIKE ? OR l.suburb LIKE ? OR l.city LIKE ?)");
+      whereClauses.push("(r.reason LIKE ? OR r.details LIKE ? OR l.title LIKE ? OR l.suburb LIKE ? OR l.city LIKE ? OR COALESCE(r.reporter_name, '') LIKE ? OR COALESCE(r.reporter_phone, '') LIKE ? OR ('TEN-' || UPPER(SUBSTR(COALESCE(r.reporter_token_hash, ''), 1, 8))) LIKE ? OR CAST(r.id AS TEXT) LIKE ? OR CAST(r.listing_id AS TEXT) LIKE ? OR CAST(l.landlord_id AS TEXT) LIKE ?)");
       const qLike = `%${searchQuery}%`;
-      params.push(qLike, qLike, qLike, qLike, qLike);
+      const qUpperLike = `%${searchQuery.toUpperCase()}%`;
+      params.push(qLike, qLike, qLike, qLike, qLike, qLike, qLike, qUpperLike, qLike, qLike, qLike);
     }
     const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(" AND ")}` : "";
 
     const reports = db.prepare(`
       SELECT
         r.id, r.listing_id, r.reason, r.details, r.reporter_name, r.reporter_phone,
+        CASE
+          WHEN r.reporter_token_hash IS NOT NULL AND r.reporter_token_hash != ''
+            THEN 'TEN-' || UPPER(SUBSTR(r.reporter_token_hash, 1, 8))
+          ELSE 'TEN-' || r.id
+        END AS reporter_id,
         r.status, r.created_at, r.reviewed_at, r.reviewed_by, r.reviewed_by_name,
         r.moderation_notes,
         l.title AS listing_title, l.city AS listing_city, l.suburb AS listing_suburb,
         l.price AS listing_price, l.rent_cycle AS listing_frequency,
         l.property_type AS listing_property_type, l.category AS listing_category,
         l.verification_status AS listing_status, l.landlord_id AS listing_landlord_id,
+        l.contact_phone AS listing_contact_phone,
         l.reports_count AS listing_reports_count,
         ld.full_name AS listing_landlord_name,
         (
@@ -1139,6 +1195,11 @@ app.get("/api/admin/reports/:id", (req, res) => {
     const report = db.prepare(`
       SELECT
         r.id, r.listing_id, r.reason, r.details, r.reporter_name, r.reporter_phone,
+        CASE
+          WHEN r.reporter_token_hash IS NOT NULL AND r.reporter_token_hash != ''
+            THEN 'TEN-' || UPPER(SUBSTR(r.reporter_token_hash, 1, 8))
+          ELSE 'TEN-' || r.id
+        END AS reporter_id,
         r.status, r.created_at, r.reviewed_at, r.reviewed_by, r.reviewed_by_name,
         r.moderation_notes,
         l.title AS listing_title, l.city AS listing_city, l.suburb AS listing_suburb,
@@ -1161,7 +1222,14 @@ app.get("/api/admin/reports/:id", (req, res) => {
     if (!report) return res.status(404).json({ error: "Report not found." });
 
     const siblingReports = db.prepare(`
-      SELECT id, reason, details, reporter_name, status, created_at, reviewed_at, reviewed_by_name, moderation_notes
+      SELECT
+        id, reason, details, reporter_name, reporter_phone,
+        CASE
+          WHEN reporter_token_hash IS NOT NULL AND reporter_token_hash != ''
+            THEN 'TEN-' || UPPER(SUBSTR(reporter_token_hash, 1, 8))
+          ELSE 'TEN-' || id
+        END AS reporter_id,
+        status, created_at, reviewed_at, reviewed_by_name, moderation_notes
       FROM listing_reports
       WHERE listing_id = ?
       ORDER BY created_at DESC, id DESC

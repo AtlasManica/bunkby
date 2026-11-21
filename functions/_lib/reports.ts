@@ -247,10 +247,23 @@ export async function handleAdminListReports({
 
     if (searchQuery) {
       whereClauses.push(
-        "(r.reason LIKE ? OR r.details LIKE ? OR l.title LIKE ? OR l.suburb LIKE ? OR l.city LIKE ?)"
+        "(r.reason LIKE ? OR r.details LIKE ? OR l.title LIKE ? OR l.suburb LIKE ? OR l.city LIKE ? OR COALESCE(r.reporter_name, '') LIKE ? OR COALESCE(r.reporter_phone, '') LIKE ? OR ('TEN-' || UPPER(SUBSTR(COALESCE(r.reporter_token_hash, ''), 1, 8))) LIKE ? OR CAST(r.id AS TEXT) LIKE ? OR CAST(r.listing_id AS TEXT) LIKE ? OR CAST(l.landlord_id AS TEXT) LIKE ?)"
       );
       const qLike = `%${searchQuery}%`;
-      params.push(qLike, qLike, qLike, qLike, qLike);
+      const qUpperLike = `%${searchQuery.toUpperCase()}%`;
+      params.push(
+        qLike,
+        qLike,
+        qLike,
+        qLike,
+        qLike,
+        qLike,
+        qLike,
+        qUpperLike,
+        qLike,
+        qLike,
+        qLike
+      );
     }
 
     const whereSql =
@@ -264,6 +277,11 @@ export async function handleAdminListReports({
         r.details,
         r.reporter_name,
         r.reporter_phone,
+        CASE
+          WHEN r.reporter_token_hash IS NOT NULL AND r.reporter_token_hash != ''
+            THEN 'TEN-' || UPPER(SUBSTR(r.reporter_token_hash, 1, 8))
+          ELSE 'TEN-' || r.id
+        END AS reporter_id,
         r.status,
         r.created_at,
         r.reviewed_at,
@@ -279,6 +297,7 @@ export async function handleAdminListReports({
         l.category AS listing_category,
         l.verification_status AS listing_status,
         l.landlord_id AS listing_landlord_id,
+        l.contact_phone AS listing_contact_phone,
         l.reports_count AS listing_reports_count,
         ld.full_name AS listing_landlord_name,
         (
@@ -382,6 +401,11 @@ export async function handleAdminGetReportDetail({
          r.details,
          r.reporter_name,
          r.reporter_phone,
+         CASE
+           WHEN r.reporter_token_hash IS NOT NULL AND r.reporter_token_hash != ''
+             THEN 'TEN-' || UPPER(SUBSTR(r.reporter_token_hash, 1, 8))
+           ELSE 'TEN-' || r.id
+         END AS reporter_id,
          r.status,
          r.created_at,
          r.reviewed_at,
@@ -424,7 +448,13 @@ export async function handleAdminGetReportDetail({
 
     const siblingReports = await env.DB.prepare(
       `SELECT
-         id, reason, details, reporter_name, status, created_at, reviewed_at, reviewed_by_name, moderation_notes
+         id, reason, details, reporter_name, reporter_phone,
+         CASE
+           WHEN reporter_token_hash IS NOT NULL AND reporter_token_hash != ''
+             THEN 'TEN-' || UPPER(SUBSTR(reporter_token_hash, 1, 8))
+           ELSE 'TEN-' || id
+         END AS reporter_id,
+         status, created_at, reviewed_at, reviewed_by_name, moderation_notes
        FROM listing_reports
        WHERE listing_id = ?
        ORDER BY created_at DESC, id DESC`

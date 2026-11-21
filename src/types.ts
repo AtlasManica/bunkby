@@ -114,6 +114,7 @@ export interface ListingReport {
   listing_id: number | string;
   reason: string;
   details?: string | null;
+  reporter_id?: string | null;
   reporter_name?: string | null;
   reporter_phone?: string | null;
   status: ReportStatus | string;

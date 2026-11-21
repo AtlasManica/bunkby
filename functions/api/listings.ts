@@ -54,13 +54,64 @@ export async function onRequestGet({ env }) {
   }
 }
 
+const DISALLOWED_PLACEHOLDER_IMAGE_IDS = [
+  "photo-1522771739844-6a9f6d5f14af",
+  "photo-1586023492125-27b2c045efd7",
+  "photo-1598928506311-c55ded91a20c",
+  "photo-1505691938895-1758d7feb511",
+  "photo-1560185007-cde436f6a4d0",
+  "photo-1566073771259-6a8506099945",
+  "photo-1497366216548-37526070297c",
+];
+
+function extractRealListingImages(rawImageUrl: unknown, rawImages: unknown): string[] {
+  const collected: string[] = [];
+  if (Array.isArray(rawImages)) {
+    for (const item of rawImages) {
+      if (typeof item === "string" && item.trim()) collected.push(item.trim());
+    }
+  }
+  if (collected.length === 0 && typeof rawImageUrl === "string" && rawImageUrl.trim()) {
+    const trimmed = rawImageUrl.trim();
+    if (trimmed.startsWith("[")) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) {
+          for (const item of parsed) {
+            if (typeof item === "string" && item.trim()) collected.push(item.trim());
+          }
+        }
+      } catch (_) {}
+    } else {
+      collected.push(trimmed);
+    }
+  }
+  return collected.filter(
+    (img) =>
+      (img.startsWith("data:image/") || img.startsWith("https://") || img.startsWith("http://") || img.startsWith("/")) &&
+      !DISALLOWED_PLACEHOLDER_IMAGE_IDS.some((id) => img.includes(id))
+  );
+}
+
 export async function onRequestPost({ request, env }) {
   try {
     const data = await request.json();
     const {
-      title, suburb, price, landlord_id, verification_status, image_url, landmark, city, deposit, property_type, tenant_type, rent_cycle, contact_method, contact_phone, amenities,
+      title, suburb, price, landlord_id, verification_status, image_url, images, landmark, city, deposit, property_type, tenant_type, rent_cycle, contact_method, contact_phone, amenities,
       category, business_name, businessName, is_premium, isPremium, listing_tier, listingTier, expiry_date, expiryDate
     } = data;
+
+    const realImages = extractRealListingImages(image_url, images);
+    if (realImages.length === 0) {
+      return new Response(
+        JSON.stringify({
+          error: "At least one real property photo is required to publish a listing.",
+          code: "IMAGE_REQUIRED",
+        }),
+        { status: 400, headers: { "Content-Type": "application/json" } }
+      );
+    }
+    const sanitizedImageUrl = realImages.length > 1 ? JSON.stringify(realImages) : realImages[0];
     
     const resolvedCategory = category || (
       ["Lodge / Guesthouse", "Hotel", "Lodge", "Guesthouse", "Bed & Breakfast"].includes(property_type)
@@ -97,7 +148,7 @@ export async function onRequestPost({ request, env }) {
       price: Number(price),
       landlord_id: landlord_id || null,
       verification_status: verification_status || 'Active',
-      image_url: image_url || null,
+      image_url: sanitizedImageUrl,
       landmark: landmark || null,
       city: city || null,
       deposit: Number(deposit || 0),

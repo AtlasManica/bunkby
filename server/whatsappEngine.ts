@@ -1180,13 +1180,12 @@ async function processWhatsAppMessageInternal(
       db.prepare("UPDATE chatbot_sessions SET current_step = 'AWAITING_IMAGE', collected_data = ?, updated_at = CURRENT_TIMESTAMP WHERE phone_number = ?")
         .run(JSON.stringify(data), phone);
 
-      const imageMsg = `📸 *Step 6/8: Property Photo*\n\nSend a photograph of the property directly into this chat, or tap *Skip Photo* below:`;
+      const imageMsg = `📸 *Step 6/8: Property Photos (Required)*\n\nPlease upload *at least 1 real photo* (up to 3 photos) of your property right here in WhatsApp.\n\n_(Listings cannot be published without a real photo.)_`;
       queuePayload(
         createButtonMessage(
           phone,
           imageMsg,
           [
-            { id: "BTN_SKIP_IMAGE", title: "⏭️ Skip Photo" },
             { id: "BTN_CANCEL", title: "❌ Cancel" }
           ],
           "Step 6/8"
@@ -1196,17 +1195,77 @@ async function processWhatsAppMessageInternal(
       return { phone, action: "ADVANCE_STEP", step: "AWAITING_IMAGE", replyText: imageMsg, outboundPayloads };
     }
 
-    // --- LISTING STEP 6: AWAITING_IMAGE ---
+    // --- LISTING STEP 6: AWAITING_IMAGE (Mandatory 1 to 3 Photos) ---
     if (currentStep === "AWAITING_IMAGE") {
-      let imageUrl = "";
-      if (input.mediaId) {
-        imageUrl = input.mediaId;
-      } else if (text.trim().startsWith("http://") || text.trim().startsWith("https://")) {
-        imageUrl = text.trim();
-      } else if (buttonPayload === "BTN_SKIP_IMAGE" || lowerText === "skip" || lowerText === "none") {
-        imageUrl = "";
+      if (!Array.isArray(data.photos)) {
+        data.photos = [];
       }
-      data.image_url = imageUrl;
+
+      let receivedPhoto = "";
+      if (input.mediaId) {
+        receivedPhoto = input.mediaId;
+      } else if (text.trim().startsWith("http://") || text.trim().startsWith("https://") || text.trim().startsWith("data:image/")) {
+        receivedPhoto = text.trim();
+      }
+
+      const requestedFinish =
+        buttonPayload === "BTN_FINISH_PHOTOS" ||
+        lowerText === "done" ||
+        lowerText === "done uploading" ||
+        lowerText === "finish";
+
+      if (receivedPhoto) {
+        data.photos.push(receivedPhoto);
+        data.image_url = data.photos.length > 1 ? JSON.stringify(data.photos) : data.photos[0];
+
+        if (data.photos.length < 3) {
+          db.prepare("UPDATE chatbot_sessions SET collected_data = ?, updated_at = CURRENT_TIMESTAMP WHERE phone_number = ?")
+            .run(JSON.stringify(data), phone);
+          const photoAck = `📸 *Photo ${data.photos.length} of 3 uploaded!*\n\nSend another photo (up to 3 total), or tap *Done Uploading* below to continue:`;
+          queuePayload(
+            createButtonMessage(
+              phone,
+              photoAck,
+              [
+                { id: "BTN_FINISH_PHOTOS", title: "✅ Done Uploading" },
+                { id: "BTN_CANCEL", title: "❌ Cancel" }
+              ],
+              "Step 6/8"
+            )
+          );
+          await dispatchAll();
+          return { phone, action: "LISTING_PHOTO_UPLOADED", step: "AWAITING_IMAGE", replyText: photoAck, outboundPayloads };
+        }
+      } else if (data.photos.length === 0) {
+        const retryPhotoMsg = `📸 *A real property photo is required.*\n\nYou cannot skip photos or continue without uploading at least *1 photo* of your property. Please attach a photo from your gallery or take one now:`;
+        queuePayload(
+          createButtonMessage(
+            phone,
+            retryPhotoMsg,
+            [{ id: "BTN_CANCEL", title: "❌ Cancel" }],
+            "Step 6/8"
+          )
+        );
+        await dispatchAll();
+        return { phone, action: "STEP_RETRY_PHOTO_REQUIRED", step: "AWAITING_IMAGE", replyText: retryPhotoMsg, outboundPayloads };
+      } else if (!requestedFinish) {
+        const moreMsg = `📸 You have *${data.photos.length} photo${data.photos.length === 1 ? "" : "s"}* uploaded. Send another photo (up to 3), or tap *Done Uploading* below to continue:`;
+        queuePayload(
+          createButtonMessage(
+            phone,
+            moreMsg,
+            [
+              { id: "BTN_FINISH_PHOTOS", title: "✅ Done Uploading" },
+              { id: "BTN_CANCEL", title: "❌ Cancel" }
+            ],
+            "Step 6/8"
+          )
+        );
+        await dispatchAll();
+        return { phone, action: "STEP_RETRY", step: "AWAITING_IMAGE", replyText: moreMsg, outboundPayloads };
+      }
+
+      data.image_url = data.photos.length > 1 ? JSON.stringify(data.photos) : data.photos[0];
       db.prepare("UPDATE chatbot_sessions SET current_step = 'AWAITING_LANDMARK', collected_data = ?, updated_at = CURRENT_TIMESTAMP WHERE phone_number = ?")
         .run(JSON.stringify(data), phone);
 
@@ -1281,6 +1340,15 @@ async function processWhatsAppMessageInternal(
         lowerText === "confirm" ||
         text === "1"
       ) {
+        if (!data.image_url || String(data.image_url).trim().length === 0) {
+          db.prepare("UPDATE chatbot_sessions SET current_step = 'AWAITING_IMAGE', updated_at = CURRENT_TIMESTAMP WHERE phone_number = ?")
+            .run(phone);
+          const needImgMsg = `📸 *At least 1 real property photo is required before publishing.*\n\nPlease attach a photo from your gallery or take one now:`;
+          queuePayload(createButtonMessage(phone, needImgMsg, [{ id: "BTN_CANCEL", title: "❌ Cancel" }], "Step 6/8"));
+          await dispatchAll();
+          return { phone, action: "PUBLISH_BLOCKED_NO_PHOTO", step: "AWAITING_IMAGE", replyText: needImgMsg, outboundPayloads };
+        }
+
         // Idempotency check: prevent duplicate listing within 60s
         const recentExisting = db.prepare(`
           SELECT id FROM listings 

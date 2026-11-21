@@ -2796,10 +2796,8 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
         `).bind(JSON.stringify(collectedData), phone).run();
 
         const formattedAmenitiesList = selectedAmenities.map(a => "• " + a).join("\n");
-        replyText = `✨ *Amenities recorded:*\n${formattedAmenitiesList}\n\n📸 *Property Photos*\nPlease send *1 to 3 photos* of the property directly here in WhatsApp!\n\n_(Attach photo from gallery or snap a photo. When finished, tap Done, Skip, or Cancel below)_`;
+        replyText = `✨ *Amenities recorded:*\n${formattedAmenitiesList}\n\n📸 *Property Photos (Required)*\nPlease upload *at least 1 real photo* (up to 3 photos) of your property right here in WhatsApp.\n\n_(Attach a photo from your gallery or take a photo now. Listings cannot be published without a real photo.)_`;
         buttonsToSend = [
-          { id: "BTN_FINISH_PHOTOS", title: "✅ Done Uploading" },
-          { id: "BTN_SKIP_PHOTOS", title: "⏭️ Skip Photos" },
           { id: "BTN_CANCEL", title: "❌ Cancel" }
         ];
         actionTaken = "LISTING_STEP_PHOTOS";
@@ -2833,16 +2831,13 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
           photoReceived = true;
         }
 
-        const isFinished = 
-          buttonPayload === "BTN_FINISH_PHOTOS" || 
-          buttonPayload === "BTN_SKIP_PHOTOS" || 
-          lowerText === "done" || 
-          lowerText === "skip" || 
-          lowerText === "finish" || 
-          lowerText === "next" ||
-          lowerText === "no";
+        const requestedFinish =
+          buttonPayload === "BTN_FINISH_PHOTOS" ||
+          lowerText === "done" ||
+          lowerText === "done uploading" ||
+          lowerText === "finish";
 
-        if (photoReceived && !isFinished) {
+        if (photoReceived) {
           await env.DB.prepare(`
             UPDATE chatbot_sessions 
             SET collected_data = ?, updated_at = CURRENT_TIMESTAMP 
@@ -2878,23 +2873,36 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
             ];
             actionTaken = "LISTING_PREVIEW";
           } else {
-            replyText = `📸 *Photo ${count} received!*\n\nYou can send another photo (up to 3), or tap *Done Uploading* to preview your listing.`;
+            replyText = `📸 *Photo ${count} of 3 uploaded!*\n\nSend another photo (up to 3 total), or tap *Done Uploading* below to preview and publish your listing.`;
             buttonsToSend = [
               { id: "BTN_FINISH_PHOTOS", title: "✅ Done Uploading" },
-              { id: "BTN_SKIP_PHOTOS", title: "⏭️ Skip / Continue" },
               { id: "BTN_CANCEL", title: "❌ Cancel" }
             ];
             actionTaken = "LISTING_PHOTO_UPLOADED";
           }
-        } else if (photoDownloadFailed && !isFinished) {
-          replyText = `📸 *Photo received!*\n\nWould you like to send another photo, or tap *Done Uploading* to continue to your preview?`;
+        } else if (photoDownloadFailed) {
+          if (collectedData.photos.length === 0) {
+            replyText = `⚠️ *We could not load that photo.*\n\nAt least *1 real photo* is required before you can continue. Please send a clear JPG/PNG photo from your gallery or camera now:`;
+            buttonsToSend = [
+              { id: "BTN_CANCEL", title: "❌ Cancel" }
+            ];
+            actionTaken = "LISTING_PHOTO_RETRY_REQUIRED";
+          } else {
+            const count = collectedData.photos.length;
+            replyText = `⚠️ *We could not load that extra photo*, but your *${count} uploaded photo${count === 1 ? "" : "s"}* ${count === 1 ? "is" : "are"} saved.\n\nSend another photo, or tap *Done Uploading* below to preview your listing:`;
+            buttonsToSend = [
+              { id: "BTN_FINISH_PHOTOS", title: "✅ Done Uploading" },
+              { id: "BTN_CANCEL", title: "❌ Cancel" }
+            ];
+            actionTaken = "LISTING_PHOTO_EXTRA_FAILED";
+          }
+        } else if (collectedData.photos.length === 0) {
+          replyText = `📸 *A real property photo is required.*\n\nYou cannot skip photos or continue without uploading at least *1 photo* of your property. Please attach a photo from your gallery or snap one now:`;
           buttonsToSend = [
-            { id: "BTN_FINISH_PHOTOS", title: "✅ Done Uploading" },
-            { id: "BTN_SKIP_PHOTOS", title: "⏭️ Skip / Continue" },
             { id: "BTN_CANCEL", title: "❌ Cancel" }
           ];
-          actionTaken = "LISTING_PHOTO_FALLBACK_ACK";
-        } else if (isFinished || collectedData.photos.length >= 3) {
+          actionTaken = "STEP_RETRY_PHOTO_REQUIRED";
+        } else if (requestedFinish || collectedData.photos.length >= 3) {
           await env.DB.prepare(`
             UPDATE chatbot_sessions 
             SET current_step = 'AWAITING_CONFIRMATION', collected_data = ?, updated_at = CURRENT_TIMESTAMP 
@@ -2923,10 +2931,10 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
           ];
           actionTaken = "LISTING_PREVIEW";
         } else {
-          replyText = `📸 Please attach a photo from your gallery, or tap *Done Uploading* to finish without additional photos:`;
+          const count = collectedData.photos.length;
+          replyText = `📸 You have *${count} photo${count === 1 ? "" : "s"}* uploaded. Send another photo (up to 3), or tap *Done Uploading* below to continue:`;
           buttonsToSend = [
             { id: "BTN_FINISH_PHOTOS", title: "✅ Done Uploading" },
-            { id: "BTN_SKIP_PHOTOS", title: "⏭️ Skip Photos" },
             { id: "BTN_CANCEL", title: "❌ Cancel" }
           ];
           actionTaken = "STEP_RETRY";
@@ -2961,17 +2969,23 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
           lowerText.startsWith("publish") ||
           (lowerText.includes("publish") && !lowerText.includes("cancel"))
         ) {
-          const isCommercialListing = collectedData.category === "commercial";
-          const allPhotos = Array.isArray(collectedData.photos) && collectedData.photos.length > 0
-            ? collectedData.photos
-            : [
-              isHospitality
-                ? "https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=800&q=80"
-                : isCommercialListing
-                ? "https://images.unsplash.com/photo-1497366216548-37526070297c?auto=format&fit=crop&w=800&q=80"
-                : "https://images.unsplash.com/photo-1522771739844-6a9f6d5f14af?auto=format&fit=crop&w=800&q=80"
-            ];
+          const allPhotos = Array.isArray(collectedData.photos)
+            ? collectedData.photos.filter((p: any) => typeof p === "string" && p.trim().length > 0)
+            : [];
 
+          if (allPhotos.length === 0) {
+            await env.DB.prepare(`
+              UPDATE chatbot_sessions
+              SET current_step = 'AWAITING_PHOTOS', updated_at = CURRENT_TIMESTAMP
+              WHERE phone_number = ?
+            `).bind(phone).run();
+
+            replyText = `📸 *At least 1 real property photo is required before publishing.*\n\nPlease attach a photo from your gallery or snap one now:`;
+            buttonsToSend = [
+              { id: "BTN_CANCEL", title: "❌ Cancel" }
+            ];
+            actionTaken = "PUBLISH_BLOCKED_NO_PHOTO";
+          } else {
           const primaryImage = allPhotos[0];
           const storedImageField = allPhotos.length > 1 ? JSON.stringify(allPhotos) : primaryImage;
 
@@ -3054,6 +3068,7 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
             { id: "CMD_LIST", title: "🏡 Post Another" }
           ];
           actionTaken = "LISTING_CREATED";
+          }
         } else {
           replyText = `⚠️ Please tap *Publish Listing* to confirm, or tap *Cancel* to exit without publishing.`;
           buttonsToSend = [

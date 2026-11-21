@@ -32,12 +32,18 @@ export async function onRequestGet({
       const reportsRes = await env.DB.prepare(
         `SELECT
            r.id, r.listing_id, r.reason, r.details, r.reporter_name, r.reporter_phone,
+           CASE
+             WHEN r.reporter_token_hash IS NOT NULL AND r.reporter_token_hash != ''
+               THEN 'TEN-' || UPPER(SUBSTR(r.reporter_token_hash, 1, 8))
+             ELSE 'TEN-' || r.id
+           END AS reporter_id,
            r.status, r.created_at, r.reviewed_at, r.reviewed_by, r.reviewed_by_name,
            r.moderation_notes,
            l.title AS listing_title, l.city AS listing_city, l.suburb AS listing_suburb,
            l.price AS listing_price, l.rent_cycle AS listing_frequency,
            l.property_type AS listing_property_type, l.category AS listing_category,
            l.verification_status AS listing_status, l.landlord_id AS listing_landlord_id,
+           l.contact_phone AS listing_contact_phone,
            l.reports_count AS listing_reports_count,
            ld.full_name AS listing_landlord_name,
            (
