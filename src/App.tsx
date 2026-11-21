@@ -263,19 +263,23 @@ function loadStoredUserProfile(): any | null {
     } catch {}
   }
 
-  // 1. Check tab-scoped Admin session first (NEVER auto-login as Admin when opening a shared property link)
-  try {
-    if (extractSharedListingIdFromLocation()) {
+  // Opening ANY shared property link must NEVER log the viewer into any account (neither Admin nor Landlord)
+  if (extractSharedListingIdFromLocation()) {
+    try {
       sessionStorage.removeItem(ADMIN_SESSION_STORAGE_KEY);
-    } else {
-      const rawAdmin = sessionStorage.getItem(ADMIN_SESSION_STORAGE_KEY);
-      if (rawAdmin) {
-        const parsed = JSON.parse(rawAdmin);
-        if (parsed && typeof parsed === "object" && parsed.token && parsed.phone) {
-          return parsed;
-        }
-        sessionStorage.removeItem(ADMIN_SESSION_STORAGE_KEY);
+    } catch {}
+    return null;
+  }
+
+  // 1. Check tab-scoped Admin session first
+  try {
+    const rawAdmin = sessionStorage.getItem(ADMIN_SESSION_STORAGE_KEY);
+    if (rawAdmin) {
+      const parsed = JSON.parse(rawAdmin);
+      if (parsed && typeof parsed === "object" && parsed.token && parsed.phone) {
+        return parsed;
       }
+      sessionStorage.removeItem(ADMIN_SESSION_STORAGE_KEY);
     }
   } catch {}
 
@@ -718,6 +722,10 @@ export default function App() {
       const normalized = normalizeRoutePath(window.location.pathname);
       const linkedListingId = extractSharedListingIdFromLocation(window.location.pathname, window.location.search);
       if (linkedListingId) {
+        try {
+          sessionStorage.removeItem(ADMIN_SESSION_STORAGE_KEY);
+        } catch {}
+        setUserProfile(null);
         setCurrentPath("/");
         setActiveTab("browse");
         setSharedListingId(linkedListingId);
@@ -875,13 +883,26 @@ export default function App() {
     const idKey = String(sharedListingId);
     setExpandedCardIds((prev) => (prev[idKey] ? prev : { ...prev, [idKey]: true }));
 
+    const scrollToSharedProperty = () => {
+      window.requestAnimationFrame(() => {
+        const el = document.getElementById("shared-property-focus");
+        if (el) {
+          el.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+      });
+      window.setTimeout(() => {
+        const el = document.getElementById("shared-property-focus");
+        if (el) {
+          el.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+      }, 220);
+    };
+
     const fromFeed = listings.find((l) => String(l.id) === idKey);
     if (fromFeed) {
       setSharedListingFetched(fromFeed);
       setSharedListingStatus(isListingAvailable(fromFeed) ? "found" : "unavailable");
-      window.setTimeout(() => {
-        document.getElementById("shared-property-focus")?.scrollIntoView({ behavior: "smooth", block: "start" });
-      }, 120);
+      scrollToSharedProperty();
       return;
     }
 
@@ -894,6 +915,7 @@ export default function App() {
         if (res.status === 404) {
           setSharedListingFetched(null);
           setSharedListingStatus("not_found");
+          scrollToSharedProperty();
           return;
         }
         const ct = (res.headers.get("content-type") || "").toLowerCase();
@@ -901,21 +923,24 @@ export default function App() {
         if (res.status === 410 || data?.available === false) {
           setSharedListingFetched(data?.listing || null);
           setSharedListingStatus("unavailable");
+          scrollToSharedProperty();
           return;
         }
         if (data?.listing) {
           setSharedListingFetched(data.listing);
           setSharedListingStatus(isListingAvailable(data.listing) ? "found" : "unavailable");
-          window.setTimeout(() => {
-            document.getElementById("shared-property-focus")?.scrollIntoView({ behavior: "smooth", block: "start" });
-          }, 120);
+          scrollToSharedProperty();
         } else {
           setSharedListingFetched(null);
           setSharedListingStatus("not_found");
+          scrollToSharedProperty();
         }
       })
       .catch(() => {
-        if (!cancelled) setSharedListingStatus("not_found");
+        if (!cancelled) {
+          setSharedListingStatus("not_found");
+          scrollToSharedProperty();
+        }
       });
 
     return () => {
