@@ -977,6 +977,12 @@ export default function App() {
           : `🎉 Welcome ${profile.name}! Your account was created successfully.`
         );
         setLoginPin("");
+        if (profile.role === "Admin") {
+          navigateTo("/", "account");
+          setTimeout(() => {
+            document.getElementById("admin-access-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+          }, 150);
+        }
       } else {
         if (data.code === "PIN_REQUIRED" || data.code === "INVALID_PIN") {
           showToast(`🔒 ${data.error || "Incorrect Security PIN."}`);
@@ -1557,6 +1563,27 @@ export default function App() {
             >
               Help & FAQ
             </button>
+            {userProfile?.role === "Admin" && (
+              <button
+                type="button"
+                onClick={() => {
+                  navigateTo("/", "account");
+                  setTimeout(() => {
+                    document.getElementById("admin-access-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                  }, 120);
+                }}
+                className="px-2.5 py-1.5 rounded-lg transition-all whitespace-nowrap shrink-0 bg-[#FF7A00] hover:bg-[#e66e00] text-white font-extrabold shadow-xs inline-flex items-center gap-1.5 cursor-pointer"
+                id="nav-admin"
+              >
+                <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+                <span>Admin</span>
+                {adminOpenReportsCount > 0 && (
+                  <span className="bg-red-600 text-white text-[10px] font-bold px-1.5 rounded-full">
+                    {adminOpenReportsCount}
+                  </span>
+                )}
+              </button>
+            )}
           </nav>
 
           {/* Right Controls / User details */}
@@ -1636,6 +1663,26 @@ export default function App() {
           <HelpCircle className="w-4 h-4 shrink-0" />
           <span className="leading-tight mt-0.5">Help</span>
         </button>
+        {userProfile?.role === "Admin" && (
+          <button
+            type="button"
+            onClick={() => {
+              navigateTo("/", "account");
+              setTimeout(() => {
+                document.getElementById("admin-access-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+              }, 120);
+            }}
+            className="flex flex-col items-center justify-center py-1 px-2 rounded-md min-h-[44px] min-w-[52px] transition-colors text-[#FF7A00] hover:text-white font-bold relative"
+          >
+            <ShieldCheck className="w-4 h-4 shrink-0" />
+            <span className="leading-tight mt-0.5">Admin</span>
+            {adminOpenReportsCount > 0 && (
+              <span className="absolute top-1 right-1 bg-red-600 text-white text-[9px] font-bold px-1 rounded-full leading-tight">
+                {adminOpenReportsCount}
+              </span>
+            )}
+          </button>
+        )}
       </nav>
 
       {/* Application Body Content */}
@@ -3432,7 +3479,7 @@ export default function App() {
 
               {/* Administrative Access Console */}
               {userProfile.role === "Admin" && (
-                <div className="bg-orange-500/5 border border-orange-500/20 rounded-2xl p-5 shadow-sm space-y-5">
+                <div id="admin-access-panel" className="bg-orange-500/5 border border-orange-500/20 rounded-2xl p-5 shadow-sm space-y-5 scroll-mt-24">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                     <div>
                       <div className="flex items-center gap-2">
