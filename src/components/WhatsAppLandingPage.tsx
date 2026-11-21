@@ -52,7 +52,7 @@ export const WhatsAppLandingPage: React.FC<WhatsAppLandingPageProps> = ({ onNavi
           </h1>
 
           <p className="text-sm sm:text-base text-slate-200 leading-relaxed">
-            Use BunkBy&apos;s official WhatsApp Business service to search available rooms, cottages, flats, houses, student accommodation, guesthouses, lodges, and commercial properties—or publish your own property listing directly via chat with zero agent commissions.
+            Use BunkBy&apos;s official WhatsApp Business service to search available rooms, cottages, flats, houses, student accommodation, guesthouses, lodges, and commercial properties, or publish your own property listing directly via chat with zero agent commissions.
           </p>
         </div>
       </section>

@@ -413,7 +413,10 @@ export function parseNaturalLanguageQuery(query: string): SearchFilters {
  * Shared SQL WHERE clause builder for both COUNT(*) and paginated SELECT queries.
  */
 function buildSearchWhereClause(filters: SearchFilters): { whereSql: string; params: any[] } {
-  const conditions: string[] = ["listings.verification_status != 'Delisted'"];
+  const conditions: string[] = [
+    "listings.verification_status != 'Delisted'",
+    "COALESCE(listings.verification_status, 'Active') NOT IN ('Hidden', 'Removed')",
+  ];
   const params: any[] = [];
 
   // Category filter (strictly prevents commercial/student/hospitality from leaking into residential)

@@ -11,6 +11,11 @@ import crypto from "crypto";
 import Database from "better-sqlite3";
 import { processWhatsAppMessage, ensureChatbotTable } from "./server/whatsappEngine";
 import {
+  ensureLandlordPinResetTableSync,
+  findLandlordByPhoneSync,
+  verifyAndConsumeLandlordPinResetCodeSync,
+} from "./server/pinReset";
+import {
   buildHomeSeo,
   buildWhatsAppSeo,
   buildPrivacySeo,
@@ -127,7 +132,44 @@ function initDatabase() {
         details TEXT,
         reporter_name TEXT,
         reporter_phone TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        reporter_token_hash TEXT NOT NULL DEFAULT '',
+        ip_hash TEXT,
+        ip_hash_expires_at DATETIME,
+        status TEXT NOT NULL DEFAULT 'pending'
+          CHECK (status IN ('pending', 'under_review', 'action_taken', 'dismissed', 'resolved')),
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        reviewed_at DATETIME,
+        reviewed_by INTEGER,
+        reviewed_by_name TEXT,
+        moderation_notes TEXT,
+        FOREIGN KEY (listing_id) REFERENCES listings(id) ON DELETE RESTRICT,
+        FOREIGN KEY (reviewed_by) REFERENCES landlords(id) ON DELETE SET NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS listing_moderation_actions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        listing_id INTEGER NOT NULL,
+        report_id INTEGER,
+        admin_id INTEGER,
+        admin_name TEXT NOT NULL,
+        action_type TEXT NOT NULL
+          CHECK (action_type IN (
+            'mark_under_review',
+            'dismiss_report',
+            'hide_listing',
+            'restore_listing',
+            'remove_listing',
+            'resolve_report',
+            'add_note'
+          )),
+        previous_listing_status TEXT,
+        new_listing_status TEXT,
+        reason TEXT,
+        notes TEXT,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (listing_id) REFERENCES listings(id) ON DELETE RESTRICT,
+        FOREIGN KEY (report_id) REFERENCES listing_reports(id) ON DELETE SET NULL,
+        FOREIGN KEY (admin_id) REFERENCES landlords(id) ON DELETE SET NULL
       );
 
       CREATE TABLE IF NOT EXISTS whatsapp_diagnostic_events (
@@ -188,6 +230,58 @@ function initDatabase() {
       CREATE INDEX IF NOT EXISTS idx_listings_landlord_status
         ON listings(landlord_id, verification_status, id DESC);
     `);
+
+    // Additive upgrade for pre-existing local listing_reports table
+    const reportCols = (instance.prepare("PRAGMA table_info(listing_reports)").all() as any[]).map(c => c.name);
+    if (reportCols.length > 0) {
+      if (!reportCols.includes("reporter_token_hash")) {
+        instance.exec("ALTER TABLE listing_reports ADD COLUMN reporter_token_hash TEXT NOT NULL DEFAULT ''");
+      }
+      if (!reportCols.includes("ip_hash")) {
+        instance.exec("ALTER TABLE listing_reports ADD COLUMN ip_hash TEXT");
+      }
+      if (!reportCols.includes("ip_hash_expires_at")) {
+        instance.exec("ALTER TABLE listing_reports ADD COLUMN ip_hash_expires_at DATETIME");
+      }
+      if (!reportCols.includes("status")) {
+        instance.exec("ALTER TABLE listing_reports ADD COLUMN status TEXT NOT NULL DEFAULT 'pending'");
+      }
+      if (!reportCols.includes("reviewed_at")) {
+        instance.exec("ALTER TABLE listing_reports ADD COLUMN reviewed_at DATETIME");
+      }
+      if (!reportCols.includes("reviewed_by")) {
+        instance.exec("ALTER TABLE listing_reports ADD COLUMN reviewed_by INTEGER");
+      }
+      if (!reportCols.includes("reviewed_by_name")) {
+        instance.exec("ALTER TABLE listing_reports ADD COLUMN reviewed_by_name TEXT");
+      }
+      if (!reportCols.includes("moderation_notes")) {
+        instance.exec("ALTER TABLE listing_reports ADD COLUMN moderation_notes TEXT");
+      }
+    }
+
+    instance.exec(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_listing_reports_unique_open_reporter
+        ON listing_reports(listing_id, reporter_token_hash)
+        WHERE status IN ('pending', 'under_review') AND reporter_token_hash IS NOT NULL AND reporter_token_hash != '';
+      CREATE INDEX IF NOT EXISTS idx_listing_reports_status_created
+        ON listing_reports(status, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_listing_reports_listing_status
+        ON listing_reports(listing_id, status, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_listing_reports_ip_hash_created
+        ON listing_reports(ip_hash, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_listing_reports_ip_expires
+        ON listing_reports(ip_hash_expires_at)
+        WHERE ip_hash IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_moderation_actions_listing_created
+        ON listing_moderation_actions(listing_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_moderation_actions_report_created
+        ON listing_moderation_actions(report_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_moderation_actions_admin_created
+        ON listing_moderation_actions(admin_id, created_at DESC);
+    `);
+
+    ensureLandlordPinResetTableSync(instance);
 
     // Flag demo seed landlords/listings and assign demo PIN (1234) so they remain testable and secure
     instance.exec(`
@@ -258,8 +352,49 @@ function verifyPin(candidatePin: string, storedHashOrPin: string | null): boolea
       return false;
     }
   }
+  if (storedHashOrPin.startsWith("pbkdf2:")) {
+    const parts = storedHashOrPin.split(":");
+    if (parts.length !== 3) return false;
+    try {
+      const derived = crypto.pbkdf2Sync(cleanCandidate, Buffer.from(parts[1], "hex"), 100000, 32, "sha256").toString("hex");
+      return crypto.timingSafeEqual(Buffer.from(derived), Buffer.from(parts[2]));
+    } catch {
+      return false;
+    }
+  }
   // Backward compatibility with un-hashed plaintext PINs in existing database
   return cleanCandidate === String(storedHashOrPin).trim();
+}
+
+const EPHEMERAL_REPORT_HASH_KEY = crypto.randomBytes(32);
+
+function computeExpressKeyedHash(domain: string, value: string): string {
+  const envSecret = process.env.REPORT_HASH_SECRET?.trim();
+  const key = envSecret && envSecret.length >= 8 ? Buffer.from(envSecret, "utf8") : EPHEMERAL_REPORT_HASH_KEY;
+  return crypto.createHmac("sha256", key).update(`${domain}:${value}`).digest("hex");
+}
+
+function getExpressClientIp(req: express.Request): string {
+  const cfIp = req.headers["cf-connecting-ip"];
+  if (typeof cfIp === "string" && cfIp.trim()) return cfIp.trim();
+  const xff = req.headers["x-forwarded-for"];
+  if (typeof xff === "string" && xff.trim()) {
+    const first = xff.split(",")[0]?.trim();
+    if (first) return first;
+  }
+  return req.socket?.remoteAddress || "unknown";
+}
+
+function scrubExpiredExpressIpHashes(): void {
+  try {
+    db.prepare(`
+      UPDATE listing_reports
+      SET ip_hash = NULL
+      WHERE ip_hash IS NOT NULL
+        AND ip_hash_expires_at IS NOT NULL
+        AND ip_hash_expires_at <= datetime('now')
+    `).run();
+  } catch (_) {}
 }
 
 // Authentication and Ownership verification helper (Strict Bearer / Header Token only)
@@ -293,7 +428,7 @@ app.get("/api/landlords", (_req, res) => {
 });
 
 app.post("/api/landlords", (req, res) => {
-  const { action, name, phone, pin, newPin } = req.body; 
+  const { action, name, phone, pin, newPin, resetCode } = req.body; 
   if (!action || !phone) return res.status(400).json({ error: "Missing action or phone parameter." });
   const cleanName = (name || "").trim();
   const phoneId = Number(String(phone).replace(/\D/g, ""));
@@ -304,7 +439,7 @@ app.post("/api/landlords", (req, res) => {
 
   try {
     if (action === "login") {
-      const landlord = db.prepare("SELECT * FROM landlords WHERE id = ?").get(phoneId) as any;
+      const landlord = findLandlordByPhoneSync(db, String(phone));
       if (!landlord) {
         return res.status(404).json({
           success: false,
@@ -332,7 +467,7 @@ app.post("/api/landlords", (req, res) => {
         }
         // Transparent upgrade from legacy plaintext to scrypt hash upon successful authentication
         if (!landlord.account_pin.startsWith("scrypt:")) {
-          db.prepare("UPDATE landlords SET account_pin = ? WHERE id = ?").run(hashPin(String(pin)), phoneId);
+          db.prepare("UPDATE landlords SET account_pin = ? WHERE id = ?").run(hashPin(String(pin)), landlord.id);
         }
       } else {
         // Legacy unpinned landlord: must verify registered full name before establishing permanent PIN
@@ -343,12 +478,12 @@ app.post("/api/landlords", (req, res) => {
             code: "NAME_MISMATCH"
           });
         }
-        db.prepare("UPDATE landlords SET account_pin = ? WHERE id = ?").run(hashPin(String(pin)), phoneId);
+        db.prepare("UPDATE landlords SET account_pin = ? WHERE id = ?").run(hashPin(String(pin)), landlord.id);
       }
 
       // Issue fresh cryptographically secure auth session token
       const token = crypto.randomUUID();
-      db.prepare("UPDATE landlords SET auth_token = ? WHERE id = ?").run(token, phoneId);
+      db.prepare("UPDATE landlords SET auth_token = ? WHERE id = ?").run(token, landlord.id);
 
       return res.json({
         success: true,
@@ -368,7 +503,7 @@ app.post("/api/landlords", (req, res) => {
         return res.status(400).json({ error: "Your full name is required to create an account." });
       }
 
-      const existing = db.prepare("SELECT * FROM landlords WHERE id = ?").get(phoneId) as any;
+      const existing = findLandlordByPhoneSync(db, String(phone));
       if (existing) {
         return res.status(400).json({
           success: false,
@@ -405,25 +540,40 @@ app.post("/api/landlords", (req, res) => {
         }
       });
     } else if (action === "recover" || action === "reset_pin") {
-      const landlord = db.prepare("SELECT * FROM landlords WHERE id = ?").get(phoneId) as any;
+      const landlord = findLandlordByPhoneSync(db, String(phone));
       if (!landlord) {
-        return res.status(404).json({ error: "No landlord account found with this phone number." });
-      }
-
-      if (!cleanName || landlord.full_name.toLowerCase().trim() !== cleanName.toLowerCase().trim()) {
-        return res.status(401).json({ 
-          error: "Full name does not match the registered account details. For manual recovery, please contact BunkBy Support on WhatsApp." 
+        return res.status(404).json({
+          success: false,
+          code: "ACCOUNT_NOT_FOUND",
+          error: "No landlord account found with this phone number."
         });
       }
 
-      const targetNewPin = newPin || pin;
-      if (!targetNewPin || String(targetNewPin).trim().length < 4) {
-        return res.status(400).json({ error: "New Security PIN must be at least 4 digits." });
+      const cleanNewPin = String(newPin || pin || "").trim();
+      if (!/^\d{4,8}$/.test(cleanNewPin)) {
+        return res.status(400).json({
+          success: false,
+          code: "INVALID_NEW_PIN",
+          error: "New Security PIN must be 4 to 8 digits."
+        });
       }
 
-      const hashedNewPin = hashPin(String(targetNewPin));
+      const verification = verifyAndConsumeLandlordPinResetCodeSync(
+        db,
+        Number(landlord.id),
+        String(resetCode || "")
+      );
+      if (!verification.ok) {
+        return res.status(verification.status || 400).json({
+          success: false,
+          code: verification.code || "INVALID_RESET_CODE",
+          error: verification.error || "Invalid or expired reset code."
+        });
+      }
+
+      const hashedNewPin = hashPin(cleanNewPin);
       const token = crypto.randomUUID();
-      db.prepare("UPDATE landlords SET account_pin = ?, auth_token = ? WHERE id = ?").run(hashedNewPin, token, phoneId);
+      db.prepare("UPDATE landlords SET account_pin = ?, auth_token = ? WHERE id = ?").run(hashedNewPin, token, landlord.id);
 
       return res.json({
         success: true,
@@ -475,6 +625,7 @@ app.get("/api/listings", (req, res) => {
       FROM listings 
       LEFT JOIN landlords ON listings.landlord_id = landlords.id 
       WHERE listings.verification_status != 'Delisted'
+        AND COALESCE(listings.verification_status, 'Active') NOT IN ('Hidden', 'Removed')
       ORDER BY listings.created_at DESC
     `).all().map((row: any) => ({
         ...row,
@@ -563,53 +714,507 @@ app.post("/api/listings", (req, res) => {
 
 // Report listing endpoint (supports both /api/rooms/:id/report and /api/listings/:id/report)
 app.post(["/api/rooms/:id/report", "/api/listings/:id/report"], (req, res) => {
-  const { id } = req.params;
-  const { reason, details, reporterName, reporterPhone, name, phone } = req.body;
+  const cleanListingId = Number(req.params.id);
+  if (!Number.isInteger(cleanListingId) || cleanListingId <= 0) {
+    return res.status(400).json({ error: "Invalid listing ID." });
+  }
+
+  const { reason, details, reporterName, reporterPhone, name, phone, reporterToken } = req.body || {};
   if (!reason || typeof reason !== "string" || !reason.trim()) {
     return res.status(400).json({ error: "A valid reason is required to submit a report." });
   }
 
   const finalReason = reason.trim().slice(0, 200);
-  const finalDetails = details && typeof details === "string" ? details.trim().slice(0, 1000) : null;
+  const finalDetails = details && typeof details === "string" && details.trim() ? details.trim().slice(0, 1000) : null;
   const finalReporterName = (reporterName || name || "").toString().trim().slice(0, 100) || null;
   const finalReporterPhone = (reporterPhone || phone || "").toString().trim().slice(0, 50) || null;
+  const clientReporterToken = (
+    (req.headers["x-reporter-token"] as string) ||
+    reporterToken ||
+    ""
+  ).toString().trim().slice(0, 128);
+
+  const clientIp = getExpressClientIp(req);
+  const userAgent = String(req.headers["user-agent"] || "unknown").slice(0, 200);
+  const ipHash = computeExpressKeyedHash("ip", clientIp);
+
+  const normalizedPhoneDigits = finalReporterPhone ? finalReporterPhone.replace(/\D/g, "") : "";
+  const reporterRawSeed =
+    clientReporterToken.length >= 8
+      ? `tok:${clientReporterToken}`
+      : normalizedPhoneDigits.length >= 7
+      ? `ph:${normalizedPhoneDigits}`
+      : `anon:${clientIp}|${userAgent}`;
+  const reporterTokenHash = computeExpressKeyedHash("reporter", reporterRawSeed);
 
   try {
-    const listing = db.prepare("SELECT id FROM listings WHERE id = ?").get(id);
-    if (!listing) return res.status(404).json({ error: "Listing not found" });
+    scrubExpiredExpressIpHashes();
 
-    // Abuse prevention: reject duplicate reports from same reporter phone within 2 minutes
-    if (finalReporterPhone) {
-      const recent = db.prepare(`
-        SELECT id FROM listing_reports 
-        WHERE listing_id = ? AND reporter_phone = ? AND created_at > datetime('now', '-2 minutes')
-      `).get(id, finalReporterPhone);
-      if (recent) {
-        return res.status(429).json({ error: "A report for this listing was already received recently. Our moderation team is investigating." });
-      }
+    const listing = db.prepare("SELECT id, verification_status FROM listings WHERE id = ?").get(cleanListingId) as any;
+    if (!listing) return res.status(404).json({ error: "Listing not found" });
+    if (listing.verification_status === "Removed") {
+      return res.status(410).json({ error: "This listing has already been removed by moderation." });
     }
 
-    db.prepare(`
-      INSERT INTO listing_reports (listing_id, reason, details, reporter_name, reporter_phone)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(id, finalReason, finalDetails, finalReporterName, finalReporterPhone);
+    // 1. IP-hash rate limit (max 5 reports per 15 minutes)
+    const rateRow = db.prepare(`
+      SELECT COUNT(*) as cnt
+      FROM listing_reports
+      WHERE ip_hash = ? AND created_at > datetime('now', '-15 minutes')
+    `).get(ipHash) as any;
+    if (Number(rateRow?.cnt || 0) >= 5) {
+      return res.status(429).json({
+        error: "Too many reports submitted recently from your connection. Please wait a few minutes before submitting another report.",
+        code: "RATE_LIMITED"
+      });
+    }
+
+    // 2. Duplicate detection: primary check is the pseudonymous browser/device token
+    //    (IP hashes are reserved for rate limiting & suspicious cluster detection, not rejecting shared IPs)
+    const existingOpen = db.prepare(`
+      SELECT id FROM listing_reports
+      WHERE listing_id = ? AND reporter_token_hash = ? AND status IN ('pending', 'under_review')
+      LIMIT 1
+    `).get(cleanListingId, reporterTokenHash);
+    if (existingOpen) {
+      return res.status(409).json({
+        error: "You have already reported this listing and it is currently awaiting or under moderation review.",
+        code: "DUPLICATE_REPORT"
+      });
+    }
+
+    const insertRes = db.prepare(`
+      INSERT INTO listing_reports (
+        listing_id, reason, details, reporter_name, reporter_phone,
+        reporter_token_hash, ip_hash, ip_hash_expires_at, status
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now', '+30 days'), 'pending')
+    `).run(cleanListingId, finalReason, finalDetails, finalReporterName, finalReporterPhone, reporterTokenHash, ipHash);
 
     try {
-      db.prepare("UPDATE listings SET reports_count = reports_count + 1 WHERE id = ?").run(id);
+      db.prepare("UPDATE listings SET reports_count = COALESCE(reports_count, 0) + 1 WHERE id = ?").run(cleanListingId);
     } catch (_) {}
 
-    res.json({ success: true, message: "Thank you for reporting. Our moderation team will investigate this listing." });
+    res.status(201).json({
+      success: true,
+      reportId: insertRes.lastInsertRowid,
+      message: "Thank you for reporting. Our moderation team will investigate this listing."
+    });
+  } catch (err: any) {
+    const msg = String(err?.message || "");
+    if (msg.includes("UNIQUE constraint failed")) {
+      return res.status(409).json({
+        error: "You have already submitted an open report for this listing.",
+        code: "DUPLICATE_REPORT"
+      });
+    }
+    res.status(500).json({ error: err.message });
+  }
+});
+
+function executeExpressModeration({
+  admin,
+  reportId,
+  listingId,
+  body,
+}: {
+  admin: { id: number; name: string };
+  reportId?: string | number | null;
+  listingId?: string | number | null;
+  body: any;
+}): { status: number; payload: any } {
+  const validActions = [
+    "mark_under_review",
+    "dismiss",
+    "dismiss_report",
+    "hide_listing",
+    "restore_listing",
+    "remove_listing",
+    "resolve",
+    "resolve_report",
+    "add_note",
+  ];
+  const rawAction = typeof body?.action === "string" ? body.action.trim() : "";
+  if (!validActions.includes(rawAction)) {
+    return { status: 400, payload: { error: `Unsupported moderation action: "${rawAction}".` } };
+  }
+
+  const notes =
+    typeof body?.notes === "string"
+      ? body.notes.trim().slice(0, 1000)
+      : typeof body?.moderation_notes === "string"
+      ? body.moderation_notes.trim().slice(0, 1000)
+      : null;
+  const reason =
+    typeof body?.reason === "string" && body.reason.trim()
+      ? body.reason.trim().slice(0, 300)
+      : null;
+
+  let targetReport: any = null;
+  if (reportId !== undefined && reportId !== null && String(reportId).trim() !== "") {
+    const cleanReportId = Number(reportId);
+    if (!Number.isInteger(cleanReportId) || cleanReportId <= 0) {
+      return { status: 400, payload: { error: "Invalid report ID." } };
+    }
+    targetReport = db.prepare("SELECT * FROM listing_reports WHERE id = ?").get(cleanReportId);
+    if (!targetReport) {
+      return { status: 404, payload: { error: "Report not found." } };
+    }
+  }
+
+  const resolvedListingId = Number(listingId ?? targetReport?.listing_id ?? body?.listingId ?? 0);
+  if (!Number.isInteger(resolvedListingId) || resolvedListingId <= 0) {
+    return { status: 400, payload: { error: "Valid listing ID is required." } };
+  }
+
+  const listing = db.prepare("SELECT * FROM listings WHERE id = ?").get(resolvedListingId) as any;
+  if (!listing) {
+    return { status: 404, payload: { error: "Associated listing not found." } };
+  }
+
+  const prevStatus = String(listing.verification_status || "Active");
+  let nextListingStatus = prevStatus;
+  let nextReportStatus: string | null = null;
+  let normalizedActionType = rawAction;
+
+  if (rawAction === "mark_under_review") {
+    normalizedActionType = "mark_under_review";
+    nextReportStatus = "under_review";
+  } else if (rawAction === "dismiss" || rawAction === "dismiss_report") {
+    normalizedActionType = "dismiss_report";
+    nextReportStatus = "dismissed";
+  } else if (rawAction === "resolve" || rawAction === "resolve_report") {
+    normalizedActionType = "resolve_report";
+    nextReportStatus = "resolved";
+  } else if (rawAction === "hide_listing") {
+    normalizedActionType = "hide_listing";
+    nextListingStatus = "Hidden";
+    nextReportStatus = "action_taken";
+  } else if (rawAction === "remove_listing") {
+    normalizedActionType = "remove_listing";
+    nextListingStatus = "Removed";
+    nextReportStatus = "action_taken";
+  } else if (rawAction === "restore_listing") {
+    normalizedActionType = "restore_listing";
+    const lastHide = db.prepare(`
+      SELECT previous_listing_status FROM listing_moderation_actions
+      WHERE listing_id = ?
+        AND new_listing_status IN ('Hidden', 'Removed')
+        AND previous_listing_status IN ('Active', 'verified')
+      ORDER BY id DESC LIMIT 1
+    `).get(resolvedListingId) as any;
+    nextListingStatus = lastHide?.previous_listing_status || "Active";
+    nextReportStatus = targetReport ? "resolved" : null;
+  } else if (rawAction === "add_note") {
+    normalizedActionType = "add_note";
+    nextReportStatus = targetReport ? String(targetReport.status) : null;
+  }
+
+  if (nextListingStatus !== prevStatus) {
+    db.prepare("UPDATE listings SET verification_status = ? WHERE id = ?").run(nextListingStatus, resolvedListingId);
+  }
+
+  if (targetReport && nextReportStatus) {
+    db.prepare(`
+      UPDATE listing_reports
+      SET status = ?,
+          reviewed_at = CURRENT_TIMESTAMP,
+          reviewed_by = ?,
+          reviewed_by_name = ?,
+          moderation_notes = COALESCE(?, moderation_notes)
+      WHERE id = ?
+    `).run(nextReportStatus, admin.id, admin.name, notes, targetReport.id);
+  }
+
+  if (normalizedActionType === "hide_listing" || normalizedActionType === "remove_listing") {
+    db.prepare(`
+      UPDATE listing_reports
+      SET status = 'action_taken',
+          reviewed_at = CURRENT_TIMESTAMP,
+          reviewed_by = ?,
+          reviewed_by_name = ?,
+          moderation_notes = COALESCE(?, moderation_notes)
+      WHERE listing_id = ?
+        AND status IN ('pending', 'under_review')
+    `).run(admin.id, admin.name, notes, resolvedListingId);
+  }
+
+  const auditRes = db.prepare(`
+    INSERT INTO listing_moderation_actions (
+      listing_id, report_id, admin_id, admin_name, action_type,
+      previous_listing_status, new_listing_status, reason, notes
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    resolvedListingId,
+    targetReport ? targetReport.id : null,
+    admin.id,
+    admin.name,
+    normalizedActionType,
+    prevStatus,
+    nextListingStatus,
+    reason,
+    notes
+  );
+
+  return {
+    status: 200,
+    payload: {
+      success: true,
+      actionId: auditRes.lastInsertRowid,
+      actionType: normalizedActionType,
+      listingId: resolvedListingId,
+      previousListingStatus: prevStatus,
+      newListingStatus: nextListingStatus,
+      reportId: targetReport ? targetReport.id : null,
+      reportStatus: nextReportStatus,
+    }
+  };
+}
+
+app.get("/api/admin", (req, res) => {
+  const requester = getAuthenticatedLandlord(req);
+  if (!requester) {
+    return res.status(401).json({ error: "Authentication required: Please log in as an administrator." });
+  }
+  if (!requester.isAdmin) {
+    return res.status(403).json({ error: "Forbidden: Administrator privileges required." });
+  }
+
+  try {
+    scrubExpiredExpressIpHashes();
+    const landlords = db.prepare("SELECT id, full_name, national_id_url, rates_bill_url, verification_status FROM landlords").all();
+    const listings = db.prepare("SELECT * FROM listings ORDER BY created_at DESC, id DESC").all();
+    const reports = db.prepare(`
+      SELECT
+        r.id, r.listing_id, r.reason, r.details, r.reporter_name, r.reporter_phone,
+        r.status, r.created_at, r.reviewed_at, r.reviewed_by, r.reviewed_by_name,
+        r.moderation_notes,
+        l.title AS listing_title, l.city AS listing_city, l.suburb AS listing_suburb,
+        l.price AS listing_price, l.rent_cycle AS listing_frequency,
+        l.property_type AS listing_property_type, l.category AS listing_category,
+        l.verification_status AS listing_status, l.landlord_id AS listing_landlord_id,
+        l.reports_count AS listing_reports_count,
+        ld.full_name AS listing_landlord_name,
+        (
+          SELECT COUNT(*) FROM listing_reports r2
+          WHERE r2.listing_id = r.listing_id AND r2.ip_hash IS NOT NULL AND r2.ip_hash = r.ip_hash
+        ) AS same_ip_reports_count
+      FROM listing_reports r
+      LEFT JOIN listings l ON l.id = r.listing_id
+      LEFT JOIN landlords ld ON ld.id = l.landlord_id
+      ORDER BY r.created_at DESC, r.id DESC
+      LIMIT 200
+    `).all();
+    const moderationActions = db.prepare(`
+      SELECT a.*, l.title AS listing_title
+      FROM listing_moderation_actions a
+      LEFT JOIN listings l ON l.id = a.listing_id
+      ORDER BY a.created_at DESC, a.id DESC
+      LIMIT 100
+    `).all();
+    res.json({ landlords, listings, reports, moderationActions });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.get("/api/admin", (req, res) => {
+app.get("/api/admin/reports", (req, res) => {
+  const requester = getAuthenticatedLandlord(req);
+  if (!requester) {
+    return res.status(401).json({ error: "Authentication required: Please log in as an administrator." });
+  }
+  if (!requester.isAdmin) {
+    return res.status(403).json({ error: "Forbidden: Administrator privileges required." });
+  }
+
   try {
-    const landlords = db.prepare("SELECT id, full_name, national_id_url, rates_bill_url, verification_status FROM landlords").all();
-    const listings = db.prepare("SELECT * FROM listings").all();
-    const reports = db.prepare("SELECT * FROM listing_reports ORDER BY created_at DESC LIMIT 50").all();
-    res.json({ landlords, listings, reports });
+    scrubExpiredExpressIpHashes();
+    const statusFilter = String(req.query.status || "all").trim();
+    const listingIdParam = String(req.query.listingId || "").trim();
+    const searchQuery = String(req.query.q || "").trim();
+
+    const whereClauses: string[] = [];
+    const params: any[] = [];
+    if (statusFilter && statusFilter !== "all" && ["pending", "under_review", "action_taken", "dismissed", "resolved"].includes(statusFilter)) {
+      whereClauses.push("r.status = ?");
+      params.push(statusFilter);
+    }
+    if (listingIdParam && /^\d+$/.test(listingIdParam)) {
+      whereClauses.push("r.listing_id = ?");
+      params.push(Number(listingIdParam));
+    }
+    if (searchQuery) {
+      whereClauses.push("(r.reason LIKE ? OR r.details LIKE ? OR l.title LIKE ? OR l.suburb LIKE ? OR l.city LIKE ?)");
+      const qLike = `%${searchQuery}%`;
+      params.push(qLike, qLike, qLike, qLike, qLike);
+    }
+    const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(" AND ")}` : "";
+
+    const reports = db.prepare(`
+      SELECT
+        r.id, r.listing_id, r.reason, r.details, r.reporter_name, r.reporter_phone,
+        r.status, r.created_at, r.reviewed_at, r.reviewed_by, r.reviewed_by_name,
+        r.moderation_notes,
+        l.title AS listing_title, l.city AS listing_city, l.suburb AS listing_suburb,
+        l.price AS listing_price, l.rent_cycle AS listing_frequency,
+        l.property_type AS listing_property_type, l.category AS listing_category,
+        l.verification_status AS listing_status, l.landlord_id AS listing_landlord_id,
+        l.reports_count AS listing_reports_count,
+        ld.full_name AS listing_landlord_name,
+        (
+          SELECT COUNT(*) FROM listing_reports r2
+          WHERE r2.listing_id = r.listing_id AND r2.ip_hash IS NOT NULL AND r2.ip_hash = r.ip_hash
+        ) AS same_ip_reports_count
+      FROM listing_reports r
+      LEFT JOIN listings l ON l.id = r.listing_id
+      LEFT JOIN landlords ld ON ld.id = l.landlord_id
+      ${whereSql}
+      ORDER BY
+        CASE r.status
+          WHEN 'pending' THEN 0
+          WHEN 'under_review' THEN 1
+          WHEN 'action_taken' THEN 2
+          WHEN 'resolved' THEN 3
+          WHEN 'dismissed' THEN 4
+          ELSE 5
+        END,
+        r.created_at DESC,
+        r.id DESC
+      LIMIT 200
+    `).all(...params);
+
+    const countsRows = db.prepare("SELECT status, COUNT(*) as cnt FROM listing_reports GROUP BY status").all() as any[];
+    const visRow = db.prepare(`
+      SELECT
+        SUM(CASE WHEN verification_status = 'Hidden' THEN 1 ELSE 0 END) as hidden_listings,
+        SUM(CASE WHEN verification_status = 'Removed' THEN 1 ELSE 0 END) as removed_listings
+      FROM listings
+    `).get() as any;
+
+    const moderationActions = db.prepare(`
+      SELECT a.*, l.title AS listing_title
+      FROM listing_moderation_actions a
+      LEFT JOIN listings l ON l.id = a.listing_id
+      ORDER BY a.created_at DESC, a.id DESC
+      LIMIT 100
+    `).all();
+
+    const statusCounts: Record<string, number> = {
+      pending: 0,
+      under_review: 0,
+      action_taken: 0,
+      dismissed: 0,
+      resolved: 0,
+      total: 0,
+    };
+    for (const row of countsRows) {
+      statusCounts[String(row.status)] = Number(row.cnt || 0);
+      statusCounts.total += Number(row.cnt || 0);
+    }
+
+    res.json({
+      reports,
+      moderationActions,
+      stats: {
+        ...statusCounts,
+        hiddenListings: Number(visRow?.hidden_listings || 0),
+        removedListings: Number(visRow?.removed_listings || 0),
+      },
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get("/api/admin/reports/:id", (req, res) => {
+  const requester = getAuthenticatedLandlord(req);
+  if (!requester) return res.status(401).json({ error: "Authentication required." });
+  if (!requester.isAdmin) return res.status(403).json({ error: "Forbidden: Administrator privileges required." });
+
+  const cleanId = Number(req.params.id);
+  if (!Number.isInteger(cleanId) || cleanId <= 0) {
+    return res.status(400).json({ error: "Invalid report ID." });
+  }
+
+  try {
+    const report = db.prepare(`
+      SELECT
+        r.id, r.listing_id, r.reason, r.details, r.reporter_name, r.reporter_phone,
+        r.status, r.created_at, r.reviewed_at, r.reviewed_by, r.reviewed_by_name,
+        r.moderation_notes,
+        l.title AS listing_title, l.city AS listing_city, l.suburb AS listing_suburb,
+        l.landmark AS listing_landmark, l.price AS listing_price, l.deposit AS listing_deposit,
+        l.rent_cycle AS listing_frequency, l.property_type AS listing_property_type,
+        l.category AS listing_category, l.verification_status AS listing_status,
+        l.landlord_id AS listing_landlord_id, l.contact_phone AS listing_contact_phone,
+        l.image_url AS listing_image_url, l.reports_count AS listing_reports_count,
+        ld.full_name AS listing_landlord_name,
+        (
+          SELECT COUNT(*) FROM listing_reports r2
+          WHERE r2.listing_id = r.listing_id AND r2.ip_hash IS NOT NULL AND r2.ip_hash = r.ip_hash
+        ) AS same_ip_reports_count
+      FROM listing_reports r
+      LEFT JOIN listings l ON l.id = r.listing_id
+      LEFT JOIN landlords ld ON ld.id = l.landlord_id
+      WHERE r.id = ?
+    `).get(cleanId) as any;
+
+    if (!report) return res.status(404).json({ error: "Report not found." });
+
+    const siblingReports = db.prepare(`
+      SELECT id, reason, details, reporter_name, status, created_at, reviewed_at, reviewed_by_name, moderation_notes
+      FROM listing_reports
+      WHERE listing_id = ?
+      ORDER BY created_at DESC, id DESC
+    `).all(report.listing_id);
+
+    const moderationActions = db.prepare(`
+      SELECT * FROM listing_moderation_actions
+      WHERE listing_id = ?
+      ORDER BY created_at DESC, id DESC
+    `).all(report.listing_id);
+
+    res.json({ report, siblingReports, moderationActions });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post(["/api/admin/reports/:id", "/api/admin/reports/:id/moderate"], (req, res) => {
+  const requester = getAuthenticatedLandlord(req);
+  if (!requester) return res.status(401).json({ error: "Authentication required." });
+  if (!requester.isAdmin) return res.status(403).json({ error: "Forbidden: Administrator privileges required." });
+  try {
+    const out = executeExpressModeration({ admin: requester, reportId: req.params.id, body: req.body });
+    res.status(out.status).json(out.payload);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.patch("/api/admin/reports/:id", (req, res) => {
+  const requester = getAuthenticatedLandlord(req);
+  if (!requester) return res.status(401).json({ error: "Authentication required." });
+  if (!requester.isAdmin) return res.status(403).json({ error: "Forbidden: Administrator privileges required." });
+  try {
+    const out = executeExpressModeration({ admin: requester, reportId: req.params.id, body: req.body });
+    res.status(out.status).json(out.payload);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/admin/listings/:id/moderate", (req, res) => {
+  const requester = getAuthenticatedLandlord(req);
+  if (!requester) return res.status(401).json({ error: "Authentication required." });
+  if (!requester.isAdmin) return res.status(403).json({ error: "Forbidden: Administrator privileges required." });
+  try {
+    const out = executeExpressModeration({
+      admin: requester,
+      listingId: req.params.id,
+      reportId: req.body?.reportId ?? null,
+      body: req.body,
+    });
+    res.status(out.status).json(out.payload);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -621,23 +1226,59 @@ app.post("/api/admin", (req, res) => {
     return res.status(403).json({ error: "Forbidden: Administrator privileges required to perform administrative mutations." });
   }
 
-  const { action, id, targetId, phone, status } = req.body;
+  const { action, id, targetId, phone, status, reportId, listingId } = req.body;
   const targetLandlordId = id || (phone ? Number(String(phone).replace(/\D/g, "")) : null);
-  const targetListingId = id || targetId;
+  const targetListingId = id || targetId || listingId;
 
   try {
     if (action === "verify") {
       const nextStatus = status || "verified";
       db.prepare("UPDATE landlords SET verification_status = ? WHERE id = ?").run(nextStatus, targetLandlordId);
-      db.prepare("UPDATE listings SET verification_status = ? WHERE landlord_id = ?").run(nextStatus === "verified" ? "Active" : "Delisted", targetLandlordId);
+      db.prepare("UPDATE listings SET verification_status = ? WHERE landlord_id = ? AND COALESCE(verification_status, 'Active') NOT IN ('Hidden', 'Removed')").run(nextStatus === "verified" ? "Active" : "Delisted", targetLandlordId);
       return res.json({ success: true, updated: targetLandlordId, status: nextStatus });
     } else if (action === "deleteLandlord") {
+      db.prepare(`
+        UPDATE listings
+        SET verification_status = 'Removed', landlord_id = NULL
+        WHERE landlord_id = ?
+          AND (
+            EXISTS (SELECT 1 FROM listing_reports r WHERE r.listing_id = listings.id)
+            OR EXISTS (SELECT 1 FROM listing_moderation_actions a WHERE a.listing_id = listings.id)
+          )
+      `).run(targetLandlordId);
+      db.prepare(`
+        DELETE FROM listings
+        WHERE landlord_id = ?
+          AND NOT EXISTS (SELECT 1 FROM listing_reports r WHERE r.listing_id = listings.id)
+          AND NOT EXISTS (SELECT 1 FROM listing_moderation_actions a WHERE a.listing_id = listings.id)
+      `).run(targetLandlordId);
       db.prepare("DELETE FROM landlords WHERE id = ?").run(targetLandlordId);
-      db.prepare("DELETE FROM listings WHERE landlord_id = ?").run(targetLandlordId);
       return res.json({ success: true });
     } else if (action === "deleteListing") {
-      db.prepare("DELETE FROM listings WHERE id = ?").run(targetListingId);
-      return res.json({ success: true });
+      const out = executeExpressModeration({
+        admin: requester,
+        reportId: reportId ?? null,
+        listingId: targetListingId ?? null,
+        body: {
+          ...req.body,
+          action: "remove_listing",
+          notes:
+            req.body?.notes ||
+            "Removed by administrator (record and report history preserved)",
+        },
+      });
+      return res.status(out.status).json(out.payload);
+    } else if ([
+      "mark_under_review", "dismiss", "dismiss_report", "hide_listing",
+      "restore_listing", "remove_listing", "resolve", "resolve_report", "add_note"
+    ].includes(action)) {
+      const out = executeExpressModeration({
+        admin: requester,
+        reportId: reportId ?? null,
+        listingId: targetListingId ?? null,
+        body: req.body,
+      });
+      return res.status(out.status).json(out.payload);
     }
     res.status(400).json({ error: "Unknown action" });
   } catch (err: any) {
@@ -712,7 +1353,12 @@ app.put("/api/rooms/:id", (req, res) => {
     const resolvedBusinessName = business_name || businessName || null;
     const resolvedIsPremium = (is_premium !== undefined ? is_premium : isPremium) ? 1 : 0;
     const resolvedTier = listing_tier || listingTier || (resolvedIsPremium ? "paid" : "free");
-    const resolvedStatus = verification_status || status || 'Active';
+    const isModeratedLocked =
+      !requester.isAdmin &&
+      (existingListing.verification_status === "Hidden" || existingListing.verification_status === "Removed");
+    const resolvedStatus = isModeratedLocked
+      ? existingListing.verification_status
+      : verification_status || status || existingListing.verification_status || 'Active';
 
     const stmt = db.prepare(`
       UPDATE listings SET
@@ -750,6 +1396,15 @@ app.post("/api/rooms/:id/set-status", (req, res) => {
       return res.status(403).json({ error: "Forbidden: You do not have permission to change this listing status." });
     }
 
+    if (
+      !requester.isAdmin &&
+      (existingListing.verification_status === "Hidden" || existingListing.verification_status === "Removed")
+    ) {
+      return res.status(403).json({
+        error: `This listing is currently ${existingListing.verification_status.toLowerCase()} by BunkBy moderation and cannot be reactivated without administrator review.`
+      });
+    }
+
     db.prepare("UPDATE listings SET verification_status = ? WHERE id = ?").run(status, req.params.id);
     res.json({ success: true, status });
   } catch (err: any) {
@@ -768,6 +1423,30 @@ app.delete("/api/rooms/:id", (req, res) => {
     }
     if (existingListing.landlord_id && requester.id !== existingListing.landlord_id && !requester.isAdmin) {
       return res.status(403).json({ error: "Forbidden: You do not have permission to delete this listing." });
+    }
+    if (
+      !requester.isAdmin &&
+      (existingListing.verification_status === "Hidden" || existingListing.verification_status === "Removed")
+    ) {
+      return res.status(403).json({
+        error: `Forbidden: This listing is currently ${String(existingListing.verification_status).toLowerCase()} by BunkBy moderation and cannot be deleted without administrator review.`
+      });
+    }
+
+    const hasReport = db.prepare("SELECT id FROM listing_reports WHERE listing_id = ? LIMIT 1").get(req.params.id);
+    const hasAction = db.prepare("SELECT id FROM listing_moderation_actions WHERE listing_id = ? LIMIT 1").get(req.params.id);
+    if (hasReport || hasAction || requester.isAdmin) {
+      const nextStatus = requester.isAdmin ? "Removed" : "Delisted";
+      db.prepare("UPDATE listings SET verification_status = ? WHERE id = ?").run(nextStatus, req.params.id);
+      if (requester.isAdmin) {
+        db.prepare(`
+          INSERT INTO listing_moderation_actions (
+            listing_id, report_id, admin_id, admin_name, action_type,
+            previous_listing_status, new_listing_status, reason, notes
+          ) VALUES (?, NULL, ?, ?, 'remove_listing', ?, 'Removed', 'Admin removal', 'Removed via listing endpoint (report history preserved)')
+        `).run(req.params.id, requester.id, requester.name, existingListing.verification_status || "Active");
+      }
+      return res.json({ success: true, preservedHistory: true, status: nextStatus });
     }
 
     db.prepare("DELETE FROM listings WHERE id = ?").run(req.params.id);
@@ -790,6 +1469,15 @@ app.post("/api/rooms/:id/toggle-status", (req, res) => {
     }
     if (listing.landlord_id && requester.id !== listing.landlord_id && !requester.isAdmin) {
       return res.status(403).json({ error: "Forbidden: You do not have permission to modify this listing." });
+    }
+
+    if (
+      !requester.isAdmin &&
+      (listing.verification_status === "Hidden" || listing.verification_status === "Removed")
+    ) {
+      return res.status(403).json({
+        error: `This listing is currently ${listing.verification_status.toLowerCase()} by BunkBy moderation and cannot be reactivated without administrator review.`
+      });
     }
 
     const nextStatus = listing.verification_status === "Active" ? "Delisted" : "Active";

@@ -45,6 +45,7 @@ export function getAllListingPhotos(room: any): string[] {
 import PrivacyPolicy from "./PrivacyPolicy";
 import { WhatsAppLandingPage } from "./components/WhatsAppLandingPage";
 import { ListingDetailPage } from "./components/ListingDetailPage";
+import { AdminReportsPanel } from "./components/AdminReportsPanel";
 import { applyClientSeo } from "./utils/seoClient";
 import {
   CatalogLocationEntry,
@@ -428,6 +429,11 @@ export default function App() {
   const [reportReporterPhone, setReportReporterPhone] = useState("");
   const [isSubmittingReport, setIsSubmittingReport] = useState(false);
 
+  // Admin Console sub-page & full listing inventory (includes Hidden/Removed/Delisted)
+  const [adminSubTab, setAdminSubTab] = useState<"reports" | "landlords" | "listings">("reports");
+  const [adminListings, setAdminListings] = useState<any[]>([]);
+  const [adminOpenReportsCount, setAdminOpenReportsCount] = useState<number>(0);
+
 
 
   // Simulated Account State (Supports phone number accounts for landlords, starts null for flow)
@@ -452,6 +458,50 @@ export default function App() {
     return null;
   });
 
+  useEffect(() => {
+    if (userProfile?.role !== "Admin" || !userProfile?.token) {
+      setAdminListings([]);
+      setAdminOpenReportsCount(0);
+      return;
+    }
+    let cancelled = false;
+    const loadAdminOverview = async () => {
+      try {
+        const res = await fetch("/api/admin", {
+          headers: {
+            Accept: "application/json",
+            "x-landlord-token": userProfile.token || "",
+          },
+        });
+        const parsed = await parseJsonResponse<{
+          landlords?: any[];
+          listings?: any[];
+          reports?: any[];
+        }>(res);
+        if (cancelled || !parsed.ok || !parsed.data) return;
+        if (Array.isArray(parsed.data.listings)) {
+          setAdminListings(parsed.data.listings);
+        }
+        if (Array.isArray(parsed.data.landlords)) {
+          setAllLandlords(parsed.data.landlords);
+        }
+        if (Array.isArray(parsed.data.reports)) {
+          setAdminOpenReportsCount(
+            parsed.data.reports.filter(
+              (r: any) => r.status === "pending" || r.status === "under_review"
+            ).length
+          );
+        }
+      } catch (e) {
+        console.error("Failed to load admin overview", e);
+      }
+    };
+    loadAdminOverview();
+    return () => {
+      cancelled = true;
+    };
+  }, [userProfile?.role, userProfile?.token]);
+
   // Soft Gate State for Lead Tracking (saves name/phone to local storage)
   const [isSoftGateOpen, setIsSoftGateOpen] = useState(false);
   const [softGateName, setSoftGateName] = useState(() => localStorage.getItem("bunkby_gate_name") || "");
@@ -474,33 +524,39 @@ export default function App() {
   const [isAuthLoading, setIsAuthLoading] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
 
-  // Floating WhatsApp CTA visibility: appears only after user scrolls a bit, then hides after 2 seconds
+  // Floating WhatsApp CTA visibility: appears once on scroll past 180px, then disappears at once 2s after initial appearance
   const [showFloatingWhatsapp, setShowFloatingWhatsapp] = useState(false);
   const floatingWhatsappTimerRef = useRef<number | null>(null);
   const isFloatingWhatsappHoveredRef = useRef(false);
+  const hasTriggeredFloatingWhatsappRef = useRef(false);
+  const floatingWhatsappAppearedAtRef = useRef(0);
 
   useEffect(() => {
-    const scheduleHide = () => {
+    const clearTimer = () => {
       if (floatingWhatsappTimerRef.current !== null) {
         window.clearTimeout(floatingWhatsappTimerRef.current);
-      }
-      floatingWhatsappTimerRef.current = window.setTimeout(() => {
-        if (!isFloatingWhatsappHoveredRef.current) {
-          setShowFloatingWhatsapp(false);
-        }
         floatingWhatsappTimerRef.current = null;
-      }, 2000);
+      }
     };
 
     const handleScroll = () => {
       if (window.scrollY > 180) {
-        setShowFloatingWhatsapp(true);
-        scheduleHide();
-      } else {
-        if (floatingWhatsappTimerRef.current !== null) {
-          window.clearTimeout(floatingWhatsappTimerRef.current);
-          floatingWhatsappTimerRef.current = null;
+        if (!hasTriggeredFloatingWhatsappRef.current) {
+          hasTriggeredFloatingWhatsappRef.current = true;
+          floatingWhatsappAppearedAtRef.current = Date.now();
+          setShowFloatingWhatsapp(true);
+          clearTimer();
+          floatingWhatsappTimerRef.current = window.setTimeout(() => {
+            if (!isFloatingWhatsappHoveredRef.current) {
+              setShowFloatingWhatsapp(false);
+            }
+            floatingWhatsappTimerRef.current = null;
+          }, 2000);
         }
+      } else {
+        hasTriggeredFloatingWhatsappRef.current = false;
+        isFloatingWhatsappHoveredRef.current = false;
+        clearTimer();
         setShowFloatingWhatsapp(false);
       }
     };
@@ -508,10 +564,7 @@ export default function App() {
     window.addEventListener("scroll", handleScroll, { passive: true });
     return () => {
       window.removeEventListener("scroll", handleScroll);
-      if (floatingWhatsappTimerRef.current !== null) {
-        window.clearTimeout(floatingWhatsappTimerRef.current);
-        floatingWhatsappTimerRef.current = null;
-      }
+      clearTimer();
     };
   }, []);
 
@@ -944,23 +997,52 @@ export default function App() {
     }
   };
 
-  // Account Recovery State & Handler
+  // Account Recovery State & Handler (WhatsApp 6-digit One-Time Reset Code)
   const [isRecoveryModalOpen, setIsRecoveryModalOpen] = useState(false);
   const [recoveryPhone, setRecoveryPhone] = useState("");
-  const [recoveryName, setRecoveryName] = useState("");
+  const [recoveryCode, setRecoveryCode] = useState("");
   const [recoveryNewPin, setRecoveryNewPin] = useState("");
+  const [recoveryConfirmPin, setRecoveryConfirmPin] = useState("");
+  const [recoveryError, setRecoveryError] = useState<string | null>(null);
+  const [whatsappResetOpened, setWhatsappResetOpened] = useState(false);
   const [isRecovering, setIsRecovering] = useState(false);
+
+  const openRecoveryModal = (prefillPhone = "") => {
+    setRecoveryPhone(prefillPhone || "");
+    setRecoveryCode("");
+    setRecoveryNewPin("");
+    setRecoveryConfirmPin("");
+    setRecoveryError(null);
+    setWhatsappResetOpened(false);
+    setIsRecoveryModalOpen(true);
+  };
 
   const handleAccountRecovery = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!recoveryName.trim() || !recoveryPhone.trim() || !recoveryNewPin.trim()) {
-      showToast("⚠️ Full Name, Phone, and New 4-digit PIN are required.");
+    setRecoveryError(null);
+
+    const cleanPhone = recoveryPhone.trim();
+    const cleanCode = recoveryCode.replace(/\D/g, "");
+    const cleanPin = recoveryNewPin.replace(/\D/g, "");
+    const cleanConfirm = recoveryConfirmPin.replace(/\D/g, "");
+
+    if (!cleanPhone) {
+      setRecoveryError("Please enter your registered WhatsApp phone number.");
       return;
     }
-    if (recoveryNewPin.trim().length < 4) {
-      showToast("⚠️ New PIN must be at least 4 digits.");
+    if (cleanCode.length !== 6) {
+      setRecoveryError("Please enter the 6-digit reset code sent to you on WhatsApp.");
       return;
     }
+    if (cleanPin.length < 4 || cleanPin.length > 8) {
+      setRecoveryError("New Security PIN must be 4 to 8 digits.");
+      return;
+    }
+    if (cleanPin !== cleanConfirm) {
+      setRecoveryError("New PIN and Confirm PIN do not match.");
+      return;
+    }
+
     setIsRecovering(true);
     try {
       const res = await fetch("/api/landlords", {
@@ -968,9 +1050,9 @@ export default function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "recover",
-          name: recoveryName.trim(),
-          phone: recoveryPhone.trim(),
-          newPin: recoveryNewPin.trim()
+          phone: cleanPhone,
+          resetCode: cleanCode,
+          newPin: cleanPin
         })
       });
       const parsed = await parseJsonResponse<any>(res);
@@ -979,7 +1061,7 @@ export default function App() {
         const profile = {
           id: data.landlord.id,
           name: data.landlord.name,
-          phone: recoveryPhone.trim(),
+          phone: String(data.landlord.phone || cleanPhone),
           token: data.token,
           hasPin: true,
           isVerified: data.landlord.isVerified || false,
@@ -988,14 +1070,21 @@ export default function App() {
         };
         setUserProfile(profile);
         localStorage.setItem("bunkby_landlord_profile", JSON.stringify(profile));
-        showToast("🎉 PIN reset successful! Welcome back.");
+        showToast("🎉 Security PIN updated! You are now logged in.");
         setIsRecoveryModalOpen(false);
+        setRecoveryCode("");
         setRecoveryNewPin("");
+        setRecoveryConfirmPin("");
+        setRecoveryError(null);
       } else {
-        showToast(`🔒 ${data.error || "Recovery failed. Please verify registered details or contact support."}`);
+        const msg = data.error || "Verification failed. Please check your 6-digit WhatsApp code or request a new one.";
+        setRecoveryError(msg);
+        showToast(`🔒 ${msg}`);
       }
     } catch (_) {
-      showToast("⚠️ Network issue during account recovery.");
+      const msg = "Network issue during PIN reset. Please try again.";
+      setRecoveryError(msg);
+      showToast(`⚠️ ${msg}`);
     } finally {
       setIsRecovering(false);
     }
@@ -1261,8 +1350,8 @@ export default function App() {
   };
 
   const filteredListings = listings.filter((room) => {
-    // Only search renters see Active listings (Landlord sees all including delisted in their dashboard)
-    if (activeTab === "browse" && room.status !== "Active") return false;
+    // Only search renters see Active/verified listings (exclude Delisted, Hidden, Removed)
+    if (activeTab === "browse" && room.status !== "Active" && room.status !== "verified") return false;
 
     // Disappear expired premium listings from Browse tab after 30 days
     if (activeTab === "browse" && room.isPremium && room.expiryDate) {
@@ -1616,8 +1705,8 @@ export default function App() {
                   Find Stays, Commercial Spaces & Rentals in <span className="text-[#FF7A00] drop-shadow-sm">Zimbabwe</span>
                 </h1>
 
-                <p className="text-xs sm:text-sm md:text-base text-slate-200 font-medium max-w-2xl mx-auto leading-relaxed drop-shadow-sm line-clamp-2 sm:line-clamp-none">
-                  Explore residential rentals, student accommodation, lodges, guesthouses, and commercial spaces across Zimbabwe—with listed pricing and direct WhatsApp connection to property owners and hosts.
+                <p className="text-[10.5px] sm:text-sm md:text-base text-slate-200 font-medium max-w-2xl mx-auto leading-snug sm:leading-relaxed drop-shadow-sm">
+                  Explore residential rentals, student accommodation, lodges, guesthouses, and commercial spaces across Zimbabwe, with listed pricing and direct WhatsApp connection to property owners and hosts.
                 </p>
 
                 <div className="pt-1 grid grid-cols-2 gap-2 sm:gap-3 max-w-md mx-auto w-full">
@@ -1871,7 +1960,7 @@ export default function App() {
                     >
                       {locationSuggestions.length === 0 ? (
                         <div className="px-3 py-2.5 text-xs text-slate-500">
-                          No matching location found—press Search to filter by &ldquo;{locationInput.trim()}&rdquo;.
+                          No matching location found. Press Search to filter by &ldquo;{locationInput.trim()}&rdquo;.
                         </div>
                       ) : (
                         locationSuggestions.map((entry, idx) => {
@@ -2083,25 +2172,25 @@ export default function App() {
             <section
               id="whatsapp-promo-section"
               aria-label="BunkBy on WhatsApp"
-              className="bg-white rounded-xl sm:rounded-2xl p-3 sm:p-4 border border-slate-200 shadow-xs"
+              className="bg-white rounded-xl sm:rounded-2xl px-2.5 py-2 sm:p-4 border border-slate-200 shadow-xs"
             >
-              <div className="flex flex-row items-center justify-between gap-2.5 sm:gap-4">
+              <div className="flex flex-row items-center justify-between gap-2 sm:gap-4">
                 <div className="min-w-0 flex-1 space-y-0.5 sm:space-y-1">
-                  <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                    <h2 className="text-xs sm:text-base font-display font-bold text-[#021024] leading-snug">
+                  <div className="flex flex-wrap items-baseline gap-x-1.5 sm:gap-x-2 gap-y-0">
+                    <h2 className="text-[10px] sm:text-base font-display font-bold text-[#021024] leading-tight sm:leading-snug">
                       Find Your Next Place on WhatsApp
                     </h2>
                     <a
                       href={getBunkByWhatsAppUrl("Hi BunkBy! I would like to find accommodation.")}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-[11px] sm:text-xs font-mono font-semibold text-emerald-700 hover:text-emerald-800 underline underline-offset-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#15803d] rounded-xs whitespace-nowrap"
+                      className="text-[9px] sm:text-xs font-sans font-semibold text-emerald-700 hover:text-emerald-800 no-underline transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#15803d] rounded-xs whitespace-nowrap"
                       title={`Chat with BunkBy on WhatsApp (${BUNKBY_WHATSAPP_DISPLAY})`}
                     >
                       {BUNKBY_WHATSAPP_DISPLAY}
                     </a>
                   </div>
-                  <p className="text-[11px] sm:text-xs text-slate-600 leading-snug">
+                  <p className="text-[9px] sm:text-xs text-slate-600 leading-tight sm:leading-snug">
                     Search rooms, cottages, stays or commercial spaces, or post a listing directly on WhatsApp. See our{" "}
                     <a
                       id="promo-whatsapp-guide-link"
@@ -2111,7 +2200,7 @@ export default function App() {
                         e.preventDefault();
                         navigateTo("/whatsapp");
                       }}
-                      className="text-[#15803d] hover:text-[#166534] font-semibold underline underline-offset-2 transition-colors"
+                      className="text-[#15803d] hover:text-[#166534] font-semibold no-underline transition-colors"
                     >
                       WhatsApp guide
                     </a>
@@ -2124,10 +2213,10 @@ export default function App() {
                   href={getBunkByWhatsAppUrl("Hi BunkBy! I would like to find accommodation.")}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="bg-[#15803d] hover:bg-[#166534] text-white font-bold text-[10px] sm:text-xs px-2 sm:px-3.5 py-1.5 sm:py-2 rounded-lg sm:rounded-xl shadow-xs transition-colors inline-flex items-center justify-center gap-1 sm:gap-1.5 min-h-[32px] sm:min-h-[38px] whitespace-nowrap shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#052659]"
+                  className="bg-[#15803d] hover:bg-[#166534] text-white font-bold text-[9.5px] sm:text-xs px-2 sm:px-3.5 py-1.5 sm:py-2 rounded-lg sm:rounded-xl shadow-xs transition-colors inline-flex items-center justify-center gap-1 sm:gap-1.5 min-h-[28px] sm:min-h-[38px] whitespace-nowrap shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#052659]"
                 >
-                  <WhatsAppIcon className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-white shrink-0" />
-                  <span>Chat on WhatsApp</span>
+                  <WhatsAppIcon className="w-3 h-3 sm:w-4 sm:h-4 text-white shrink-0" />
+                  <span>Chat<span className="hidden sm:inline"> on WhatsApp</span></span>
                 </a>
               </div>
             </section>
@@ -2245,7 +2334,7 @@ export default function App() {
                             );
                           })()}
 
-                          <span className="bg-slate-900/85 backdrop-blur-xs text-[#FF7A00] font-mono font-bold text-[8.5px] px-1.5 py-0.5 rounded-full uppercase truncate">
+                          <span className="bg-white/95 backdrop-blur-xs text-[#052659] border border-slate-200/90 font-mono font-extrabold text-[9px] px-2 py-0.5 rounded-full uppercase shadow-xs truncate">
                             {room.propertyType}
                           </span>
 
@@ -2675,14 +2764,10 @@ export default function App() {
                   <div className="flex justify-end items-center text-[11px] px-1">
                     <button
                       type="button"
-                      onClick={() => {
-                        setRecoveryPhone(loginPhone || "");
-                        setRecoveryName(loginName || "");
-                        setIsRecoveryModalOpen(true);
-                      }}
+                      onClick={() => openRecoveryModal(loginPhone)}
                       className="text-orange-600 hover:underline font-bold cursor-pointer"
                     >
-                      Forgot PIN? / Recover Account
+                      Forgot PIN? / Reset via WhatsApp
                     </button>
                   </div>
                 )}
@@ -2790,7 +2875,15 @@ export default function App() {
                           >
                             {/* Status ribbon overlaid */}
                             <div className="absolute top-3 left-3 z-10 flex flex-wrap gap-2">
-                              {room.status === "Delisted" ? (
+                              {room.status === "Hidden" ? (
+                                <span className="bg-amber-600 text-white font-semibold text-[9px] uppercase tracking-wider px-2 py-0.5 rounded-full shadow-sm">
+                                  Hidden by Moderation
+                                </span>
+                              ) : room.status === "Removed" ? (
+                                <span className="bg-red-600 text-white font-semibold text-[9px] uppercase tracking-wider px-2 py-0.5 rounded-full shadow-sm">
+                                  Removed by Moderation
+                                </span>
+                              ) : room.status === "Delisted" ? (
                                 <span className="bg-slate-700 text-white font-semibold text-[9px] uppercase tracking-wider px-2 py-0.5 rounded-full shadow-sm">
                                   Delisted (Rented)
                                 </span>
@@ -2943,13 +3036,13 @@ export default function App() {
                                   </button>
                                 )}
 
-                                {!isExpired && (
+                                {!isExpired && room.status !== "Hidden" && room.status !== "Removed" && (
                                   <button 
                                     onClick={() => handleToggleDelist(room.id)}
-                                    className={`text-xs font-bold py-1.5 px-3 rounded-lg transition-all ${room.status === "Active" ? "bg-orange-500 hover:bg-orange-600 text-white" : "bg-emerald-500 hover:bg-emerald-600 text-white"}`}
-                                    title={room.status === "Active" ? "Mark this room as occupied to instantly remove from tenant directory" : "Activate room for listings"}
+                                    className={`text-xs font-bold py-1.5 px-3 rounded-lg transition-all ${room.status === "Active" || room.status === "verified" ? "bg-orange-500 hover:bg-orange-600 text-white" : "bg-emerald-500 hover:bg-emerald-600 text-white"}`}
+                                    title={room.status === "Active" || room.status === "verified" ? "Mark this room as occupied to instantly remove from tenant directory" : "Activate room for listings"}
                                   >
-                                    {room.status === "Active" ? "Delist Room" : "Activate Room"}
+                                    {room.status === "Active" || room.status === "verified" ? "Delist Room" : "Activate Room"}
                                   </button>
                                 )}
 
@@ -3085,14 +3178,10 @@ export default function App() {
                   <div className="flex justify-end items-center text-[11px] px-1">
                     <button
                       type="button"
-                      onClick={() => {
-                        setRecoveryPhone(loginPhone || "");
-                        setRecoveryName(loginName || "");
-                        setIsRecoveryModalOpen(true);
-                      }}
+                      onClick={() => openRecoveryModal(loginPhone)}
                       className="text-orange-600 hover:underline font-bold cursor-pointer"
                     >
-                      Forgot PIN? / Recover
+                      Forgot PIN? / Reset via WhatsApp
                     </button>
                   </div>
                 )}
@@ -3343,18 +3432,65 @@ export default function App() {
 
               {/* Administrative Access Console */}
               {userProfile.role === "Admin" && (
-                <div className="bg-orange-500/5 border border-orange-500/20 rounded-2xl p-5 shadow-sm space-y-4">
-                  <div className="flex items-center gap-2">
-                    <ShieldCheck className="w-5 h-5 text-orange-500" />
-                    <h3 className="text-sm font-bold text-[#052659] font-mono uppercase tracking-wide">Administrator Access Panel</h3>
+                <div className="bg-orange-500/5 border border-orange-500/20 rounded-2xl p-5 shadow-sm space-y-5">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <ShieldCheck className="w-5 h-5 text-orange-500" />
+                        <h3 className="text-sm font-bold text-[#052659] font-mono uppercase tracking-wide">Administrator Access Panel</h3>
+                      </div>
+                      <p className="text-xs text-slate-600 mt-1">
+                        Moderate reported listings, manage visibility across website &amp; WhatsApp searches, verify landlords, and inspect database entries.
+                      </p>
+                    </div>
+
+                    {/* Admin Section Navigation */}
+                    <div className="flex flex-wrap gap-1.5 bg-white p-1.5 rounded-xl border border-slate-200 shadow-2xs">
+                      <button
+                        type="button"
+                        onClick={() => setAdminSubTab("reports")}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer inline-flex items-center gap-1.5 ${
+                          adminSubTab === "reports"
+                            ? "bg-[#052659] text-white shadow-xs"
+                            : "text-slate-600 hover:bg-slate-100"
+                        }`}
+                      >
+                        <AlertTriangle className="w-3.5 h-3.5 text-[#FF7A00]" />
+                        <span>Listing Reports</span>
+                        {adminOpenReportsCount > 0 && (
+                          <span className="bg-red-600 text-white text-[10px] font-mono px-1.5 py-0.2 rounded-full">
+                            {adminOpenReportsCount}
+                          </span>
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setAdminSubTab("landlords")}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                          adminSubTab === "landlords"
+                            ? "bg-[#052659] text-white shadow-xs"
+                            : "text-slate-600 hover:bg-slate-100"
+                        }`}
+                      >
+                        Landlords ({allLandlords.length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setAdminSubTab("listings")}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                          adminSubTab === "listings"
+                            ? "bg-[#052659] text-white shadow-xs"
+                            : "text-slate-600 hover:bg-slate-100"
+                        }`}
+                      >
+                        All Listings ({adminListings.length > 0 ? adminListings.length : listings.length})
+                      </button>
+                    </div>
                   </div>
-                  <p className="text-xs text-slate-600">
-                    You have administrator access on BunkBy. This lets you moderate complaints, verify landlords, or review/delete database entries.
-                  </p>
                   
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-6">
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                     <div className="bg-white p-3 rounded-xl border border-orange-100 text-center">
-                      <span className="text-[9px] font-mono text-slate-400 uppercase block">Active Listings</span>
+                      <span className="text-[9px] font-mono text-slate-400 uppercase block">Active Feed Listings</span>
                       <span className="text-lg font-black text-slate-950">{listings.length} Listings</span>
                     </div>
                     <div className="bg-white p-3 rounded-xl border border-orange-100 text-center">
@@ -3362,13 +3498,55 @@ export default function App() {
                       <span className="text-lg font-black text-slate-950">{allLandlords.length} Landlords</span>
                     </div>
                     <div className="bg-white p-3 rounded-xl border border-orange-100 text-center col-span-2 md:col-span-1">
-                      <span className="text-[9px] font-mono text-slate-400 uppercase block">Platform fee</span>
-                      <span className="text-lg font-black text-emerald-600">FREE OF CHARGE</span>
+                      <span className="text-[9px] font-mono text-slate-400 uppercase block">Open Reports Queue</span>
+                      <span className="text-lg font-black text-orange-600">{adminOpenReportsCount} Open</span>
                     </div>
                   </div>
 
+                  {adminSubTab === "reports" && (
+                    <AdminReportsPanel
+                      authToken={userProfile?.token || ""}
+                      showToast={showToast}
+                      onModerationComplete={async () => {
+                        try {
+                          const [pubRes, admRes] = await Promise.all([
+                            fetch("/api/listings", { headers: { Accept: "application/json" } }),
+                            userProfile?.token
+                              ? fetch("/api/admin", {
+                                  headers: {
+                                    Accept: "application/json",
+                                    "x-landlord-token": userProfile.token,
+                                  },
+                                })
+                              : Promise.resolve(null),
+                          ]);
+                          if (pubRes.ok) {
+                            const pubData = await pubRes.json();
+                            if (Array.isArray(pubData.listings)) {
+                              setListings(pubData.listings);
+                              try {
+                                sessionStorage.setItem("bunkby_listings_v1", JSON.stringify(pubData.listings));
+                              } catch {}
+                            }
+                          }
+                          if (admRes && admRes.ok) {
+                            const admData = await admRes.json();
+                            if (Array.isArray(admData.listings)) setAdminListings(admData.listings);
+                            if (Array.isArray(admData.landlords)) setAllLandlords(admData.landlords);
+                            if (Array.isArray(admData.reports)) {
+                              setAdminOpenReportsCount(
+                                admData.reports.filter((r: any) => r.status === "pending" || r.status === "under_review").length
+                              );
+                            }
+                          }
+                        } catch (_) {}
+                      }}
+                    />
+                  )}
+
                   {/* Landlords Management Table */}
-                  <div className="mt-8 space-y-2">
+                  {adminSubTab === "landlords" && (
+                  <div className="space-y-2">
                     <h4 className="text-sm font-bold text-slate-800">Manage Landlords</h4>
                     <div className="overflow-x-auto bg-white border border-slate-200 rounded-xl -mx-1 sm:mx-0 shadow-2xs">
                       <table className="w-full min-w-[500px] text-left text-xs align-middle">
@@ -3384,16 +3562,16 @@ export default function App() {
                           {allLandlords.map((landlord: any) => (
                             <tr key={landlord.id} className="hover:bg-slate-50">
                               <td className="px-4 py-3 font-medium text-slate-800">{landlord.full_name || landlord.name}</td>
-                              <td className="px-4 py-3 font-mono text-slate-600">--</td>
+                              <td className="px-4 py-3 font-mono text-slate-600">{landlord.id}</td>
                               <td className="px-4 py-3">
                                 {landlord.verification_status === "verified" || landlord.isVerified ? (
                                   <span className="px-2 py-1 rounded bg-emerald-100 text-emerald-800 text-[9px] font-bold uppercase tracking-wider">Verified</span>
                                 ) : (
-                                  <span className="px-2 py-1 rounded bg-amber-100 text-amber-800 text-[9px] font-bold uppercase tracking-wider">Pending</span>
+                                  <span className="px-2 py-1 rounded bg-amber-100 text-amber-800 text-[9px] font-bold uppercase tracking-wider">{landlord.verification_status || "Pending"}</span>
                                 )}
                               </td>
                               <td className="px-4 py-3 space-x-2">
-                                {(landlord.verification_status !== "verified" && !landlord.isVerified) && (
+                                {(landlord.verification_status !== "verified" && landlord.verification_status !== "admin" && !landlord.isVerified) && (
                                   <button onClick={async () => {
                                     try {
                                       const res = await fetch("/api/admin", { 
@@ -3434,50 +3612,107 @@ export default function App() {
                       </table>
                     </div>
                   </div>
+                  )}
 
                   {/* Listings Management Table */}
-                  <div className="mt-8 space-y-2">
-                    <h4 className="text-sm font-bold text-slate-800">Manage Listings</h4>
+                  {adminSubTab === "listings" && (
+                  <div className="space-y-2">
+                    <h4 className="text-sm font-bold text-slate-800">Manage All Listings (Including Hidden &amp; Removed)</h4>
                     <div className="overflow-x-auto bg-white border border-slate-200 rounded-xl -mx-1 sm:mx-0 shadow-2xs">
-                      <table className="w-full min-w-[500px] text-left text-xs align-middle">
+                      <table className="w-full min-w-[600px] text-left text-xs align-middle">
                         <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-mono text-[9px]">
                           <tr>
                             <th className="px-4 py-3">ID / Title</th>
                             <th className="px-4 py-3">City / Suburb</th>
                             <th className="px-4 py-3">Price</th>
+                            <th className="px-4 py-3">Visibility</th>
                             <th className="px-4 py-3">Actions</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
-                          {listings.map((list: any) => (
+                          {(adminListings.length > 0 ? adminListings : listings).map((list: any) => {
+                            const curStatus = list.verification_status || list.status || "Active";
+                            return (
                             <tr key={list.id} className="hover:bg-slate-50">
-                              <td className="px-4 py-3 font-medium text-slate-800">{list.title}</td>
+                              <td className="px-4 py-3 font-medium text-slate-800">
+                                <span className="font-mono text-[10px] text-slate-400 mr-1.5">#{list.id}</span>
+                                {list.title}
+                              </td>
                               <td className="px-4 py-3 text-slate-600">{list.city}, {list.suburb}</td>
                               <td className="px-4 py-3 font-mono text-sky-700 font-bold">${list.price}</td>
                               <td className="px-4 py-3">
-                                <button onClick={async () => {
-                                    try {
-                                      const res = await fetch("/api/admin", { 
-                                        method: 'POST', 
-                                        headers: { 
-                                          'Content-Type': 'application/json',
-                                          'x-landlord-token': userProfile?.token || ''
-                                        }, 
-                                        body: JSON.stringify({ action: 'deleteListing', targetId: list.id }) 
-                                      });
-                                      if (res.ok) {
-                                        showToast("✅ Listing deleted.");
-                                        setListings(prev => prev.filter(l => l.id !== list.id));
-                                      }
-                                    } catch(e) { console.error(e); }
-                                }} className="bg-red-50 text-red-600 font-medium px-2 py-1 rounded border border-red-200">Delete</button>
+                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                                  curStatus === "Hidden" ? "bg-amber-100 text-amber-800" :
+                                  curStatus === "Removed" ? "bg-red-100 text-red-800" :
+                                  curStatus === "Delisted" ? "bg-slate-200 text-slate-700" :
+                                  "bg-emerald-100 text-emerald-800"
+                                }`}>{curStatus}</span>
+                              </td>
+                              <td className="px-4 py-3 space-x-1.5 whitespace-nowrap">
+                                {(curStatus === "Hidden" || curStatus === "Removed") ? (
+                                  <button onClick={async () => {
+                                    const res = await fetch(`/api/admin/listings/${list.id}/moderate`, {
+                                      method: "POST",
+                                      headers: { "Content-Type": "application/json", "x-landlord-token": userProfile?.token || "" },
+                                      body: JSON.stringify({ action: "restore_listing", notes: "Restored from All Listings view" }),
+                                    });
+                                    if (res.ok) {
+                                      showToast("🔄 Listing restored.");
+                                      const data = await res.json();
+                                      setAdminListings(prev => prev.map(l => l.id === list.id ? { ...l, verification_status: data.newListingStatus } : l));
+                                      try {
+                                        const pubRes = await fetch("/api/listings", { headers: { Accept: "application/json" } });
+                                        if (pubRes.ok) {
+                                          const pubData = await pubRes.json();
+                                          if (Array.isArray(pubData.listings)) setListings(pubData.listings);
+                                        }
+                                      } catch (_) {}
+                                    }
+                                  }} className="bg-emerald-50 text-emerald-700 font-bold px-2 py-1 rounded border border-emerald-200 cursor-pointer">Restore</button>
+                                ) : (
+                                  <button onClick={async () => {
+                                    const res = await fetch(`/api/admin/listings/${list.id}/moderate`, {
+                                      method: "POST",
+                                      headers: { "Content-Type": "application/json", "x-landlord-token": userProfile?.token || "" },
+                                      body: JSON.stringify({ action: "hide_listing", notes: "Temporarily hidden from All Listings view" }),
+                                    });
+                                    if (res.ok) {
+                                      showToast("🙈 Listing hidden.");
+                                      setListings(prev => prev.filter(l => String(l.id) !== String(list.id)));
+                                      setAdminListings(prev => prev.map(l => l.id === list.id ? { ...l, verification_status: "Hidden" } : l));
+                                    }
+                                  }} className="bg-amber-50 text-amber-800 font-bold px-2 py-1 rounded border border-amber-200 cursor-pointer">Hide</button>
+                                )}
+                                {curStatus !== "Removed" && (
+                                  <button onClick={async () => {
+                                      try {
+                                        const res = await fetch(`/api/admin/listings/${list.id}/moderate`, {
+                                          method: "POST",
+                                          headers: {
+                                            "Content-Type": "application/json",
+                                            "x-landlord-token": userProfile?.token || "",
+                                          },
+                                          body: JSON.stringify({
+                                            action: "remove_listing",
+                                            notes: "Removed from All Listings admin view (report history preserved)",
+                                          }),
+                                        });
+                                        if (res.ok) {
+                                          showToast("🚫 Listing removed from website & WhatsApp search.");
+                                          setListings(prev => prev.filter(l => String(l.id) !== String(list.id)));
+                                          setAdminListings(prev => prev.map(l => String(l.id) === String(list.id) ? { ...l, verification_status: "Removed" } : l));
+                                        }
+                                      } catch(e) { console.error(e); }
+                                  }} className="bg-red-50 text-red-600 font-medium px-2 py-1 rounded border border-red-200 cursor-pointer">Remove</button>
+                                )}
                               </td>
                             </tr>
-                          ))}
+                          );})}
                         </tbody>
                       </table>
                     </div>
                   </div>
+                  )}
 
                 </div>
               )}
@@ -3502,7 +3737,7 @@ export default function App() {
               <div className="bg-white rounded-2xl p-4 border border-slate-200 space-y-2">
                 <h4 className="font-bold text-sky-700 text-sm">🏡 What is BunkBy?</h4>
                 <p className="text-xs text-slate-500 leading-relaxed">
-                  BunkBy is a Zimbabwean property and accommodation marketplace connecting seekers directly with landlords, hosts, and commercial property owners across residential rentals, hospitality stays, student accommodation, and commercial spaces—without estate agent commissions.
+                  BunkBy is a Zimbabwean property and accommodation marketplace connecting seekers directly with landlords, hosts, and commercial property owners across residential rentals, hospitality stays, student accommodation, and commercial spaces without estate agent commissions.
                 </p>
               </div>
 
@@ -3541,45 +3776,36 @@ export default function App() {
       </main>
 
       {/* FOOTER */}
-      <footer className="bg-[#021024] text-white pt-5 sm:pt-7 border-t border-[#052659] mt-auto select-none shrink-0 text-left">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-5 sm:pb-7 flex flex-row items-start sm:items-center justify-between gap-4 sm:gap-12">
-          
-          {/* Brand Info (Left) */}
-          <div className="max-w-md min-w-0 flex-1">
-            <div className="flex items-center gap-2 h-8">
-              <BunkByLogo className="w-7 h-7 shrink-0" />
-              <span className="text-xl font-display font-black uppercase tracking-tight text-white leading-none">
+      <footer className="bg-[#021024] text-white pt-3.5 sm:pt-6 border-t border-[#052659] mt-auto select-none shrink-0 text-left">
+        <div className="max-w-7xl mx-auto px-3.5 sm:px-6 lg:px-8 pb-3.5 sm:pb-6">
+          {/* Brand Info */}
+          <div className="max-w-2xl">
+            <div className="flex items-center gap-1.5 sm:gap-2">
+              <BunkByLogo className="w-5 h-5 sm:w-7 sm:h-7 shrink-0" />
+              <span className="text-[15px] sm:text-xl font-display font-black uppercase tracking-tight text-white leading-none">
                 Bunk<span className="text-[#FF7A00]">By</span>
               </span>
             </div>
-            <p className="text-[11px] text-[#E2E8F0] font-normal leading-relaxed mt-2.5">
-              A Zimbabwean property and accommodation marketplace connecting seekers directly with landlords, hosts, and commercial property owners across residential rentals, hospitality stays, student accommodation, and commercial spaces—online and on WhatsApp.
+            <p className="text-[9.5px] sm:text-[11px] text-[#E2E8F0]/90 font-normal leading-snug sm:leading-relaxed mt-1.5 sm:mt-2">
+              A Zimbabwean property and accommodation marketplace connecting seekers directly with landlords, hosts, and commercial property owners across residential rentals, hospitality stays, student accommodation, and commercial spaces.
             </p>
           </div>
+        </div>
 
-          {/* Privacy Policy Link (Right side of upper navy band) */}
-          <div className="shrink-0 pt-1 sm:pt-0">
+        {/* Bottom Copyright & Privacy Policy Strip */}
+        <div className="bg-[#052659] py-2.5 sm:py-3.5 border-t border-[#052659]/50 text-left">
+          <div className="max-w-7xl mx-auto px-3.5 sm:px-6 lg:px-8 flex flex-row items-center justify-between gap-3 sm:gap-6">
+            <p className="text-[8.5px] sm:text-[11px] text-slate-300 font-normal leading-tight min-w-0">
+              © 2026 BunkBy. BunkBy is an accommodation marketplace operated by ATLAS MANICA GROUP LTD.
+            </p>
             <a
               href="/privacy-policy"
               onClick={(e) => { e.preventDefault(); navigateTo("/privacy-policy"); }}
-              className="text-xs text-slate-300 hover:text-white underline underline-offset-2 transition-colors cursor-pointer whitespace-nowrap font-semibold"
+              className="text-[9.5px] sm:text-xs text-slate-200 hover:text-white underline underline-offset-2 transition-colors cursor-pointer whitespace-nowrap font-semibold shrink-0"
               id="footer-privacy-policy-link"
             >
               Privacy Policy
             </a>
-          </div>
-
-        </div>
-
-        {/* Bottom Copyright & Zen Accommodation Strip */}
-        <div className="bg-[#052659] py-3 sm:py-4 border-t border-[#052659]/50 text-center sm:text-left">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-1.5 sm:gap-4">
-            <p className="text-[11px] text-slate-300 font-normal">
-              © 2026 BunkBy. BunkBy is an accommodation marketplace operated by ATLAS MANICA GROUP LTD.
-            </p>
-            <div className="text-[10px] sm:text-[11px] text-[#FF7A00] font-bold tracking-wider font-mono whitespace-nowrap">
-              Powered by Zen Accommodation
-            </div>
           </div>
         </div>
       </footer>
@@ -4466,7 +4692,7 @@ export default function App() {
                               Sample Listing
                             </span>
                           )}
-                          <span className="bg-[#021024]/85 text-white font-mono font-bold text-[9px] px-2.5 py-1 rounded-full uppercase tracking-wider">
+                          <span className="bg-white/95 text-[#052659] border border-slate-200/90 font-mono font-extrabold text-[9px] px-2.5 py-1 rounded-full uppercase tracking-wider shadow-sm">
                             {selectedListingDetail.propertyType}
                           </span>
                         </div>
@@ -4678,23 +4904,46 @@ export default function App() {
                   e.preventDefault();
                   setIsSubmittingReport(true);
                   try {
+                    let reporterToken = "";
+                    try {
+                      const cookieMatch = document.cookie.match(/(?:^|;\s*)bunkby_reporter_token=([^;]+)/);
+                      const cookieToken = cookieMatch ? decodeURIComponent(cookieMatch[1]) : "";
+                      const storedToken = localStorage.getItem("bunkby_reporter_token") || "";
+                      reporterToken = storedToken || cookieToken;
+                      if (!reporterToken) {
+                        reporterToken =
+                          typeof crypto !== "undefined" && crypto.randomUUID
+                            ? crypto.randomUUID()
+                            : `${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
+                      }
+                      if (!storedToken) localStorage.setItem("bunkby_reporter_token", reporterToken);
+                      if (!cookieToken) {
+                        document.cookie = `bunkby_reporter_token=${encodeURIComponent(reporterToken)}; path=/; max-age=31536000; SameSite=Lax`;
+                      }
+                    } catch {}
+
                     const res = await fetch(`/api/rooms/${reportingListing.id}/report`, {
                       method: "POST",
-                      headers: { "Content-Type": "application/json" },
+                      headers: {
+                        "Content-Type": "application/json",
+                        ...(reporterToken ? { "x-reporter-token": reporterToken } : {}),
+                      },
                       body: JSON.stringify({
                         reason: reportReason,
                         details: reportDetails,
                         reporterName: reportReporterName,
-                        reporterPhone: reportReporterPhone
+                        reporterPhone: reportReporterPhone,
+                        reporterToken,
                       })
                     });
+                    const data = await res.json().catch(() => ({}));
                     if (res.ok) {
                       showToast("🛡️ Thank you. Report submitted to moderation for review.");
                       setIsReportModalOpen(false);
                       setReportingListing(null);
                       setReportDetails("");
                     } else {
-                      showToast("⚠️ Could not submit report. Please try again.");
+                      showToast(`⚠️ ${data?.error || "Could not submit report. Please try again."}`);
                     }
                   } catch (err) {
                     showToast("⚠️ Network issue submitting report.");
@@ -4800,93 +5049,145 @@ export default function App() {
               <div className="flex items-center justify-between pb-3 border-b border-slate-100">
                 <div className="flex items-center gap-2 text-[#052659]">
                   <ShieldCheck className="w-5 h-5 shrink-0 text-orange-500" />
-                  <h3 className="font-display font-black text-base text-slate-900">Account Recovery & PIN Reset</h3>
+                  <h3 className="font-display font-black text-base text-slate-900">Reset Security PIN</h3>
                 </div>
                 <button
+                  type="button"
                   onClick={() => setIsRecoveryModalOpen(false)}
                   className="p-1 rounded-lg text-slate-400 hover:text-slate-600 cursor-pointer"
+                  aria-label="Close reset PIN modal"
                 >
                   <X className="w-4 h-4" />
                 </button>
               </div>
 
-              <div className="bg-blue-50/70 border border-blue-200/50 rounded-2xl p-3.5 text-xs text-slate-600 leading-relaxed space-y-1">
-                <p className="font-bold text-slate-800">🔒 Protecting Your Listings & Account</p>
-                <p>
-                  To prevent unauthorized account takeovers, PIN reset requires matching your registered Full Name and WhatsApp phone number.
-                </p>
-              </div>
-
-              {/* Instant WhatsApp Support Recovery Channel */}
-              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-2xl space-y-2">
-                <p className="text-[11px] font-bold text-emerald-900">Prefer automated WhatsApp assistance?</p>
+              {/* Step 1: Request One-Time Code via WhatsApp */}
+              <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-2xl space-y-2.5">
+                <div className="flex items-start gap-2">
+                  <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-[#15803d] text-white text-[11px] font-bold shrink-0 mt-0.5">
+                    1
+                  </span>
+                  <div className="space-y-0.5">
+                    <p className="text-xs font-bold text-emerald-950">Get your 6-digit code on WhatsApp</p>
+                    <p className="text-[11px] text-emerald-900/85 leading-snug">
+                      Tap the button below and send <strong className="font-bold">RESET PIN</strong> from your registered WhatsApp number. BunkBy will reply immediately with a one-time code valid for 10 minutes.
+                    </p>
+                  </div>
+                </div>
                 <a
-                  href={getBunkByWhatsAppUrl(
-                    `Hello BunkBy Zimbabwe Support, I need to reset my landlord account PIN. My name is ${recoveryName || "registered owner"} and my phone number is ${recoveryPhone || "provided"}.`
-                  )}
+                  id="whatsapp-pin-reset-cta"
+                  href={getBunkByWhatsAppUrl("RESET PIN")}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="w-full bg-[#25D366] hover:bg-[#1EBE5D] text-white font-bold py-2 px-3 rounded-xl text-xs flex items-center justify-center gap-2 transition-all shadow-xs"
+                  onClick={() => {
+                    setWhatsappResetOpened(true);
+                    setRecoveryError(null);
+                  }}
+                  className="w-full bg-[#15803d] hover:bg-[#166534] text-white font-bold py-2.5 px-3 rounded-xl text-xs flex items-center justify-center gap-2 transition-colors shadow-xs"
                 >
-                  <MessageSquare className="w-3.5 h-3.5" />
-                  <span>Request Reset via BunkBy WhatsApp</span>
+                  <WhatsAppIcon className="w-4 h-4 text-white shrink-0" />
+                  <span>{whatsappResetOpened ? "Resend Reset Code on WhatsApp" : "Get Reset Code on WhatsApp"}</span>
                 </a>
+                {whatsappResetOpened && (
+                  <p className="text-[11px] text-emerald-800 font-medium text-center">
+                    WhatsApp opened. Send the pre-filled message, then enter the 6-digit code below.
+                  </p>
+                )}
               </div>
 
-              <div className="relative flex py-1 items-center">
-                <div className="flex-grow border-t border-slate-100"></div>
-                <span className="flex-shrink mx-2 text-[10px] text-slate-400 uppercase font-mono font-bold">OR IN-APP RESET</span>
-                <div className="flex-grow border-t border-slate-100"></div>
-              </div>
-
+              {/* Step 2: Enter Code & Set New PIN */}
               <form onSubmit={handleAccountRecovery} className="space-y-3 font-sans">
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1">
-                    Registered Full Name *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={recoveryName}
-                    onChange={(e) => setRecoveryName(e.target.value)}
-                    placeholder="e.g. Tendai Musonza"
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-medium focus:outline-none focus:border-orange-500"
-                  />
+                <div className="flex items-center gap-2 pt-0.5">
+                  <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-[#052659] text-white text-[11px] font-bold shrink-0">
+                    2
+                  </span>
+                  <p className="text-xs font-bold text-slate-800">Enter your WhatsApp code and new PIN</p>
                 </div>
 
+                {recoveryError && (
+                  <div className="p-2.5 rounded-xl bg-red-50 border border-red-200 text-[11px] text-red-700 font-medium leading-snug">
+                    {recoveryError}
+                  </div>
+                )}
+
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1">
-                    WhatsApp Phone Number *
+                  <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-wide mb-1">
+                    Registered WhatsApp Number *
                   </label>
                   <input
                     type="tel"
+                    inputMode="tel"
                     required
                     value={recoveryPhone}
-                    onChange={(e) => setRecoveryPhone(e.target.value)}
+                    onChange={(e) => {
+                      setRecoveryPhone(e.target.value);
+                      if (recoveryError) setRecoveryError(null);
+                    }}
                     placeholder="e.g. 0773043376 or 263773043376"
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-medium font-mono focus:outline-none focus:border-orange-500"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-medium text-slate-800 focus:outline-none focus:border-orange-500"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1">
-                    New 4-digit Security PIN *
+                  <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-wide mb-1">
+                    6-Digit WhatsApp Verification Code *
                   </label>
                   <input
-                    type="password"
-                    maxLength={8}
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    maxLength={6}
                     required
-                    value={recoveryNewPin}
-                    onChange={(e) => setRecoveryNewPin(e.target.value.replace(/\D/g, ""))}
-                    placeholder="Enter new 4 to 8-digit PIN"
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-medium font-mono focus:outline-none focus:border-orange-500"
+                    value={recoveryCode}
+                    onChange={(e) => {
+                      setRecoveryCode(e.target.value.replace(/\D/g, "").slice(0, 6));
+                      if (recoveryError) setRecoveryError(null);
+                    }}
+                    placeholder="Enter 6-digit code"
+                    className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm font-bold tracking-[0.25em] text-center text-slate-900 placeholder:tracking-normal placeholder:font-normal focus:outline-none focus:border-orange-500"
                   />
-                  <p className="text-[10px] text-slate-400 mt-1 pl-1">
-                    Will be required for all future logins on this phone number.
-                  </p>
                 </div>
 
-                <div className="pt-2 flex gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-wide mb-1">
+                      New Security PIN *
+                    </label>
+                    <input
+                      type="password"
+                      inputMode="numeric"
+                      maxLength={8}
+                      required
+                      value={recoveryNewPin}
+                      onChange={(e) => {
+                        setRecoveryNewPin(e.target.value.replace(/\D/g, "").slice(0, 8));
+                        if (recoveryError) setRecoveryError(null);
+                      }}
+                      placeholder="4 to 8 digits"
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-medium text-slate-800 focus:outline-none focus:border-orange-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-wide mb-1">
+                      Confirm New PIN *
+                    </label>
+                    <input
+                      type="password"
+                      inputMode="numeric"
+                      maxLength={8}
+                      required
+                      value={recoveryConfirmPin}
+                      onChange={(e) => {
+                        setRecoveryConfirmPin(e.target.value.replace(/\D/g, "").slice(0, 8));
+                        if (recoveryError) setRecoveryError(null);
+                      }}
+                      placeholder="Re-enter PIN"
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-medium text-slate-800 focus:outline-none focus:border-orange-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="pt-1 flex gap-2.5">
                   <button
                     type="button"
                     onClick={() => setIsRecoveryModalOpen(false)}
@@ -4899,7 +5200,7 @@ export default function App() {
                     disabled={isRecovering}
                     className="w-2/3 bg-[#052659] hover:bg-[#021024] disabled:bg-slate-300 text-white font-bold py-2.5 rounded-xl text-xs shadow-md transition-all cursor-pointer"
                   >
-                    {isRecovering ? "Verifying..." : "Update PIN & Log In"}
+                    {isRecovering ? "Verifying Code..." : "Verify Code & Update PIN"}
                   </button>
                 </div>
               </form>
@@ -4908,46 +5209,37 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* Floating WhatsApp Assistant Button (appears after scrolling, auto-hides after 2 seconds) */}
-      <AnimatePresence>
-        {showFloatingWhatsapp && (
-          <motion.a
-            id="floating-whatsapp-cta"
-            href={getBunkByWhatsAppUrl("Hi BunkBy! I would like assistance.")}
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label="Chat with BunkBy on WhatsApp (+263 78 978 3200)"
-            title={`Chat with BunkBy on WhatsApp (${BUNKBY_WHATSAPP_DISPLAY})`}
-            initial={{ opacity: 0, y: 14, scale: 0.94 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 14, scale: 0.94 }}
-            transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
-            onMouseEnter={() => {
-              isFloatingWhatsappHoveredRef.current = true;
+      {/* Floating WhatsApp Assistant Button (disappears at once 2 seconds after initial appearance) */}
+      {showFloatingWhatsapp && (
+        <a
+          id="floating-whatsapp-cta"
+          href={getBunkByWhatsAppUrl("Hi BunkBy! I would like assistance.")}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="Chat with BunkBy on WhatsApp (+263 78 978 3200)"
+          title={`Chat with BunkBy on WhatsApp (${BUNKBY_WHATSAPP_DISPLAY})`}
+          onMouseEnter={() => {
+            isFloatingWhatsappHoveredRef.current = true;
+          }}
+          onMouseLeave={() => {
+            isFloatingWhatsappHoveredRef.current = false;
+            const elapsed = Date.now() - floatingWhatsappAppearedAtRef.current;
+            if (elapsed >= 2000) {
               if (floatingWhatsappTimerRef.current !== null) {
                 window.clearTimeout(floatingWhatsappTimerRef.current);
                 floatingWhatsappTimerRef.current = null;
               }
-            }}
-            onMouseLeave={() => {
-              isFloatingWhatsappHoveredRef.current = false;
-              if (floatingWhatsappTimerRef.current !== null) {
-                window.clearTimeout(floatingWhatsappTimerRef.current);
-              }
-              floatingWhatsappTimerRef.current = window.setTimeout(() => {
-                setShowFloatingWhatsapp(false);
-                floatingWhatsappTimerRef.current = null;
-              }, 2000);
-            }}
-            className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-40 inline-flex items-center justify-center gap-2 w-12 h-12 sm:w-auto sm:h-11 sm:pl-2 sm:pr-4 rounded-full bg-[#25D366] sm:bg-[#15803d] hover:bg-[#166534] text-white font-bold text-xs sm:text-sm shadow-lg shadow-emerald-950/25 hover:shadow-xl hover:-translate-y-0.5 active:translate-y-0 transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#021024]"
-          >
-            <span className="sm:w-7 sm:h-7 sm:rounded-full sm:bg-[#25D366] flex items-center justify-center shrink-0">
-              <WhatsAppIcon className="w-6 h-6 sm:w-4.5 sm:h-4.5 text-white shrink-0" />
-            </span>
-            <span className="hidden sm:inline whitespace-nowrap">Chat with BunkBy</span>
-          </motion.a>
-        )}
-      </AnimatePresence>
+              setShowFloatingWhatsapp(false);
+            }
+          }}
+          className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-40 inline-flex items-center justify-center gap-2 w-12 h-12 sm:w-auto sm:h-11 sm:pl-2 sm:pr-4 rounded-full bg-[#25D366] sm:bg-[#15803d] hover:bg-[#166534] text-white font-bold text-xs sm:text-sm shadow-lg shadow-emerald-950/25 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#021024]"
+        >
+          <span className="sm:w-7 sm:h-7 sm:rounded-full sm:bg-[#25D366] flex items-center justify-center shrink-0">
+            <WhatsAppIcon className="w-6 h-6 sm:w-4.5 sm:h-4.5 text-white shrink-0" />
+          </span>
+          <span className="hidden sm:inline whitespace-nowrap">Chat with BunkBy</span>
+        </a>
+      )}
 
     </div>
   );

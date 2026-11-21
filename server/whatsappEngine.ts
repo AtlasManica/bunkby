@@ -1,4 +1,5 @@
 import type { Database } from "better-sqlite3";
+import { issueLandlordPinResetCodeSync } from "./pinReset";
 import {
   SEARCH_PAGE_SIZE,
   parseIncomingWhatsAppWebhook,
@@ -159,6 +160,60 @@ async function processWhatsAppMessageInternal(
 
   // Check for active conversation session
   const session = db.prepare("SELECT * FROM chatbot_sessions WHERE phone_number = ?").get(phone) as any;
+
+  // =========================================================================
+  // COMMAND: LANDLORD SECURITY PIN RESET VIA WHATSAPP
+  // =========================================================================
+  const pinResetPhrases = [
+    "reset pin",
+    "pin reset",
+    "forgot pin",
+    "reset my pin",
+    "forgot my pin",
+    "landlord pin reset",
+    "reset landlord pin"
+  ];
+  const isPinResetRequest =
+    buttonPayload === "CMD_RESET_PIN" ||
+    pinResetPhrases.includes(lowerText) ||
+    /\b(reset|forgot)\s+(my\s+)?(landlord\s+|account\s+|security\s+)*pin\b/i.test(lowerText);
+
+  if (isPinResetRequest) {
+    const resetResult = issueLandlordPinResetCodeSync(db, phone);
+    let pinMsg = "";
+    let pinAction = "PIN_RESET_ACCOUNT_NOT_FOUND";
+
+    if (resetResult.ok) {
+      pinMsg =
+        `🔐 *BunkBy Security PIN Reset*\n\n` +
+        `Your one-time verification code is:\n\n` +
+        `*${resetResult.code}*\n\n` +
+        `• Valid for *${resetResult.expiresMinutes} minutes*\n` +
+        `• Single use only\n` +
+        `• Do not share this code with anyone\n\n` +
+        `Return to the BunkBy website, enter this 6-digit code, and set your new Security PIN.`;
+      pinAction = "PIN_RESET_CODE_ISSUED";
+    } else if (resetResult.reason === "RATE_LIMITED") {
+      pinMsg =
+        `⏳ *Too Many Reset Requests*\n\n` +
+        `You have reached the hourly limit for PIN reset codes. Please wait about *${resetResult.retryMinutes || 15} minutes* before requesting a new code.`;
+      pinAction = "PIN_RESET_RATE_LIMITED";
+    } else {
+      pinMsg =
+        `ℹ️ *No Landlord Account Found*\n\n` +
+        `We could not find a BunkBy landlord account registered with this WhatsApp number.\n\n` +
+        `If you registered using a different phone number, please send *RESET PIN* from that WhatsApp number, or create a new landlord account on the BunkBy website.`;
+    }
+
+    queuePayload(createTextMessage(phone, pinMsg));
+    await dispatchAll();
+    return {
+      phone,
+      action: pinAction,
+      replyText: pinMsg,
+      outboundPayloads
+    };
+  }
 
   // =========================================================================
   // COMMAND: UNIVERSAL CANCEL / RESET / EXIT (Works at ANY step)
@@ -1368,7 +1423,7 @@ async function processWhatsAppMessageInternal(
 
     if (promptMatch || textDelMatch) {
       const targetId = Number(promptMatch ? promptMatch[1] : textDelMatch![1]);
-      const target = db.prepare("SELECT id, title, suburb FROM listings WHERE id = ? AND verification_status != 'Delisted' AND (landlord_id = ? OR contact_phone = ?)")
+      const target = db.prepare("SELECT id, title, suburb FROM listings WHERE id = ? AND verification_status != 'Delisted' AND COALESCE(verification_status, 'Active') NOT IN ('Hidden', 'Removed') AND (landlord_id = ? OR contact_phone = ?)")
         .get(targetId, phoneId, phone) as any;
       if (!target) {
         const notFoundMsg = `⚠️ Listing #${targetId} was not found under your phone number.`;
@@ -1391,7 +1446,7 @@ async function processWhatsAppMessageInternal(
       return { phone, action: "DELETE_CONFIRMATION_PROMPT", replyText: confirmPrompt, outboundPayloads };
     }
 
-    const items = db.prepare("SELECT id, title, suburb, price, rent_cycle FROM listings WHERE verification_status != 'Delisted' AND (landlord_id = ? OR contact_phone = ?) ORDER BY id DESC LIMIT 10")
+    const items = db.prepare("SELECT id, title, suburb, price, rent_cycle FROM listings WHERE verification_status != 'Delisted' AND COALESCE(verification_status, 'Active') NOT IN ('Hidden', 'Removed') AND (landlord_id = ? OR contact_phone = ?) ORDER BY id DESC LIMIT 10")
       .all(phoneId, phone) as any[];
     if (items.length === 0) {
       const emptyMsg = "📋 *You currently have no active listings on BunkBy.*\n\nWould you like to post a property?";

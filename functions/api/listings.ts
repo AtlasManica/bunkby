@@ -7,6 +7,7 @@ export async function onRequestGet({ env }) {
       FROM listings 
       LEFT JOIN landlords ON listings.landlord_id = landlords.id 
       WHERE listings.verification_status != 'Delisted'
+        AND COALESCE(listings.verification_status, 'Active') NOT IN ('Hidden', 'Removed')
       ORDER BY listings.created_at DESC
     `).all();
 

@@ -243,7 +243,7 @@ export const ListingDetailPage: React.FC<ListingDetailPageProps> = ({
               <span className="bg-[#FF7A00] text-white font-bold px-2.5 py-0.5 rounded-full uppercase">
                 {catDef.name}
               </span>
-              <span className="bg-white/10 text-slate-200 px-2.5 py-0.5 rounded-full uppercase">
+              <span className="bg-white text-[#052659] font-extrabold px-2.5 py-0.5 rounded-full uppercase shadow-xs">
                 {listing.propertyType}
               </span>
               {listing.isSample && (

@@ -10,6 +10,8 @@
  * 5. Prompt Webhook Acknowledgment with Retry Deduplication
  */
 
+import { issueLandlordPinResetCode } from "../_lib/security";
+
 const SEARCH_PAGE_SIZE = 5;
 
 interface Env {
@@ -1743,6 +1745,25 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
     ).bind(phone).first();
 
     // -------------------------------------------------------------
+    // PRIORITY 0: LANDLORD SECURITY PIN RESET VIA WHATSAPP
+    // Issues a single-use, 10-minute 6-digit verification code to the
+    // landlord's verified WhatsApp number without colliding with "reset".
+    // -------------------------------------------------------------
+    const pinResetPhrases = [
+      "reset pin",
+      "pin reset",
+      "forgot pin",
+      "reset my pin",
+      "forgot my pin",
+      "landlord pin reset",
+      "reset landlord pin"
+    ];
+    const isPinResetRequest =
+      buttonPayload === "CMD_RESET_PIN" ||
+      pinResetPhrases.includes(lowerText) ||
+      /\b(reset|forgot)\s+(my\s+)?(landlord\s+|account\s+|security\s+)*pin\b/i.test(lowerText);
+
+    // -------------------------------------------------------------
     // PRIORITY 1: UNIVERSAL CANCEL / RESET / EXIT
     // Works across ANY active listing or search step without publishing
     // or deleting any published listings.
@@ -1762,7 +1783,31 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
     ];
     const cancelPayloadIds = ["BTN_CANCEL", "CMD_CANCEL", "CMD_CANCEL_LISTING", "SEARCH_CANCEL"];
 
-    if (
+    if (isPinResetRequest) {
+      const resetResult = await issueLandlordPinResetCode(env.DB, phone);
+      if (resetResult.ok) {
+        replyText =
+          `🔐 *BunkBy Security PIN Reset*\n\n` +
+          `Your one-time verification code is:\n\n` +
+          `*${resetResult.code}*\n\n` +
+          `• Valid for *${resetResult.expiresMinutes} minutes*\n` +
+          `• Single use only\n` +
+          `• Do not share this code with anyone\n\n` +
+          `Return to the BunkBy website, enter this 6-digit code, and set your new Security PIN.`;
+        actionTaken = "PIN_RESET_CODE_ISSUED";
+      } else if (resetResult.reason === "RATE_LIMITED") {
+        replyText =
+          `⏳ *Too Many Reset Requests*\n\n` +
+          `You have reached the hourly limit for PIN reset codes. Please wait about *${resetResult.retryMinutes || 15} minutes* before requesting a new code.`;
+        actionTaken = "PIN_RESET_RATE_LIMITED";
+      } else {
+        replyText =
+          `ℹ️ *No Landlord Account Found*\n\n` +
+          `We could not find a BunkBy landlord account registered with this WhatsApp number.\n\n` +
+          `If you registered using a different phone number, please send *RESET PIN* from that WhatsApp number, or create a new landlord account on the BunkBy website.`;
+        actionTaken = "PIN_RESET_ACCOUNT_NOT_FOUND";
+      }
+    } else if (
       cancelTextCommands.includes(lowerText) ||
       cancelPayloadIds.includes(buttonPayload || "")
     ) {
@@ -1933,7 +1978,8 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
         const countSql = `
           SELECT COUNT(*) as total
           FROM listings
-          WHERE verification_status != 'Delisted'${countFilter.whereSql}
+          WHERE verification_status != 'Delisted'
+            AND COALESCE(verification_status, 'Active') NOT IN ('Hidden', 'Removed')${countFilter.whereSql}
         `;
         const totalCountRes: any = countFilter.params.length > 0 
           ? await env.DB.prepare(countSql).bind(...countFilter.params).first()
@@ -1944,7 +1990,8 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
           SELECT listings.*, landlords.full_name as landlord_name
           FROM listings
           LEFT JOIN landlords ON listings.landlord_id = landlords.id
-          WHERE listings.verification_status != 'Delisted'${locationFilter.whereSql}
+          WHERE listings.verification_status != 'Delisted'
+            AND COALESCE(listings.verification_status, 'Active') NOT IN ('Hidden', 'Removed')${locationFilter.whereSql}
           ORDER BY COALESCE(listings.is_premium, 0) DESC, listings.created_at DESC, listings.id DESC LIMIT ? OFFSET 0
         `;
 
@@ -3145,7 +3192,8 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
         const last9 = phone.replace(/\D/g, "").slice(-9);
         const targetListing = await env.DB.prepare(`
           SELECT id, title, suburb FROM listings 
-          WHERE id = ? AND verification_status != 'Delisted' AND (
+          WHERE id = ? AND verification_status != 'Delisted'
+            AND COALESCE(verification_status, 'Active') NOT IN ('Hidden', 'Removed') AND (
             landlord_id = ? OR 
             contact_phone = ? OR 
             contact_phone LIKE ? OR 
@@ -3169,7 +3217,9 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
         const myProperties = await env.DB.prepare(`
           SELECT id, title, suburb, price, rent_cycle, property_type 
           FROM listings 
-          WHERE verification_status != 'Delisted' AND (landlord_id = ? OR contact_phone = ? OR contact_phone LIKE ?)
+          WHERE verification_status != 'Delisted'
+            AND COALESCE(verification_status, 'Active') NOT IN ('Hidden', 'Removed')
+            AND (landlord_id = ? OR contact_phone = ? OR contact_phone LIKE ?)
           ORDER BY id DESC LIMIT 10
         `).bind(phoneId, phone, `%${phone.slice(-9)}%`).all();
 
@@ -3239,7 +3289,7 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
 
       if (targetId) {
         const listing = await env.DB.prepare(
-          "SELECT * FROM listings WHERE id = ?"
+          "SELECT * FROM listings WHERE id = ? AND COALESCE(verification_status, 'Active') NOT IN ('Delisted', 'Hidden', 'Removed')"
         ).bind(targetId).first();
 
         if (!listing) {
@@ -3532,7 +3582,8 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
             const countSql = `
               SELECT COUNT(*) as total
               FROM listings
-              WHERE verification_status != 'Delisted'${countFilter.whereSql}
+              WHERE verification_status != 'Delisted'
+                AND COALESCE(verification_status, 'Active') NOT IN ('Hidden', 'Removed')${countFilter.whereSql}
             `;
             const totalCountRes: any = countFilter.params.length > 0 
               ? await env.DB.prepare(countSql).bind(...countFilter.params).first()
@@ -3584,7 +3635,8 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
               SELECT listings.*, landlords.full_name as landlord_name
               FROM listings
               LEFT JOIN landlords ON listings.landlord_id = landlords.id
-              WHERE listings.verification_status != 'Delisted'${locationFilter.whereSql}${extraWhere}
+              WHERE listings.verification_status != 'Delisted'
+                AND COALESCE(listings.verification_status, 'Active') NOT IN ('Hidden', 'Removed')${locationFilter.whereSql}${extraWhere}
               ORDER BY COALESCE(listings.is_premium, 0) DESC, listings.created_at DESC, listings.id DESC LIMIT ? OFFSET ?
             `;
 

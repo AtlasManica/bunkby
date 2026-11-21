@@ -366,7 +366,7 @@ export function buildHomeSeo(activeListings: any[]): SeoPagePayload {
     <header style="margin-bottom:20px;border-bottom:1px solid #e2e8f0;padding-bottom:14px;">
       <p style="font-size:12px;text-transform:uppercase;color:#FF7A00;font-weight:bold;margin:0 0 6px;">${SITE_NAME} Zimbabwe &middot; Operated by ${OPERATOR_NAME}</p>
       <h1 style="color:#052659;font-size:28px;margin:0 0 8px;">Find Stays, Commercial Spaces &amp; Rentals in Zimbabwe</h1>
-      <p style="font-size:15px;line-height:1.6;margin:0;">BunkBy is an agent-free property and accommodation marketplace across Zimbabwe for rooms, houses, cottages, flats, student accommodation, guesthouses, lodges, and commercial spaces—available on the web and on WhatsApp at <a href="${WHATSAPP_BASE_URL}">${WHATSAPP_NUMBER_DISPLAY}</a> (<a href="/whatsapp" style="color:#15803d;font-weight:bold;">WhatsApp Guide</a>).</p>
+      <p style="font-size:15px;line-height:1.6;margin:0;">BunkBy is an agent-free property and accommodation marketplace across Zimbabwe for rooms, houses, cottages, flats, student accommodation, guesthouses, lodges, and commercial spaces, available on the web and on WhatsApp at <a href="${WHATSAPP_BASE_URL}">${WHATSAPP_NUMBER_DISPLAY}</a> (<a href="/whatsapp" style="color:#15803d;font-weight:bold;">WhatsApp Guide</a>).</p>
     </header>
     ${
       recent.length > 0
@@ -376,7 +376,7 @@ export function buildHomeSeo(activeListings: any[]): SeoPagePayload {
         : ""
     }
     <footer style="margin-top:24px;padding-top:14px;border-top:1px solid #e2e8f0;font-size:13px;color:#475569;">
-      <a href="/privacy-policy">Privacy Policy</a> &middot; Powered by Zen Accommodation
+      <a href="/privacy-policy">Privacy Policy</a> &middot; &copy; 2026 ${SITE_NAME}
     </footer>
   </main>`;
 
